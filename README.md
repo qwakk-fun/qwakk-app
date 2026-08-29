@@ -23,6 +23,18 @@ Create a CapRover app, point it at this repository, and set the container HTTP
 port to `3000`. The image builds the production app and starts it with
 `vinext start`.
 
+Set these environment variables in CapRover before enabling Qora's swap fee:
+
+```bash
+QORA_TREASURY_ADDRESS=qor1your_public_treasury_address
+QORA_SWAP_FEE_BPS=5
+```
+
+`QORA_TREASURY_ADDRESS` is the public address that receives the disclosed
+Qora fee. Never add a seed phrase or private key to CapRover, the repository,
+or the browser. If the treasury address is absent or invalid, the backend keeps
+the Qora fee route disabled.
+
 This starter does not use `wrangler.jsonc`.
 
 ## Included Shape
