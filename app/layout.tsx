@@ -27,8 +27,8 @@ export const metadata: Metadata = {
     images: ["/og.png"],
   },
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: "/qora-mark.png",
+    shortcut: "/qora-mark.png",
   },
 };
 

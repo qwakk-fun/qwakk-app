@@ -1,20 +1,27 @@
-# vinext-starter
+# Qora
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Qora is a native QoreChain `x/amm` trading interface for the Diana testnet.
+The browser reads the QoreChain API through Qora's server-side `/api/network`
+route, which avoids the testnet API's browser CORS restriction.
 
 ## Prerequisites
 
 - Node.js `>=22.13.0`
 
-## Quick Start
+## Local development
 
 ```bash
 npm install
 npm run dev
 npm run build
 ```
+
+## CapRover
+
+The repository includes a production Dockerfile and `captain-definition`.
+Create a CapRover app, point it at this repository, and set the container HTTP
+port to `3000`. The image builds the production app and starts it with
+`vinext start`.
 
 This starter does not use `wrangler.jsonc`.
 
