@@ -3,7 +3,8 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+# Vite's optional Linux bindings are resolved by npm during the container build.
+RUN npm install
 
 COPY . .
 RUN npm run build
@@ -16,7 +17,7 @@ ENV PORT=3000
 
 COPY --from=build /app/package.json /app/package-lock.json ./
 # vinext provides the production server binary from devDependencies.
-RUN npm ci
+RUN npm install --include=dev
 
 COPY --from=build /app/dist ./dist
 

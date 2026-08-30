@@ -1,0 +1,323 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
+import { Pool } from "pg";
+
+const REST_URL = (process.env.QORECHAIN_REST_URL ?? "https://api-testnet.qore.host").replace(/\/$/, "");
+const RPC_URL = (process.env.QORECHAIN_RPC_URL ?? "https://rpc-testnet.qore.host").replace(/\/$/, "");
+const PORT = Number(process.env.QORA_INDEXER_PORT ?? 4400);
+const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://qora:qora_local@localhost:5438/qora";
+const db = new Pool({ connectionString: DATABASE_URL });
+
+type ChainPool = {
+  id?: string | number;
+  pool_id?: string | number;
+  pool_type?: string;
+  type?: string;
+  creator?: string;
+  token_a?: string;
+  token_b?: string;
+  reserve_a?: string;
+  reserve_b?: string;
+  lp_supply?: string;
+  lp_denom?: string;
+  created_at?: string;
+  status?: string;
+  weighted_avg_price?: string;
+  amplification_coefficient?: number;
+};
+
+type EventAttribute = { key?: string; value?: string };
+type ChainEvent = { type?: string; attributes?: EventAttribute[] };
+
+const intervals: Record<string, number> = { "1m": 60, "5m": 300, "1h": 3600, "6h": 21600, "1d": 86400 };
+
+function asText(value: unknown) {
+  return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
+function normalizePool(value: ChainPool) {
+  return {
+    id: asText(value.id ?? value.pool_id),
+    poolType: asText(value.pool_type ?? value.type) || "constant_product",
+    creator: asText(value.creator),
+    tokenA: asText(value.token_a),
+    tokenB: asText(value.token_b),
+    reserveA: asText(value.reserve_a) || "0",
+    reserveB: asText(value.reserve_b) || "0",
+    lpSupply: asText(value.lp_supply) || "0",
+    lpDenom: asText(value.lp_denom),
+    createdAt: asText(value.created_at),
+    status: asText(value.status) || "active",
+    weightedAvgPrice: asText(value.weighted_avg_price),
+    amplificationCoefficient: Number(value.amplification_coefficient ?? 0),
+  };
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!response.ok) throw new Error(`QoreChain request failed with ${response.status}`);
+  return response.json() as Promise<T>;
+}
+
+function displaySymbol(denom: string) {
+  if (denom === "uqor") return "QOR";
+  return denom.replace(/^u/, "").toUpperCase();
+}
+
+async function upsertToken(denom: string) {
+  if (!denom) return;
+  const existing = await db.query<{ denom: string }>("SELECT denom FROM tokens WHERE denom = $1", [denom]);
+  if (existing.rowCount) return;
+
+  let symbol = displaySymbol(denom);
+  let name: string | null = null;
+  let decimals = denom === "uqor" ? 6 : 0;
+  let imageUrl: string | null = null;
+  let metadata: Record<string, unknown> = {};
+  try {
+    const result = await fetchJson<{ metadata?: { symbol?: string; name?: string; display?: string; uri?: string; denom_units?: Array<{ denom?: string; exponent?: number }> } }>(
+      `${REST_URL}/cosmos/bank/v1beta1/denoms_metadata/${encodeURIComponent(denom)}`,
+    );
+    const source = result.metadata;
+    if (source) {
+      symbol = source.symbol || source.display || symbol;
+      name = source.name || null;
+      decimals = Math.max(...(source.denom_units ?? []).map((unit) => Number(unit.exponent ?? 0)), decimals);
+      imageUrl = source.uri || null;
+      metadata = source;
+    }
+  } catch {
+    // A missing token registry record must never stop an on-chain pool from appearing.
+  }
+  await db.query(
+    `INSERT INTO tokens (denom, symbol, name, decimals, image_url, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (denom) DO UPDATE SET symbol = EXCLUDED.symbol, name = EXCLUDED.name, decimals = EXCLUDED.decimals, image_url = EXCLUDED.image_url, metadata = EXCLUDED.metadata, updated_at = NOW()`,
+    [denom, symbol, name, decimals, imageUrl, metadata],
+  );
+}
+
+async function persistPool(pool: ReturnType<typeof normalizePool>) {
+  if (!/^\d+$/.test(pool.id) || !pool.tokenA || !pool.tokenB) return;
+  await Promise.all([upsertToken(pool.tokenA), upsertToken(pool.tokenB)]);
+  await db.query(
+    `INSERT INTO pools (id, pool_type, creator, token_a, token_b, lp_denom, status, created_at_chain, amplification_coefficient)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, '')::timestamptz, $9)
+     ON CONFLICT (id) DO UPDATE SET pool_type = EXCLUDED.pool_type, creator = EXCLUDED.creator, token_a = EXCLUDED.token_a, token_b = EXCLUDED.token_b, lp_denom = EXCLUDED.lp_denom, status = EXCLUDED.status, amplification_coefficient = EXCLUDED.amplification_coefficient, updated_at = NOW()`,
+    [pool.id, pool.poolType, pool.creator || null, pool.tokenA, pool.tokenB, pool.lpDenom || null, pool.status, pool.createdAt, pool.amplificationCoefficient],
+  );
+  await db.query(
+    `INSERT INTO pool_snapshots (pool_id, reserve_a, reserve_b, lp_supply, weighted_avg_price)
+     VALUES ($1, $2, $3, $4, NULLIF($5, '')::numeric)`,
+    [pool.id, pool.reserveA, pool.reserveB, pool.lpSupply, pool.weightedAvgPrice],
+  );
+}
+
+async function refreshPools() {
+  const result = await fetchJson<{ pools?: ChainPool[] }>(`${REST_URL}/qorechain/amm/v1/pools`);
+  const pools = Array.isArray(result.pools) ? result.pools.map(normalizePool) : [];
+  for (const pool of pools) await persistPool(pool);
+  return pools.length;
+}
+
+async function latestHeight() {
+  const status = await fetchJson<{ result?: { sync_info?: { latest_block_height?: string } } }>(`${RPC_URL}/status`);
+  const height = Number(status.result?.sync_info?.latest_block_height ?? 0);
+  if (!Number.isSafeInteger(height) || height <= 0) throw new Error("QoreChain did not return a valid block height");
+  return height;
+}
+
+async function getState(key: string) {
+  const result = await db.query<{ value: string }>("SELECT value FROM indexer_state WHERE key = $1", [key]);
+  return result.rows[0]?.value;
+}
+
+async function setState(key: string, value: string) {
+  await db.query(
+    `INSERT INTO indexer_state (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [key, value],
+  );
+}
+
+function maybeDecode(value: string) {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) return value;
+  try {
+    const decoded = Buffer.from(value, "base64").toString("utf8");
+    return /^[\x20-\x7E]+$/.test(decoded) ? decoded : value;
+  } catch {
+    return value;
+  }
+}
+
+function attributes(event: ChainEvent) {
+  return Object.fromEntries((event.attributes ?? []).map((attribute) => [maybeDecode(attribute.key ?? ""), maybeDecode(attribute.value ?? "")]));
+}
+
+function bucketStart(date: Date, seconds: number) {
+  return new Date(Math.floor(date.getTime() / (seconds * 1000)) * seconds * 1000);
+}
+
+async function recordCandle(poolId: string, executedAt: Date, price: number, volumeQor: number | null) {
+  for (const [interval, seconds] of Object.entries(intervals)) {
+    await db.query(
+      `INSERT INTO candles (pool_id, interval, start_time, open, high, low, close, volume_qor, transactions)
+       VALUES ($1, $2, $3, $4, $4, $4, $4, $5, 1)
+       ON CONFLICT (pool_id, interval, start_time) DO UPDATE SET
+         high = GREATEST(candles.high, EXCLUDED.high),
+         low = LEAST(candles.low, EXCLUDED.low),
+         close = EXCLUDED.close,
+         volume_qor = CASE WHEN candles.volume_qor IS NULL AND EXCLUDED.volume_qor IS NULL THEN NULL ELSE COALESCE(candles.volume_qor, 0) + COALESCE(EXCLUDED.volume_qor, 0) END,
+         transactions = candles.transactions + 1`,
+      [poolId, interval, bucketStart(executedAt, seconds), price, volumeQor],
+    );
+  }
+}
+
+function units(amount: string, decimals: number) {
+  return Number(amount) / 10 ** decimals;
+}
+
+async function recordSwap(event: ChainEvent, executedAt: Date, height: number, txHash: string, eventIndex: number) {
+  const values = attributes(event);
+  const poolId = values.pool_id;
+  const amountIn = values.amount_in;
+  const amountOut = values.amount_out;
+  const denomIn = values.denom_in;
+  const denomOut = values.denom_out;
+  if (!/^\d+$/.test(poolId ?? "") || !/^\d+$/.test(amountIn ?? "") || !/^\d+$/.test(amountOut ?? "") || !denomIn || !denomOut) return;
+
+  const poolResult = await db.query<{ token_a: string; token_b: string }>("SELECT token_a, token_b FROM pools WHERE id = $1", [poolId]);
+  const pool = poolResult.rows[0];
+  if (!pool) return;
+  const tokenResult = await db.query<{ denom: string; decimals: number }>("SELECT denom, decimals FROM tokens WHERE denom = ANY($1)", [[pool.token_a, pool.token_b]]);
+  const decimals = new Map(tokenResult.rows.map((token) => [token.denom, Number(token.decimals)]));
+  const input = units(amountIn, decimals.get(denomIn) ?? 0);
+  const output = units(amountOut, decimals.get(denomOut) ?? 0);
+  if (!Number.isFinite(input) || !Number.isFinite(output) || input <= 0 || output <= 0) return;
+  const priceBPerA = denomIn === pool.token_a && denomOut === pool.token_b ? output / input : denomIn === pool.token_b && denomOut === pool.token_a ? input / output : null;
+  const volumeQor = denomIn === "uqor" ? input : denomOut === "uqor" ? output : null;
+  const inserted = await db.query(
+    `INSERT INTO swaps (tx_hash, event_index, pool_id, height, executed_at, sender, denom_in, amount_in, denom_out, amount_out, price_b_per_a, raw_event)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     ON CONFLICT (tx_hash, event_index) DO NOTHING`,
+    [txHash, eventIndex, poolId, height, executedAt, values.sender || null, denomIn, amountIn, denomOut, amountOut, priceBPerA, values],
+  );
+  if (inserted.rowCount && priceBPerA !== null) await recordCandle(poolId, executedAt, priceBPerA, volumeQor);
+}
+
+async function processBlock(height: number) {
+  const [blockData, resultsData] = await Promise.all([
+    fetchJson<{ result?: { block?: { header?: { time?: string }; data?: { txs?: string[] } } } }>(`${RPC_URL}/block?height=${height}`),
+    fetchJson<{ result?: { txs_results?: Array<{ events?: ChainEvent[] }> } }>(`${RPC_URL}/block_results?height=${height}`),
+  ]);
+  const timestamp = new Date(blockData.result?.block?.header?.time ?? Date.now());
+  const txs = blockData.result?.block?.data?.txs ?? [];
+  const results = resultsData.result?.txs_results ?? [];
+  for (const [index, result] of results.entries()) {
+    const tx = txs[index] ?? `${height}:${index}`;
+    const txHash = tx.includes(":") ? tx : createHash("sha256").update(Buffer.from(tx, "base64")).digest("hex").toUpperCase();
+    for (const [eventIndex, event] of (result.events ?? []).entries()) {
+      if (event.type === "amm_swap") await recordSwap(event, timestamp, height, txHash, eventIndex);
+    }
+  }
+}
+
+async function syncBlocks() {
+  const currentHeight = await latestHeight();
+  const savedHeight = Number(await getState("last_indexed_height") ?? 0);
+  if (!savedHeight) {
+    await setState("last_indexed_height", String(currentHeight));
+    return;
+  }
+  const until = Math.min(currentHeight, savedHeight + 30);
+  for (let height = savedHeight + 1; height <= until; height += 1) {
+    await processBlock(height);
+    await setState("last_indexed_height", String(height));
+  }
+}
+
+async function sync() {
+  await refreshPools();
+  await syncBlocks();
+}
+
+async function marketList() {
+  const result = await db.query(
+    `SELECT p.id, p.pool_type, p.status, p.token_a, p.token_b, p.created_at_chain,
+            a.symbol AS token_a_symbol, a.decimals AS token_a_decimals, a.image_url AS token_a_image,
+            b.symbol AS token_b_symbol, b.decimals AS token_b_decimals, b.image_url AS token_b_image,
+            snapshot.reserve_a, snapshot.reserve_b, snapshot.weighted_avg_price, snapshot.observed_at,
+            COALESCE(metrics.transactions_24h, 0) AS transactions_24h,
+            volume.volume_qor_24h,
+            latest_candle.close AS price_b_per_a,
+            earlier_candle.close AS price_24h_ago
+     FROM pools p
+     JOIN tokens a ON a.denom = p.token_a
+     JOIN tokens b ON b.denom = p.token_b
+     LEFT JOIN LATERAL (SELECT * FROM pool_snapshots WHERE pool_id = p.id ORDER BY observed_at DESC LIMIT 1) snapshot ON true
+     LEFT JOIN LATERAL (SELECT COUNT(*)::int AS transactions_24h FROM swaps WHERE pool_id = p.id AND executed_at >= NOW() - INTERVAL '24 hours') metrics ON true
+     LEFT JOIN LATERAL (SELECT SUM(volume_qor) AS volume_qor_24h FROM candles WHERE pool_id = p.id AND interval = '1m' AND start_time >= NOW() - INTERVAL '24 hours') volume ON true
+     LEFT JOIN LATERAL (SELECT close FROM candles WHERE pool_id = p.id AND interval = '1m' ORDER BY start_time DESC LIMIT 1) latest_candle ON true
+     LEFT JOIN LATERAL (SELECT close FROM candles WHERE pool_id = p.id AND interval = '1m' AND start_time <= NOW() - INTERVAL '24 hours' ORDER BY start_time DESC LIMIT 1) earlier_candle ON true
+     ORDER BY snapshot.observed_at DESC NULLS LAST, p.id DESC`,
+  );
+  return result.rows;
+}
+
+async function poolDetail(poolId: string) {
+  const pool = await db.query(
+    `SELECT p.*, a.symbol AS token_a_symbol, a.name AS token_a_name, a.decimals AS token_a_decimals, a.image_url AS token_a_image,
+            b.symbol AS token_b_symbol, b.name AS token_b_name, b.decimals AS token_b_decimals, b.image_url AS token_b_image,
+            snapshot.reserve_a, snapshot.reserve_b, snapshot.lp_supply, snapshot.weighted_avg_price, snapshot.observed_at
+     FROM pools p
+     JOIN tokens a ON a.denom = p.token_a
+     JOIN tokens b ON b.denom = p.token_b
+     LEFT JOIN LATERAL (SELECT * FROM pool_snapshots WHERE pool_id = p.id ORDER BY observed_at DESC LIMIT 1) snapshot ON true
+     WHERE p.id = $1`,
+    [poolId],
+  );
+  if (!pool.rowCount) return null;
+  const [candles, swaps] = await Promise.all([
+    db.query("SELECT start_time, open, high, low, close, volume_qor, transactions FROM candles WHERE pool_id = $1 AND interval = '1m' AND start_time >= NOW() - INTERVAL '24 hours' ORDER BY start_time ASC", [poolId]),
+    db.query("SELECT tx_hash, executed_at, sender, denom_in, amount_in, denom_out, amount_out, price_b_per_a FROM swaps WHERE pool_id = $1 ORDER BY executed_at DESC LIMIT 60", [poolId]),
+  ]);
+  return { pool: pool.rows[0], candles: candles.rows, swaps: swaps.rows };
+}
+
+function writeJson(response: import("node:http").ServerResponse, status: number, body: unknown) {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+  response.end(JSON.stringify(body));
+}
+
+const server = createServer(async (request, response) => {
+  try {
+    const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+    if (url.pathname === "/health") return writeJson(response, 200, { ok: true });
+    if (url.pathname === "/markets") return writeJson(response, 200, { markets: await marketList() });
+    const detailMatch = url.pathname.match(/^\/pools\/(\d+)$/);
+    if (detailMatch) {
+      const detail = await poolDetail(detailMatch[1]);
+      return detail ? writeJson(response, 200, detail) : writeJson(response, 404, { error: "Pool not found" });
+    }
+    return writeJson(response, 404, { error: "Not found" });
+  } catch (error) {
+    console.error("Indexer API request failed", error);
+    return writeJson(response, 502, { error: "Market data is temporarily unavailable" });
+  }
+});
+
+async function main() {
+  const schemaPath = fileURLToPath(new URL("./schema.sql", import.meta.url));
+  await db.query(await readFile(schemaPath, "utf8"));
+  await sync();
+  setInterval(() => void sync().catch((error) => console.error("Indexer sync failed", error)), 5_000).unref();
+  server.listen(PORT, () => console.log(`Qora indexer listening on ${PORT}`));
+}
+
+main().catch((error) => {
+  console.error("Qora indexer could not start", error);
+  process.exit(1);
+});
