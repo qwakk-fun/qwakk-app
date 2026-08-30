@@ -13,17 +13,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Qora — Simple swaps on QoreChain",
-  description: "A clean, native trading surface for QoreChain's x/amm liquidity layer.",
+  title: "Qora | Simple swaps on QoreChain",
+  description: "Simple, non-custodial swaps and liquidity on QoreChain.",
   openGraph: {
-    title: "Qora — Simple swaps on QoreChain",
-    description: "Native swaps, native settlement.",
-    images: [{ url: "/og.png", width: 1734, height: 909, alt: "Qora — Simple swaps on QoreChain" }],
+    title: "Qora | Simple swaps on QoreChain",
+    description: "Simple, non-custodial swaps on QoreChain.",
+    images: [{ url: "/og.png", width: 1734, height: 909, alt: "Qora | Simple swaps on QoreChain" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Qora — Simple swaps on QoreChain",
-    description: "Native swaps, native settlement.",
+    title: "Qora | Simple swaps on QoreChain",
+    description: "Simple, non-custodial swaps on QoreChain.",
     images: ["/og.png"],
   },
   icons: {

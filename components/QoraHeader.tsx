@@ -1,19 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { QORECHAIN_DIANA } from "../lib/qorex-native";
 
-type QoreXNativeProvider = {
-  enable: (chainId: string) => Promise<void>;
-  getKey: (chainId: string) => Promise<{ bech32Address: string }>;
-};
-
-declare global {
-  interface Window {
-    qorex?: { native?: QoreXNativeProvider };
-  }
-}
-
-const QORECHAIN_TESTNET = "qorechain-diana";
 const QOREX_INSTALL_URL = "https://chromewebstore.google.com/detail/qorex/cflpnggbnnifibblifgbeobogdpfjpcg";
 
 function walletConnectionMessage(error: unknown) {
@@ -27,7 +16,7 @@ function walletConnectionMessage(error: unknown) {
   return "QoreX could not complete the connection. Make sure it is unlocked, then try again.";
 }
 
-export function QoraHeader({ onConnected, page = "swap" }: { onConnected?: (address: string) => void; page?: "swap" | "profile" }) {
+export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (address: string) => void; page?: "home" | "swap" | "pools" | "profile" }) {
   const [walletAddress, setWalletAddress] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [notice, setNotice] = useState("");
@@ -54,8 +43,8 @@ export function QoraHeader({ onConnected, page = "swap" }: { onConnected?: (addr
     setIsConnecting(true);
     setNeedsQoreX(false);
     try {
-      await nativeWallet.enable(QORECHAIN_TESTNET);
-      const key = await nativeWallet.getKey(QORECHAIN_TESTNET);
+      await nativeWallet.enable(QORECHAIN_DIANA);
+      const key = await nativeWallet.getKey(QORECHAIN_DIANA);
       window.localStorage.setItem("qora-wallet-address", key.bech32Address);
       window.dispatchEvent(new Event("qora:wallet-change"));
       setWalletAddress(key.bech32Address);
@@ -73,7 +62,7 @@ export function QoraHeader({ onConnected, page = "swap" }: { onConnected?: (addr
   return <>
     <nav className="nav" aria-label="Primary navigation">
       <a className="brand" href="/" aria-label="Qora home"><img className="brand-mark" src="/qora-mark.png" alt="" /><span>QORA</span></a>
-      <div className="nav-links" aria-label="Sections"><a className={page === "swap" ? "active" : ""} href="/#swap">Swap</a><a href="/#pools">Pools</a><a href="/#positions">Positions</a><a className={page === "profile" ? "active" : ""} href="/profile">Profile</a></div>
+      <div className="nav-links" aria-label="Sections"><a className={page === "swap" ? "active" : ""} href="/swap">Swap</a><a className={page === "pools" ? "active" : ""} href="/pools">Pools</a><a className={page === "profile" ? "active" : ""} href="/profile">Profile</a></div>
       <button className="wallet-button" onClick={() => void connectWallet()} disabled={isConnecting}>{walletLabel}</button>
     </nav>
     {notice && <div className="notice" role="status"><span>{notice}</span>{needsQoreX && <a href={QOREX_INSTALL_URL} target="_blank" rel="noreferrer">Install QoreX ↗</a>}<button onClick={() => { setNotice(""); setNeedsQoreX(false); }} aria-label="Dismiss notice">×</button></div>}
