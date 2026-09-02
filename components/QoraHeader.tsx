@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { QORECHAIN_DIANA } from "../lib/qorex-native";
 
 const QOREX_INSTALL_URL = "https://chromewebstore.google.com/detail/qorex/cflpnggbnnifibblifgbeobogdpfjpcg";
@@ -17,6 +19,7 @@ function walletConnectionMessage(error: unknown) {
 }
 
 export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (address: string) => void; page?: "home" | "swap" | "pools" | "profile" }) {
+  const router = useRouter();
   const [walletAddress, setWalletAddress] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [notice, setNotice] = useState("");
@@ -31,7 +34,7 @@ export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (addr
 
   async function connectWallet() {
     if (walletAddress) {
-      if (page !== "profile") window.location.assign("/profile");
+      if (page !== "profile") router.push("/profile");
       return;
     }
     const nativeWallet = window.qorex?.native;
@@ -61,8 +64,8 @@ export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (addr
 
   return <>
     <nav className="nav" aria-label="Primary navigation">
-      <a className="brand" href="/" aria-label="Qora home"><img className="brand-mark" src="/qora-mark.png" alt="" /><span>QORA</span></a>
-      <div className="nav-links" aria-label="Sections"><a className={page === "swap" ? "active" : ""} href="/swap">Swap</a><a className={page === "pools" ? "active" : ""} href="/pools">Pools</a><a className={page === "profile" ? "active" : ""} href="/profile">Profile</a></div>
+      <Link className="brand" href="/" aria-label="Qora home"><img className="brand-mark" src="/qora-mark.png" alt="" /><span>QORA</span></Link>
+      <div className="nav-links" aria-label="Sections"><Link className={page === "swap" ? "active" : ""} href="/swap">Swap</Link><Link className={page === "pools" ? "active" : ""} href="/pools">Pools</Link><Link className={page === "profile" ? "active" : ""} href="/profile">Profile</Link></div>
       <button className="wallet-button" onClick={() => void connectWallet()} disabled={isConnecting}>{walletLabel}</button>
     </nav>
     {notice && <div className="notice" role="status"><span>{notice}</span>{needsQoreX && <a href={QOREX_INSTALL_URL} target="_blank" rel="noreferrer">Install QoreX ↗</a>}<button onClick={() => { setNotice(""); setNeedsQoreX(false); }} aria-label="Dismiss notice">×</button></div>}

@@ -1,5 +1,6 @@
 import { QoraHeader } from "../components/QoraHeader";
 import { ArrowUpRight } from "lucide-react";
+import Link from "next/link";
 
 export default function Home() {
   return <main className="landing-shell">
@@ -9,7 +10,7 @@ export default function Home() {
         <p className="eyebrow"><span className="status-dot online" /> QORECHAIN DIANA</p>
         <h1 id="landing-title">Simple swaps.<br /><em>On QoreChain.</em></h1>
         <p>Qora is a clear, non-custodial way to swap and provide liquidity on QoreChain. Every on-chain action is designed to feel straightforward.</p>
-        <div className="landing-actions"><a className="landing-primary" href="/swap">Open Qora <ArrowUpRight size={17} strokeWidth={2.4} /></a><a className="landing-secondary" href="/pools">Explore pools</a></div>
+        <div className="landing-actions"><Link className="landing-primary" href="/swap">Open Qora <ArrowUpRight size={17} strokeWidth={2.4} /></Link><Link className="landing-secondary" href="/pools">Explore pools</Link></div>
         <div className="landing-trust"><span>Non-custodial</span><i /><span>Clear approvals</span><i /><span>Built on QoreChain</span></div>
       </div>
       <div className="landing-art" aria-label="Qora and QoreChain">

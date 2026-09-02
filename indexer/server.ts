@@ -244,6 +244,20 @@ async function sync() {
   await syncBlocks();
 }
 
+let syncInProgress = false;
+
+async function runSync() {
+  if (syncInProgress) return;
+  syncInProgress = true;
+  try {
+    await sync();
+  } catch (error) {
+    console.error("Indexer sync failed", error);
+  } finally {
+    syncInProgress = false;
+  }
+}
+
 async function marketList() {
   const result = await db.query(
     `SELECT p.id, p.pool_type, p.status, p.token_a, p.token_b, p.created_at_chain,
@@ -312,9 +326,9 @@ const server = createServer(async (request, response) => {
 async function main() {
   const schemaPath = fileURLToPath(new URL("./schema.sql", import.meta.url));
   await db.query(await readFile(schemaPath, "utf8"));
-  await sync();
-  setInterval(() => void sync().catch((error) => console.error("Indexer sync failed", error)), 5_000).unref();
   server.listen(PORT, () => console.log(`Qora indexer listening on ${PORT}`));
+  void runSync();
+  setInterval(() => void runSync(), 5_000).unref();
 }
 
 main().catch((error) => {

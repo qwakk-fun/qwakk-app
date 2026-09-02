@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { QoraHeader } from "./QoraHeader";
 import { TokenIcon } from "./TokenIcon";
@@ -87,14 +88,14 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
 
   if (state !== "ready" || !detail) {
     const message = state === "loading" ? "Reading current pool data." : state === "missing" ? "This pool is no longer available." : "Pool data is temporarily unavailable. Please refresh shortly.";
-    return <main className="market-shell"><QoraHeader page="pools" /><section className="pool-loading"><a href="/pools"><ArrowLeft size={16} />All markets</a><div className="terminal-empty">{message}</div></section></main>;
+    return <main className="market-shell"><QoraHeader page="pools" /><section className="pool-loading"><Link href="/pools"><ArrowLeft size={16} />All markets</Link><div className="terminal-empty">{message}</div></section></main>;
   }
 
   const { pool, candles, swaps } = detail;
   return <main className="market-shell pool-detail-shell">
     <QoraHeader page="pools" />
     <section className="pool-titlebar">
-      <a className="pool-back" href="/pools"><ArrowLeft size={16} />All markets</a>
+      <Link className="pool-back" href="/pools"><ArrowLeft size={16} />All markets</Link>
       <div className="pool-title-main"><span className="pair-icons"><TokenIcon denom={pool.token_a} size="large" /><TokenIcon denom={pool.token_b} size="large" /></span><div><p>POOL #{pool.id}</p><h1>{pool.token_a_symbol} / {pool.token_b_symbol}</h1><span>{pool.token_a_name || pool.token_a_symbol} and {pool.token_b_name || pool.token_b_symbol}</span></div></div>
       <div className="pool-title-price"><span>Latest price</span><b>{price(candles.at(-1)?.close ?? pool.weighted_avg_price, pool.token_b_symbol)}</b><small>per {pool.token_a_symbol}</small></div>
     </section>
