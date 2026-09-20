@@ -56,10 +56,13 @@ export default function Profile() {
   }, []);
 
   useEffect(() => {
-    const savedAddress = window.localStorage.getItem("qora-wallet-address") ?? "";
-    setAddress(savedAddress);
-    void loadBalances(savedAddress);
-    void loadTransactions(savedAddress);
+    const timer = window.setTimeout(() => {
+      const savedAddress = window.localStorage.getItem("qora-wallet-address") ?? "";
+      setAddress(savedAddress);
+      void loadBalances(savedAddress);
+      void loadTransactions(savedAddress);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [loadBalances, loadTransactions]);
 
   const qorBalance = balances.find((balance) => balance.denom === "uqor");

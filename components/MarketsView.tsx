@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Search, SlidersHorizontal } from "lucide-react";
 import { QoraHeader } from "./QoraHeader";
@@ -46,6 +46,14 @@ export function MarketsView() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [query, setQuery] = useState("");
   const [state, setState] = useState<"loading" | "ready" | "unavailable">("loading");
+  const [walletAddress, setWalletAddress] = useState("");
+  const [denomA, setDenomA] = useState("uqor");
+  const [amountA, setAmountA] = useState("10000000");
+  const [denomB, setDenomB] = useState("");
+  const [amountB, setAmountB] = useState("");
+  const [poolType, setPoolType] = useState<"constant_product" | "stable_swap">("constant_product");
+  const [notice, setNotice] = useState("");
+  const [isPreparing, setIsPreparing] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -67,14 +75,44 @@ export function MarketsView() {
     return () => { active = false; window.clearInterval(timer); };
   }, []);
 
+  useEffect(() => {
+    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qora-wallet-address") ?? "");
+    restoreWallet();
+    window.addEventListener("qora:wallet-change", restoreWallet);
+    return () => window.removeEventListener("qora:wallet-change", restoreWallet);
+  }, []);
+
   const visibleMarkets = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return markets;
     return markets.filter((market) => `${market.token_a_symbol} ${market.token_b_symbol} ${market.token_a} ${market.token_b}`.toLowerCase().includes(needle));
   }, [markets, query]);
 
+  async function preparePool(event: FormEvent) {
+    event.preventDefault();
+    if (!walletAddress) {
+      setNotice("Connect QoreX before preparing a Native AMM pool.");
+      return;
+    }
+    setIsPreparing(true);
+    try {
+      const response = await fetch("/api/pool-route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ creator: walletAddress, poolType, denomA, amountA, denomB, amountB }),
+      });
+      const data = await response.json() as { error?: string; messageType?: string };
+      if (!response.ok) throw new Error(data.error || "Unable to prepare the pool");
+      setNotice(`Native AMM pool plan ready: ${data.messageType}. QoreX signing will be requested when its PQC AMM method is available.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to prepare the pool");
+    } finally {
+      setIsPreparing(false);
+    }
+  }
+
   return <main className="market-shell">
-    <QoraHeader page="pools" />
+    <QoraHeader page="pools" onConnected={setWalletAddress} />
     <section className="market-topbar">
       <div>
         <p className="eyebrow">QORECHAIN MARKETS</p>
@@ -88,6 +126,19 @@ export function MarketsView() {
       <div className="market-filters"><span className="market-filter active">All markets</span><span className="market-filter">Newest</span><span className="market-filter">Most active</span></div>
       <span className="market-source"><i />On-chain data <SlidersHorizontal size={14} /></span>
     </section>
+
+    <details className="pool-builder" open>
+      <summary><span><b>Create a Native AMM pool</b><small>Prepare QoreChain x/amm MsgCreatePool</small></span><i>+</i></summary>
+      <form onSubmit={preparePool}>
+        <label>Pool type<select value={poolType} onChange={(event) => setPoolType(event.target.value as typeof poolType)}><option value="constant_product">Constant product</option><option value="stable_swap">Stable swap</option></select></label>
+        <label>Token A denom<input value={denomA} onChange={(event) => setDenomA(event.target.value)} placeholder="uqor" /></label>
+        <label>Token A base units<input inputMode="numeric" value={amountA} onChange={(event) => setAmountA(event.target.value)} placeholder="10000000" /></label>
+        <label>Token B denom<input value={denomB} onChange={(event) => setDenomB(event.target.value)} placeholder="Second Diana denom" /></label>
+        <label>Token B base units<input inputMode="numeric" value={amountB} onChange={(event) => setAmountB(event.target.value)} placeholder="Amount" /></label>
+        <button className="outline-button" type="submit" disabled={isPreparing}>{isPreparing ? "Preparing…" : walletAddress ? "Prepare pool" : "Connect wallet first"}</button>
+      </form>
+      <p>Pool creation currently costs 100 QOR on Diana. Qora prepares a non-custodial Native AMM message and never receives your keys.</p>
+    </details>
 
     <section className="market-table-wrap" aria-label="QoreChain markets">
       <div className="market-table">
@@ -108,5 +159,6 @@ export function MarketsView() {
         })}
       </div>
     </section>
+    {notice && <div className="notice" role="status"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss notice">×</button></div>}
   </main>;
 }
