@@ -6,14 +6,38 @@ AMM contract.
 
 ## Current status
 
+Qora is read-only today. Swap, pool creation and liquidity actions are not
+rendered until native signing works end to end.
+
+What works:
+
 - Pool, market, account and transaction data are read from Diana.
-- Swap quotes use the native AMM quote endpoint.
-- Pool creation and liquidity actions produce native `x/amm` messages.
-- The indexer stores market history in PostgreSQL.
-- Public transaction submission is waiting for QoreX to expose third-party PQC
-  signing for native AMM messages.
-- Diana needs a second native test denom before the first usable pool can be
-  created. Its current bank supply only contains `uqor`.
+- Swap quotes use the native AMM quote endpoint (`/qorechain/amm/v1/quote/exact_in`).
+- Liquidity positions are read from the AMM LP balance query. The AMM keeps LP
+  shares in its own store, not as bank tokens.
+- The indexer stores pools, swaps and 1m, 5m, 1h, 6h and 1d candles in
+  PostgreSQL. Pool pages chart 1m, 5m, 1h and 1d candles.
+- Unsigned native transactions can be built for a QoreX account and relayed
+  after the user signs them (`/api/native-tx/*`). The relay only accepts native
+  AMM messages.
+
+What is blocking trading (checked on 2026-09-30):
+
+- The native AMM is not active yet. The public `qorechain-core` build ships a
+  stub keeper, and activation is planned for chain version `v3.2.1`.
+- QoreX 0.3.3 (Chrome) and 0.3.4 (Firefox) always use `qorechain-vladi` for
+  dApp requests, so `signDirect` for `qorechain-diana` is refused before any
+  approval. QoreX also has no documented way for a third-party dApp to add the
+  required post-quantum signature.
+- Diana and mainnet only have `uqor` in bank supply. A second denom is expected
+  once QoreChain bridges roll out.
+
+### Signing probe
+
+`/dev/signing-probe` is available in development only. It asks QoreX to sign a
+native AMM swap against a pool that does not exist and reports whether Diana
+accepts the signature. No tokens move. The network fee is 0.06 QOR. Run it again
+once the blockers above are resolved.
 
 Never add a mnemonic or private key to the repository, browser, PostgreSQL or
 CapRover. Qora only needs public wallet addresses.
@@ -30,6 +54,7 @@ CapRover. Qora only needs public wallet addresses.
 npm ci
 npm test
 npm run lint
+npm run typecheck
 ```
 
 To run the full local stack:
@@ -82,6 +107,9 @@ DATABASE_URL=postgresql://qora:<url-encoded-password>@srv-captain--qora-postgres
 QORECHAIN_REST_URL=https://api-testnet.qore.host
 QORECHAIN_RPC_URL=https://rpc-testnet.qore.host
 QORA_INDEXER_PORT=4400
+# Optional: first block to index on a fresh database. It must still be kept by
+# the node. Without it the indexer starts from the current height.
+QORA_INDEXER_START_HEIGHT=
 ```
 
 The indexer health endpoint is `/health`.
@@ -137,6 +165,7 @@ initial liquidity and transaction gas. Use a separate testnet-only wallet.
 - `npm run build`: build the production application.
 - `npm test`: build and run SSR plus native AMM calculation tests.
 - `npm run lint`: lint the full project.
+- `npm run typecheck`: type-check the full project. The build does not type-check.
 - `npm run indexer`: start only the local indexer.
 - `npm run pool:testnet`: prepare or broadcast the first native Diana pool.
 
