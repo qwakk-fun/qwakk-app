@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { CandlestickSeries, ColorType, createChart, type UTCTimestamp } from "lightweight-charts";
+import { THEME } from "../lib/theme";
 
 export type PoolCandle = {
   start_time: string;
@@ -20,12 +21,12 @@ export function PoolChart({ candles }: { candles: PoolCandle[] }) {
     const chart = createChart(container, {
       autoSize: true,
       height: 400,
-      layout: { background: { type: ColorType.Solid, color: "#091310" }, textColor: "#8d9b94", fontFamily: "var(--font-geist-sans), Arial, sans-serif" },
-      grid: { vertLines: { color: "rgba(218, 239, 225, 0.06)" }, horzLines: { color: "rgba(218, 239, 225, 0.06)" } },
-      rightPriceScale: { borderColor: "rgba(218, 239, 225, 0.12)" },
-      timeScale: { borderColor: "rgba(218, 239, 225, 0.12)", timeVisible: true },
+      layout: { background: { type: ColorType.Solid, color: THEME.surface }, textColor: THEME.text, fontFamily: "var(--font-geist-mono), ui-monospace, monospace", fontSize: 11 },
+      grid: { vertLines: { visible: false }, horzLines: { color: THEME.grid } },
+      rightPriceScale: { borderVisible: false },
+      timeScale: { borderColor: THEME.axis, timeVisible: true },
     });
-    const series = chart.addSeries(CandlestickSeries, { upColor: "#53e5c0", downColor: "#f06b72", borderVisible: false, wickUpColor: "#53e5c0", wickDownColor: "#f06b72" });
+    const series = chart.addSeries(CandlestickSeries, { upColor: THEME.up, downColor: THEME.down, borderVisible: false, wickUpColor: THEME.up, wickDownColor: THEME.down });
     series.setData(candles.map((candle) => ({
       time: Math.floor(new Date(candle.start_time).getTime() / 1000) as UTCTimestamp,
       open: Number(candle.open),
@@ -38,7 +39,7 @@ export function PoolChart({ candles }: { candles: PoolCandle[] }) {
   }, [candles]);
 
   if (candles.length === 0) {
-    return <div className="terminal-empty chart-empty"><span className="status-dot" />No swaps have been indexed for this pool yet.</div>;
+    return <div className="chart-empty pool-chart">No swaps have been indexed for this pool yet.</div>;
   }
   return <div className="pool-chart" ref={element} aria-label="Pool price chart" />;
 }
