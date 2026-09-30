@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { QoraHeader } from "../../components/QoraHeader";
 import { TokenIcon } from "../../components/TokenIcon";
@@ -55,9 +55,7 @@ export default function SwapPage() {
   const [quoteError, setQuoteError] = useState("");
   const [feeConfig, setFeeConfig] = useState<FeeConfig>({ enabled: false, feeBps: 5 });
   const [networkState, setNetworkState] = useState<NetworkState>("checking");
-  const [walletAddress, setWalletAddress] = useState("");
-  const [notice, setNotice] = useState("");
-  const [lastUpdated, setLastUpdated] = useState("Checking Diana markets");
+  const [lastUpdated, setLastUpdated] = useState("Checking QoreChain Diana markets");
 
   const selectedPool = useMemo(
     () => pools.find((pool) => poolId(pool) === selectedPoolId) ?? pools[0],
@@ -79,22 +77,16 @@ export default function SwapPage() {
       setPools(nextPools);
       setSelectedPoolId((current) => nextPools.some((pool) => poolId(pool) === current) ? current : poolId(nextPools[0]));
       setNetworkState("ready");
-      setLastUpdated(`Diana checked ${new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit" }).format(new Date())}`);
+      setLastUpdated(`QoreChain Diana checked ${new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit" }).format(new Date())}`);
     } catch {
       setNetworkState("unavailable");
-      setLastUpdated("Diana markets are temporarily unavailable");
+      setLastUpdated("QoreChain Diana markets are temporarily unavailable");
     }
   }, []);
 
   useEffect(() => {
-    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qora-wallet-address") ?? "");
-    restoreWallet();
-    window.addEventListener("qora:wallet-change", restoreWallet);
     const timer = window.setTimeout(() => void refreshPools(), 0);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener("qora:wallet-change", restoreWallet);
-    };
+    return () => window.clearTimeout(timer);
   }, [refreshPools]);
 
   useEffect(() => {
@@ -159,27 +151,9 @@ export default function SwapPage() {
     };
   }, [amount, denomIn, denomOut, inputDecimals, selectedPool, slippageBps]);
 
-  function prepareSwap(event: FormEvent) {
-    event.preventDefault();
-    if (!walletAddress) {
-      setNotice("Connect your wallet from the header before reviewing a quote.");
-      return;
-    }
-    if (!selectedPool) {
-      setNotice("Diana has no AMM pool yet. The first market can be quoted as soon as it is created.");
-      return;
-    }
-    if (!quote) {
-      setNotice(quoteError || "Wait for a live Diana quote before continuing.");
-      return;
-    }
-    setNotice("Live quote ready. Wallet transaction signing will be enabled after the QoreX AMM signing path is available.");
-  }
-
   function selectPool(pool: RawPool) {
     setSelectedPoolId(poolId(pool));
     setReversed(false);
-    setNotice(`${shortDenom(poolDenom(pool, "a"))} / ${shortDenom(poolDenom(pool, "b"))} selected.`);
   }
 
   const output = quote ? formatBaseAmount(quote.amountOut, outputDecimals, 6) : quoteState === "loading" ? "Quoting…" : "Unavailable";
@@ -187,28 +161,26 @@ export default function SwapPage() {
   const feeBps = quote?.interfaceFee.feeBps ?? feeConfig.feeBps;
   const feeEnabled = quote?.interfaceFee.enabled ?? feeConfig.enabled;
   const feeLabel = feeEnabled ? `${(feeBps / 100).toFixed(2)}%` : "Disabled";
-  const readiness = networkState === "checking" ? "Checking Diana" : networkState === "unavailable" ? "Diana unavailable" : pools.length ? "Live quotes connected" : "Quote engine ready";
+  const readiness = networkState === "checking" ? "Checking QoreChain Diana" : networkState === "unavailable" ? "QoreChain Diana unavailable" : pools.length ? "Live quotes connected" : "Quote engine ready";
 
   return <main className="profile-shell swap-shell">
-    <QoraHeader page="swap" onConnected={setWalletAddress} />
-    <section className="swap-page-hero"><p className="eyebrow">SIMPLE SWAPS ON QORECHAIN</p><h1>Swap with <em>confidence.</em></h1><p>Choose a Diana pool and receive an on-chain estimate with clear price protection and fees.</p></section>
+    <QoraHeader page="swap" />
+    <section className="swap-page-hero"><p className="eyebrow">SIMPLE SWAPS ON QORECHAIN</p><h1>Know your price <em>first.</em></h1><p>Pick a pool on QoreChain Diana for a live on-chain estimate, with price protection and every fee shown up front.</p></section>
     <section className="swap-workspace" aria-label="Swap workspace">
-      <form className="swap-card swap-card-expanded" onSubmit={prepareSwap}>
-        <div className="card-heading"><div><p className="kicker">SWAP</p><h2>Choose your assets</h2></div><button type="button" className="settings" aria-label="Swap settings" onClick={() => setNotice("Price protection can be changed from the slippage control below.")}>⚙</button></div>
-        <div className={`swap-readiness ${networkState === "unavailable" ? "offline" : ""}`}><span className={`status-dot small ${networkState === "unavailable" ? "" : "online"}`} /><span>{readiness}</span><b>DIANA</b></div>
+      <div className="swap-card swap-card-expanded">
+        <div className="card-heading"><div><p className="kicker">QUOTE</p><h2>Choose your assets</h2></div></div>
+        <div className={`swap-readiness ${networkState === "unavailable" ? "offline" : ""}`}><span className={`status-dot small ${networkState === "unavailable" ? "" : "online"}`} /><span>{readiness}</span><b>QORECHAIN DIANA</b></div>
         <label className="amount-box"><span>You send</span><div className="amount-row"><input aria-label={`You send amount in ${shortDenom(denomIn)}`} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /><span className="token"><TokenIcon denom={denomIn || "uqor"} size="small" />{shortDenom(denomIn || "uqor")}</span></div><small>{inputDecimals === 0 && denomIn ? `Enter ${denomIn} base units.` : `Enter ${shortDenom(denomIn || "uqor")}. Qora converts it to the on-chain unit.`}</small></label>
         <button type="button" className="flip" aria-label="Switch swap tokens" disabled={!selectedPool} onClick={() => setReversed((current) => !current)}>↓</button>
-        <label className="amount-box receive-box"><span>You receive</span><div className="amount-row muted-row"><output>{output}</output><span className="token"><TokenIcon denom={denomOut || "uusdc"} size="small" />{shortDenom(denomOut || "uusdc")}</span></div><small>{quoteState === "unavailable" ? quoteError : selectedPool ? outputUnit : "A live quote will appear when Diana has a pool."}</small></label>
+        <label className="amount-box receive-box"><span>You receive</span><div className="amount-row muted-row"><output>{output}</output><span className="token"><TokenIcon denom={denomOut || "uusdc"} size="small" />{shortDenom(denomOut || "uusdc")}</span></div><small>{quoteState === "unavailable" ? quoteError : selectedPool ? outputUnit : "A live quote will appear once QoreChain Diana has a pool."}</small></label>
         <div className="swap-details"><span>Quote <b>{quoteState === "ready" ? "Live" : quoteState === "loading" ? "Loading" : "Waiting"}</b></span><label>Slippage <select value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={10}>0.10%</option><option value={50}>0.50%</option><option value={100}>1.00%</option></select></label><span>Qora fee <b>{feeLabel}</b></span></div>
-        <button className="primary-button" type="submit">{!walletAddress ? "Connect wallet to continue" : quote ? "Review live quote" : selectedPool ? "Waiting for quote" : "Waiting for first pool"}<span>→</span></button>
-      </form>
-      <aside className="market-card swap-market-card"><div className="card-heading"><div><p className="kicker">AVAILABLE MARKETS</p><h2>Choose a pool</h2></div><span className="pool-count">{pools.length}</span></div><p className="muted-copy">Pool selection now drives the live Diana quote shown in the swap card.</p>{pools.length ? <div className="pool-list">{pools.map((pool, index) => {
+      </div>
+      <aside className="market-card swap-market-card"><div className="card-heading"><div><p className="kicker">AVAILABLE MARKETS</p><h2>Choose a pool</h2></div><span className="pool-count">{pools.length}</span></div><p className="muted-copy">Select a pool to quote it in the card.</p>{pools.length ? <div className="pool-list">{pools.map((pool, index) => {
         const id = poolId(pool) || String(index + 1);
         const tokenA = poolDenom(pool, "a");
         const tokenB = poolDenom(pool, "b");
         return <button className={`pool-row pool-choice ${id === poolId(selectedPool) ? "selected" : ""}`} type="button" key={id} onClick={() => selectPool(pool)}><span className="pair-icons"><TokenIcon denom={tokenA} size="small" /><TokenIcon denom={tokenB} size="small" /></span><span><b>{shortDenom(tokenA)} / {shortDenom(tokenB)}</b><small>{poolKind(pool)}</small></span><span className="pool-id">#{id}</span></button>;
-      })}</div> : <div className="empty-state"><span className="empty-mark">✓</span><h3>Quote engine is connected</h3><p>Diana has no AMM pool yet. Qora will detect and quote the first market automatically.</p><Link className="outline-button" href="/pools">View pool status</Link></div>}<p className="freshness"><span className={`status-dot small ${networkState === "unavailable" ? "" : "online"}`} /> {lastUpdated}</p></aside>
+      })}</div> : <div className="empty-state"><span className="empty-mark">✓</span><h3>Quote engine is connected</h3><p>QoreChain Diana has no AMM pool yet. Qora will detect and quote the first market automatically.</p><Link className="outline-button" href="/pools">View pool status</Link></div>}<p className="freshness"><span className={`status-dot small ${networkState === "unavailable" ? "" : "online"}`} /> {lastUpdated}</p></aside>
     </section>
-    {notice && <div className="notice" role="status"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss notice">×</button></div>}
   </main>;
 }

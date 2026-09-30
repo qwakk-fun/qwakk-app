@@ -54,26 +54,26 @@ test("keeps the retired Sites preview out of the Qora application", async () => 
   await assert.rejects(access(new URL("../public/_sites-preview", import.meta.url)));
 });
 
-test("server-renders the Diana quote workspace", async () => {
+test("server-renders the QoreChain Diana quote workspace", async () => {
   const response = await render("/swap");
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /Choose a Diana pool/);
-  assert.match(html, /Checking Diana/);
+  assert.match(html, /Pick a pool on QoreChain Diana/);
+  assert.match(html, /Checking QoreChain Diana/);
   assert.match(html, /Slippage/);
   assert.match(html, /Qora fee/);
   assert.match(html, /Quote engine is connected/);
-  assert.match(html, /Connect wallet to continue/);
+  // No wallet action is rendered until native signing works end to end.
+  assert.doesNotMatch(html, /Connect wallet to continue|Review live quote|Waiting for first pool/);
 });
 
-test("server-renders the Native AMM pool builder", async () => {
+test("server-renders markets without unavailable pool actions", async () => {
   const response = await render("/pools");
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /Create a Native AMM pool/);
-  assert.match(html, /QoreChain x\/amm MsgCreatePool/);
-  assert.match(html, /Pool creation currently costs 100 QOR on Diana/);
-  assert.match(html, /Connect wallet first/);
+  assert.match(html, /Explore every pool/);
+  assert.match(html, /On-chain data/);
+  assert.doesNotMatch(html, /Create a Native AMM pool|Prepare pool|MsgCreatePool|Most active/);
 });
