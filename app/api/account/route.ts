@@ -1,4 +1,4 @@
-const TESTNET_API = "https://api-testnet.qore.host";
+import { QORECHAIN_REST_URL } from "@/lib/qorechain-endpoints";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const response = await fetch(`${TESTNET_API}/cosmos/bank/v1beta1/balances/${encodeURIComponent(address)}`, { cache: "no-store" });
+    const response = await fetch(`${QORECHAIN_REST_URL}/cosmos/bank/v1beta1/balances/${encodeURIComponent(address)}`, { cache: "no-store" });
     if (!response.ok) throw new Error("Balance query failed");
     const data = await response.json();
     return Response.json(

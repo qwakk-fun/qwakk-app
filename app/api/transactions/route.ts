@@ -1,4 +1,4 @@
-const TESTNET_API = "https://api-testnet.qore.host";
+import { QORECHAIN_REST_URL } from "@/lib/qorechain-endpoints";
 const PAGE_SIZE = 8;
 
 type ChainMessage = { "@type"?: string; from_address?: string; to_address?: string; amount?: Array<{ denom?: string; amount?: string }> };
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
   try {
     const readQuery = async (query: string) => {
       const response = await fetch(
-        `${TESTNET_API}/cosmos/tx/v1beta1/txs?${new URLSearchParams({ query, "pagination.limit": String(PAGE_SIZE), order_by: "ORDER_BY_DESC" })}`,
+        `${QORECHAIN_REST_URL}/cosmos/tx/v1beta1/txs?${new URLSearchParams({ query, "pagination.limit": String(PAGE_SIZE), order_by: "ORDER_BY_DESC" })}`,
         { cache: "no-store" },
       );
       if (!response.ok) throw new Error("Transaction query failed");

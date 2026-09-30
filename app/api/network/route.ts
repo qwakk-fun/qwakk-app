@@ -1,11 +1,10 @@
-const TESTNET_API = "https://api-testnet.qore.host";
-const TESTNET_RPC = "https://rpc-testnet.qore.host";
+import { QORECHAIN_REST_URL, QORECHAIN_RPC_URL } from "@/lib/qorechain-endpoints";
 
 export async function GET() {
   try {
     const [statusResponse, poolsResponse] = await Promise.all([
-      fetch(`${TESTNET_RPC}/status`, { cache: "no-store" }),
-      fetch(`${TESTNET_API}/qorechain/amm/v1/pools`, { cache: "no-store" }),
+      fetch(`${QORECHAIN_RPC_URL}/status`, { cache: "no-store" }),
+      fetch(`${QORECHAIN_REST_URL}/qorechain/amm/v1/pools`, { cache: "no-store" }),
     ]);
 
     if (!statusResponse.ok || !poolsResponse.ok) {

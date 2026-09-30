@@ -1,7 +1,6 @@
+import { QORECHAIN_REST_URL } from "@/lib/qorechain-endpoints";
 import { getServerQoraFeeConfig } from "@/lib/qora-fee-config";
 import { buildExactInQuoteRequest, calculateMinimumOut } from "@/lib/qora-quote";
-
-const TESTNET_API = (process.env.QORECHAIN_REST_URL ?? "https://api-testnet.qore.host").replace(/\/$/, "");
 
 type ChainQuote = {
   amount_out?: string;
@@ -32,7 +31,7 @@ export async function GET(request: Request) {
       denom_in: quoteRequest.denomIn,
       amount_in: quoteRequest.swapAmountIn,
     });
-    const response = await fetch(`${TESTNET_API}/qorechain/amm/v1/quote/exact_in?${query}`, {
+    const response = await fetch(`${QORECHAIN_REST_URL}/qorechain/amm/v1/quote/exact_in?${query}`, {
       cache: "no-store",
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(8_000),
@@ -41,7 +40,7 @@ export async function GET(request: Request) {
     if (!response.ok) {
       const status = response.status === 404 ? 404 : 502;
       return Response.json(
-        { error: status === 404 ? "Quote is not available for this pool" : "Diana quote service is temporarily unavailable" },
+        { error: status === 404 ? "Quote is not available for this pool" : "The QoreChain Diana quote service is temporarily unavailable" },
         { status, headers: { "Cache-Control": "no-store" } },
       );
     }
@@ -49,7 +48,7 @@ export async function GET(request: Request) {
     const quote = (await response.json()) as ChainQuote;
     if (!quote.amount_out || !/^\d+$/.test(quote.amount_out) || BigInt(quote.amount_out) <= BigInt(0)) {
       return Response.json(
-        { error: "Diana did not return a usable quote" },
+        { error: "QoreChain Diana did not return a usable quote" },
         { status: 502, headers: { "Cache-Control": "no-store" } },
       );
     }
@@ -85,7 +84,7 @@ export async function GET(request: Request) {
     ]);
 
     return Response.json(
-      { error: safeMessages.has(message) ? message : "Unable to reach the Diana quote service" },
+      { error: safeMessages.has(message) ? message : "Unable to reach the QoreChain Diana quote service" },
       { status: safeMessages.has(message) ? 400 : 502, headers: { "Cache-Control": "no-store" } },
     );
   }
