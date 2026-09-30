@@ -19,6 +19,9 @@ export default function Profile() {
   const [transactions, setTransactions] = useState<Activity[]>([]);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
   const [transactionsError, setTransactionsError] = useState("");
+  // Null means positions could not be read, so the card never shows a misleading zero.
+  const [positions, setPositions] = useState<number | null>(null);
+  const [positionsLoading, setPositionsLoading] = useState(true);
 
   const loadBalances = useCallback(async (walletAddress: string) => {
     if (!walletAddress) {
@@ -55,22 +58,45 @@ export default function Profile() {
     }
   }, []);
 
+  const loadPositions = useCallback(async (walletAddress: string) => {
+    if (!walletAddress) return;
+    setPositionsLoading(true);
+    try {
+      const response = await fetch(`/api/positions?address=${encodeURIComponent(walletAddress)}`, { cache: "no-store" });
+      const data = await response.json() as { positions?: unknown[] };
+      setPositions(response.ok && Array.isArray(data.positions) ? data.positions.length : null);
+    } catch {
+      setPositions(null);
+    } finally {
+      setPositionsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const savedAddress = window.localStorage.getItem("qora-wallet-address") ?? "";
       setAddress(savedAddress);
       void loadBalances(savedAddress);
       void loadTransactions(savedAddress);
+      void loadPositions(savedAddress);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [loadBalances, loadTransactions]);
+  }, [loadBalances, loadTransactions, loadPositions]);
 
   const qorBalance = balances.find((balance) => balance.denom === "uqor");
+  const positionsNote = positionsLoading
+    ? "Checking your positions"
+    : positions === null
+      ? "Positions are temporarily unavailable"
+      : positions
+        ? "Pools where this wallet holds a share"
+        : "This wallet holds no pool shares yet";
   const shortAddress = address ? `${address.slice(0, 10)}…${address.slice(-8)}` : "No wallet connected";
   const handleConnected = (walletAddress: string) => {
     setAddress(walletAddress);
     void loadBalances(walletAddress);
     void loadTransactions(walletAddress);
+    void loadPositions(walletAddress);
   };
   return <main className="profile-shell">
     <QoraHeader page="profile" onConnected={handleConnected} />
@@ -84,7 +110,7 @@ export default function Profile() {
       <section className="wallet-overview">
         <article className="address-card"><span>CONNECTED WALLET</span><strong>{shortAddress}</strong><p>{address}</p></article>
         <article className="qor-card"><span>QOR BALANCE</span><strong>{qorBalance ? formatBalance(qorBalance.amount, qorBalance.denom) : "0"}</strong><p>QOR · available in your wallet</p></article>
-        <article className="position-card" id="positions"><span>LIQUIDITY POSITIONS</span><strong>0</strong><p>{loading ? "Checking your positions" : "Your active pool positions will appear here"}</p></article>
+        <article className="position-card" id="positions"><span>LIQUIDITY POSITIONS</span><strong>{positions ?? "Not available"}</strong><p>{positionsNote}</p></article>
       </section>
 
       <section className="asset-section">
