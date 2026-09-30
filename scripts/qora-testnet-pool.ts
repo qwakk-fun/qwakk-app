@@ -161,7 +161,7 @@ async function main() {
       ecdsaPubkey: hexBytes(account.publicKey),
       keyType: "hybrid",
     });
-    const classicalSigner = new EthNativeSigner(account, { signMode: "classical" });
+    const classicalSigner = new EthNativeSigner(account, { signMode: "classical", rest: REST_URL });
     const result = await classicalSigner.signAndBroadcast(broadcaster, {
       chainId: CHAIN_ID,
       accountNumber: auth.accountNumber,
@@ -175,7 +175,7 @@ async function main() {
     auth = await readAccount(account.cosmos);
   }
 
-  const hybridSigner = new EthNativeSigner(account);
+  const hybridSigner = new EthNativeSigner(account, { rest: REST_URL });
   const result = await hybridSigner.signAndBroadcast(broadcaster, {
     chainId: CHAIN_ID,
     accountNumber: auth.accountNumber,
