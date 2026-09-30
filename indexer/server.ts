@@ -4,10 +4,14 @@ import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 
+import { priceBPerA, toDisplayUnits } from "./market-math";
+
 const REST_URL = (process.env.QORECHAIN_REST_URL ?? "https://api-testnet.qore.host").replace(/\/$/, "");
 const RPC_URL = (process.env.QORECHAIN_RPC_URL ?? "https://rpc-testnet.qore.host").replace(/\/$/, "");
 const PORT = Number(process.env.QORA_INDEXER_PORT ?? 4400);
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://qora:qora_local@localhost:5438/qora";
+/** Optional first block for a fresh database. It must still be kept by the node. */
+const START_HEIGHT = Number(process.env.QORA_INDEXER_START_HEIGHT ?? 0);
 const db = new Pool({ connectionString: DATABASE_URL });
 
 type ChainPool = {
@@ -22,7 +26,8 @@ type ChainPool = {
   reserve_b?: string;
   lp_supply?: string;
   lp_denom?: string;
-  created_at?: string;
+  /** Block height at creation, not a timestamp. */
+  created_at?: string | number;
   status?: string;
   weighted_avg_price?: string;
   amplification_coefficient?: number;
@@ -32,6 +37,9 @@ type EventAttribute = { key?: string; value?: string };
 type ChainEvent = { type?: string; attributes?: EventAttribute[] };
 
 const intervals: Record<string, number> = { "1m": 60, "5m": 300, "1h": 3600, "6h": 21600, "1d": 86400 };
+
+/** How far back each chart interval reaches. */
+const chartWindows: Record<string, string> = { "1m": "24 hours", "5m": "3 days", "1h": "30 days", "1d": "365 days" };
 
 function asText(value: unknown) {
   return typeof value === "string" || typeof value === "number" ? String(value) : "";
@@ -48,7 +56,7 @@ function normalizePool(value: ChainPool) {
     reserveB: asText(value.reserve_b) || "0",
     lpSupply: asText(value.lp_supply) || "0",
     lpDenom: asText(value.lp_denom),
-    createdAt: asText(value.created_at),
+    createdHeight: /^\d+$/.test(asText(value.created_at)) ? asText(value.created_at) : "",
     status: asText(value.status) || "active",
     weightedAvgPrice: asText(value.weighted_avg_price),
     amplificationCoefficient: Number(value.amplification_coefficient ?? 0),
@@ -103,14 +111,23 @@ async function persistPool(pool: ReturnType<typeof normalizePool>) {
   if (!/^\d+$/.test(pool.id) || !pool.tokenA || !pool.tokenB) return;
   await Promise.all([upsertToken(pool.tokenA), upsertToken(pool.tokenB)]);
   await db.query(
-    `INSERT INTO pools (id, pool_type, creator, token_a, token_b, lp_denom, status, created_at_chain, amplification_coefficient)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, '')::timestamptz, $9)
-     ON CONFLICT (id) DO UPDATE SET pool_type = EXCLUDED.pool_type, creator = EXCLUDED.creator, token_a = EXCLUDED.token_a, token_b = EXCLUDED.token_b, lp_denom = EXCLUDED.lp_denom, status = EXCLUDED.status, amplification_coefficient = EXCLUDED.amplification_coefficient, updated_at = NOW()`,
-    [pool.id, pool.poolType, pool.creator || null, pool.tokenA, pool.tokenB, pool.lpDenom || null, pool.status, pool.createdAt, pool.amplificationCoefficient],
+    `INSERT INTO pools (id, pool_type, creator, token_a, token_b, lp_denom, status, created_height, amplification_coefficient)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, '')::bigint, $9)
+     ON CONFLICT (id) DO UPDATE SET pool_type = EXCLUDED.pool_type, creator = EXCLUDED.creator, token_a = EXCLUDED.token_a, token_b = EXCLUDED.token_b, lp_denom = EXCLUDED.lp_denom, status = EXCLUDED.status, created_height = EXCLUDED.created_height, amplification_coefficient = EXCLUDED.amplification_coefficient, updated_at = NOW()`,
+    [pool.id, pool.poolType, pool.creator || null, pool.tokenA, pool.tokenB, pool.lpDenom || null, pool.status, pool.createdHeight, pool.amplificationCoefficient],
   );
+  // Pools are polled every few seconds; only a changed state earns a new snapshot row.
   await db.query(
     `INSERT INTO pool_snapshots (pool_id, reserve_a, reserve_b, lp_supply, weighted_avg_price)
-     VALUES ($1, $2, $3, $4, NULLIF($5, '')::numeric)`,
+     SELECT $1, $2::numeric, $3::numeric, $4::numeric, NULLIF($5, '')::numeric
+     WHERE NOT EXISTS (
+       SELECT 1 FROM (
+         SELECT reserve_a, reserve_b, lp_supply, weighted_avg_price FROM pool_snapshots
+         WHERE pool_id = $1 ORDER BY observed_at DESC LIMIT 1
+       ) latest
+       WHERE latest.reserve_a = $2::numeric AND latest.reserve_b = $3::numeric AND latest.lp_supply = $4::numeric
+         AND latest.weighted_avg_price IS NOT DISTINCT FROM NULLIF($5, '')::numeric
+     )`,
     [pool.id, pool.reserveA, pool.reserveB, pool.lpSupply, pool.weightedAvgPrice],
   );
 }
@@ -142,25 +159,16 @@ async function setState(key: string, value: string) {
   );
 }
 
-function maybeDecode(value: string) {
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) return value;
-  try {
-    const decoded = Buffer.from(value, "base64").toString("utf8");
-    return /^[\x20-\x7E]+$/.test(decoded) ? decoded : value;
-  } catch {
-    return value;
-  }
-}
-
 function attributes(event: ChainEvent) {
-  return Object.fromEntries((event.attributes ?? []).map((attribute) => [maybeDecode(attribute.key ?? ""), maybeDecode(attribute.value ?? "")]));
+  // CometBFT 0.38 returns event attributes as plain strings.
+  return Object.fromEntries((event.attributes ?? []).map((attribute) => [attribute.key ?? "", attribute.value ?? ""]));
 }
 
 function bucketStart(date: Date, seconds: number) {
   return new Date(Math.floor(date.getTime() / (seconds * 1000)) * seconds * 1000);
 }
 
-async function recordCandle(poolId: string, executedAt: Date, price: number, volumeQor: number | null) {
+async function recordCandle(poolId: string, executedAt: Date, price: string, volumeQor: string | null) {
   for (const [interval, seconds] of Object.entries(intervals)) {
     await db.query(
       `INSERT INTO candles (pool_id, interval, start_time, open, high, low, close, volume_qor, transactions)
@@ -174,10 +182,6 @@ async function recordCandle(poolId: string, executedAt: Date, price: number, vol
       [poolId, interval, bucketStart(executedAt, seconds), price, volumeQor],
     );
   }
-}
-
-function units(amount: string, decimals: number) {
-  return Number(amount) / 10 ** decimals;
 }
 
 async function recordSwap(event: ChainEvent, executedAt: Date, height: number, txHash: string, eventIndex: number) {
@@ -194,18 +198,24 @@ async function recordSwap(event: ChainEvent, executedAt: Date, height: number, t
   if (!pool) return;
   const tokenResult = await db.query<{ denom: string; decimals: number }>("SELECT denom, decimals FROM tokens WHERE denom = ANY($1)", [[pool.token_a, pool.token_b]]);
   const decimals = new Map(tokenResult.rows.map((token) => [token.denom, Number(token.decimals)]));
-  const input = units(amountIn, decimals.get(denomIn) ?? 0);
-  const output = units(amountOut, decimals.get(denomOut) ?? 0);
-  if (!Number.isFinite(input) || !Number.isFinite(output) || input <= 0 || output <= 0) return;
-  const priceBPerA = denomIn === pool.token_a && denomOut === pool.token_b ? output / input : denomIn === pool.token_b && denomOut === pool.token_a ? input / output : null;
-  const volumeQor = denomIn === "uqor" ? input : denomOut === "uqor" ? output : null;
+  if (BigInt(amountIn) === BigInt(0) || BigInt(amountOut) === BigInt(0)) return;
+  const decimalsA = decimals.get(pool.token_a) ?? 0;
+  const decimalsB = decimals.get(pool.token_b) ?? 0;
+  const price = denomIn === pool.token_a && denomOut === pool.token_b
+    ? priceBPerA(amountIn, decimalsA, amountOut, decimalsB)
+    : denomIn === pool.token_b && denomOut === pool.token_a
+      ? priceBPerA(amountOut, decimalsA, amountIn, decimalsB)
+      : null;
+  const volumeQor = denomIn === "uqor"
+    ? toDisplayUnits(amountIn, decimals.get("uqor") ?? 6)
+    : denomOut === "uqor" ? toDisplayUnits(amountOut, decimals.get("uqor") ?? 6) : null;
   const inserted = await db.query(
     `INSERT INTO swaps (tx_hash, event_index, pool_id, height, executed_at, sender, denom_in, amount_in, denom_out, amount_out, price_b_per_a, raw_event)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      ON CONFLICT (tx_hash, event_index) DO NOTHING`,
-    [txHash, eventIndex, poolId, height, executedAt, values.sender || null, denomIn, amountIn, denomOut, amountOut, priceBPerA, values],
+    [txHash, eventIndex, poolId, height, executedAt, values.sender || null, denomIn, amountIn, denomOut, amountOut, price, values],
   );
-  if (inserted.rowCount && priceBPerA !== null) await recordCandle(poolId, executedAt, priceBPerA, volumeQor);
+  if (inserted.rowCount && price !== null) await recordCandle(poolId, executedAt, price, volumeQor);
 }
 
 async function processBlock(height: number) {
@@ -229,7 +239,8 @@ async function syncBlocks() {
   const currentHeight = await latestHeight();
   const savedHeight = Number(await getState("last_indexed_height") ?? 0);
   if (!savedHeight) {
-    await setState("last_indexed_height", String(currentHeight));
+    const start = Number.isSafeInteger(START_HEIGHT) && START_HEIGHT > 0 && START_HEIGHT <= currentHeight ? START_HEIGHT - 1 : currentHeight;
+    await setState("last_indexed_height", String(start));
     return;
   }
   const until = Math.min(currentHeight, savedHeight + 30);
@@ -260,7 +271,7 @@ async function runSync() {
 
 async function marketList() {
   const result = await db.query(
-    `SELECT p.id, p.pool_type, p.status, p.token_a, p.token_b, p.created_at_chain,
+    `SELECT p.id, p.pool_type, p.status, p.token_a, p.token_b, p.created_height,
             a.symbol AS token_a_symbol, a.decimals AS token_a_decimals, a.image_url AS token_a_image,
             b.symbol AS token_b_symbol, b.decimals AS token_b_decimals, b.image_url AS token_b_image,
             snapshot.reserve_a, snapshot.reserve_b, snapshot.weighted_avg_price, snapshot.observed_at,
@@ -281,7 +292,7 @@ async function marketList() {
   return result.rows;
 }
 
-async function poolDetail(poolId: string) {
+async function poolDetail(poolId: string, interval: string) {
   const pool = await db.query(
     `SELECT p.*, a.symbol AS token_a_symbol, a.name AS token_a_name, a.decimals AS token_a_decimals, a.image_url AS token_a_image,
             b.symbol AS token_b_symbol, b.name AS token_b_name, b.decimals AS token_b_decimals, b.image_url AS token_b_image,
@@ -295,7 +306,7 @@ async function poolDetail(poolId: string) {
   );
   if (!pool.rowCount) return null;
   const [candles, swaps] = await Promise.all([
-    db.query("SELECT start_time, open, high, low, close, volume_qor, transactions FROM candles WHERE pool_id = $1 AND interval = '1m' AND start_time >= NOW() - INTERVAL '24 hours' ORDER BY start_time ASC", [poolId]),
+    db.query("SELECT start_time, open, high, low, close, volume_qor, transactions FROM candles WHERE pool_id = $1 AND interval = $2 AND start_time >= NOW() - $3::interval ORDER BY start_time ASC", [poolId, interval, chartWindows[interval]]),
     db.query("SELECT tx_hash, executed_at, sender, denom_in, amount_in, denom_out, amount_out, price_b_per_a FROM swaps WHERE pool_id = $1 ORDER BY executed_at DESC LIMIT 60", [poolId]),
   ]);
   return { pool: pool.rows[0], candles: candles.rows, swaps: swaps.rows };
@@ -313,7 +324,9 @@ const server = createServer(async (request, response) => {
     if (url.pathname === "/markets") return writeJson(response, 200, { markets: await marketList() });
     const detailMatch = url.pathname.match(/^\/pools\/(\d+)$/);
     if (detailMatch) {
-      const detail = await poolDetail(detailMatch[1]);
+      const interval = url.searchParams.get("interval") ?? "1m";
+      if (!chartWindows[interval]) return writeJson(response, 400, { error: "Unsupported chart interval" });
+      const detail = await poolDetail(detailMatch[1], interval);
       return detail ? writeJson(response, 200, detail) : writeJson(response, 404, { error: "Pool not found" });
     }
     return writeJson(response, 404, { error: "Not found" });

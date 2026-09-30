@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS pools (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- PoolView.created_at is the creation block height. Older databases created
+-- the unused created_at_chain column; it is kept so the upgrade is additive.
+ALTER TABLE pools ADD COLUMN IF NOT EXISTS created_height BIGINT;
+
 CREATE TABLE IF NOT EXISTS pool_snapshots (
   id BIGSERIAL PRIMARY KEY,
   pool_id BIGINT NOT NULL REFERENCES pools(id) ON DELETE CASCADE,
