@@ -23,15 +23,15 @@ async function render(pathname = "/") {
   );
 }
 
-test("server-renders the Qora Diana landing page", async () => {
+test("server-renders the landing page", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Qora \| Simple swaps on QoreChain<\/title>/i);
-  assert.match(html, /QORECHAIN DIANA/);
+  assert.match(html, /<title>[^<|]+ \| Simple swaps on QoreChain<\/title>/i);
   assert.match(html, /Simple swaps/);
+  assert.match(html, /Built on the QoreChain AMM module/);
   assert.match(html, /Non-custodial/);
   assert.match(html, /href="\/swap"/);
   assert.match(html, /href="\/pools"/);
@@ -44,9 +44,8 @@ test("keeps the retired Sites preview out of the Qora application", async () => 
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /QORECHAIN DIANA/);
   assert.match(page, /non-custodial/i);
-  assert.match(layout, /Qora \| Simple swaps on QoreChain/);
+  assert.match(layout, /BRAND\.tagline/);
   assert.doesNotMatch(page, /SkeletonPreview|codex-preview/i);
   assert.doesNotMatch(layout, /SkeletonPreview|codex-preview/i);
 
@@ -59,11 +58,11 @@ test("server-renders the QoreChain Diana quote workspace", async () => {
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /Pick a pool on QoreChain Diana/);
+  assert.match(html, /QoreChain Diana pools/);
   assert.match(html, /Checking QoreChain Diana/);
-  assert.match(html, /Slippage/);
-  assert.match(html, /Qora fee/);
-  assert.match(html, /Quote engine is connected/);
+  assert.match(html, /Price protection/);
+  assert.match(html, /Interface fee/);
+  assert.match(html, /QOR price in USD/);
   // No wallet action is rendered until native signing works end to end.
   assert.doesNotMatch(html, /Connect wallet to continue|Review live quote|Waiting for first pool/);
 });
@@ -73,7 +72,7 @@ test("server-renders markets without unavailable pool actions", async () => {
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /Explore every pool/);
-  assert.match(html, /On-chain data/);
+  assert.match(html, /Every native AMM pool on QoreChain Diana/);
+  assert.match(html, /Open pools/);
   assert.doesNotMatch(html, /Create a Native AMM pool|Prepare pool|MsgCreatePool|Most active/);
 });

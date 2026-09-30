@@ -154,31 +154,33 @@ export function SigningProbe() {
     }
   }
 
-  return <main className="profile-shell">
+  return <div className="app-shell">
     <QoraHeader page="home" />
-    <section className="profile-hero">
-      <p className="eyebrow">DEVELOPMENT ONLY</p>
-      <div className="profile-title-row">
-        <div>
-          <h1>Native signing probe.</h1>
-          <p>Checks whether QoreChain Diana accepts a QoreX signature on a native AMM message. The test swap targets a pool that does not exist, so no tokens change hands. Only the network fee of 0.06 QOR is spent.</p>
-        </div>
-        <button type="button" className="outline-button" onClick={() => void runProbe()} disabled={running}>{running ? "Running…" : "Run probe"}</button>
-      </div>
-    </section>
+    <main className="app-main">
+      <div className="container">
+        <section className="page-head">
+          <div>
+            <span className="kicker">Development only</span>
+            <h1>Native signing probe</h1>
+            <p>Checks whether QoreChain Diana accepts a QoreX signature on a native AMM message. The test swap targets a pool that does not exist, so no tokens change hands. Only the network fee of 0.06 QOR is spent.</p>
+          </div>
+          <button type="button" className="btn btn-primary" onClick={() => void runProbe()} disabled={running}>{running ? "Running…" : "Run probe"}</button>
+        </section>
 
-    {steps.length > 0 && <section className="asset-section">
-      <div className="asset-heading"><div><p className="kicker">STEPS</p><h2>Probe progress</h2></div></div>
-      <div className="asset-list">{steps.map((step, index) => <article className="asset-row" key={`${index}-${step.label}`}><div><strong>{step.state === "done" ? "✓" : step.state === "failed" ? "×" : "…"} {step.label}</strong></div></article>)}</div>
-    </section>}
+        {steps.length > 0 && <section className="panel" aria-labelledby="probe-steps">
+          <div className="panel-head"><span className="panel-title" id="probe-steps">Progress</span></div>
+          <div className="info-list">{steps.map((step, index) => <div key={`${index}-${step.label}`}><span>{step.label}</span><b className={step.state === "failed" ? "down" : step.state === "done" ? "up" : "subtle"}>{step.state === "done" ? "✓ Done" : step.state === "failed" ? "× Stopped" : "…"}</b></div>)}</div>
+        </section>}
 
-    {verdict && <section className="asset-section">
-      <div className="asset-heading"><div><p className="kicker">RESULT</p><h2>{verdict.title}</h2></div></div>
-      <div className="profile-empty compact">
-        <p>{verdict.detail}</p>
-        {finalResult && <p>{finalResult}</p>}
-        {txhash && <a className="outline-button" href={`https://explore.qore.network/tx/${txhash}`} target="_blank" rel="noreferrer">Open in explorer</a>}
+        {verdict && <section className="panel" aria-labelledby="probe-result" style={{ marginTop: 16 }}>
+          <div className="panel-head"><span className="panel-title" id="probe-result">{verdict.title}</span></div>
+          <div className="panel-body" style={{ display: "grid", gap: 10 }}>
+            <p className="muted">{verdict.detail}</p>
+            {finalResult && <p className="muted">{finalResult}</p>}
+            {txhash && <a className="btn btn-ghost btn-sm" style={{ justifySelf: "start" }} href={`https://explore.qore.network/tx/${txhash}`} target="_blank" rel="noreferrer">Open in explorer</a>}
+          </div>
+        </section>}
       </div>
-    </section>}
-  </main>;
+    </main>
+  </div>;
 }

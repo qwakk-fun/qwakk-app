@@ -3,7 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { BRAND } from "../lib/brand";
 import { QORECHAIN_DIANA } from "../lib/qorex-native";
+import { BrandMark } from "./BrandMark";
+
+const NAV_ITEMS = [
+  { page: "swap", href: "/swap", label: "Trade" },
+  { page: "pools", href: "/pools", label: "Pools" },
+  { page: "profile", href: "/profile", label: "Portfolio" },
+] as const;
 
 const QOREX_INSTALL_URL = "https://chromewebstore.google.com/detail/qorex/cflpnggbnnifibblifgbeobogdpfjpcg";
 
@@ -52,7 +60,7 @@ export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (addr
       window.dispatchEvent(new Event("qora:wallet-change"));
       setWalletAddress(key.bech32Address);
       onConnected?.(key.bech32Address);
-      setNotice("Wallet connected. Your Qora profile is ready.");
+      setNotice("Wallet connected. Your portfolio is ready.");
     } catch (error) {
       setNotice(walletConnectionMessage(error));
     } finally {
@@ -63,11 +71,18 @@ export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (addr
   const walletLabel = walletAddress ? `${walletAddress.slice(0, 7)}…${walletAddress.slice(-4)}` : isConnecting ? "Connecting…" : "Connect wallet";
 
   return <>
-    <nav className="nav" aria-label="Primary navigation">
-      <Link className="brand" href="/" aria-label="Qora home"><img className="brand-mark" src="/qora-mark.png" alt="" /><span>QORA</span></Link>
-      <div className="nav-links" aria-label="Sections"><Link className={page === "swap" ? "active" : ""} href="/swap">Swap</Link><Link className={page === "pools" ? "active" : ""} href="/pools">Pools</Link><Link className={page === "profile" ? "active" : ""} href="/profile">Profile</Link></div>
-      <button className="wallet-button" onClick={() => void connectWallet()} disabled={isConnecting}>{walletLabel}</button>
-    </nav>
-    {notice && <div className="notice" role="status"><span>{notice}</span>{needsQoreX && <a href={QOREX_INSTALL_URL} target="_blank" rel="noreferrer">Install QoreX ↗</a>}<button onClick={() => { setNotice(""); setNeedsQoreX(false); }} aria-label="Dismiss notice">×</button></div>}
+    <header className="topbar">
+      <div className="container topbar-inner">
+        <Link className="brand" href="/" aria-label={`${BRAND.name} home`}><BrandMark size={28} /><span>{BRAND.name}</span></Link>
+        <nav className="nav" aria-label="Primary navigation">
+          {NAV_ITEMS.map((item) => <Link key={item.page} className={`nav-link ${page === item.page ? "is-active" : ""}`} href={item.href} aria-current={page === item.page ? "page" : undefined}>{item.label}</Link>)}
+        </nav>
+        <div className="topbar-actions">
+          <span className="network-pill"><i aria-hidden="true" />QoreChain Diana</span>
+          <button type="button" className={`btn btn-sm ${walletAddress ? "btn-ghost" : "btn-primary"}`} onClick={() => void connectWallet()} disabled={isConnecting}>{walletLabel}</button>
+        </div>
+      </div>
+    </header>
+    {notice && <div className="toast" role="status"><span>{notice}</span>{needsQoreX && <a href={QOREX_INSTALL_URL} target="_blank" rel="noreferrer">Install QoreX ↗</a>}<button type="button" onClick={() => { setNotice(""); setNeedsQoreX(false); }} aria-label="Dismiss notice">×</button></div>}
   </>;
 }

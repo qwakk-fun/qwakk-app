@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ArrowDownLeft, ArrowUpRight, ExternalLink, Wallet } from "lucide-react";
 import { QoraHeader } from "../../components/QoraHeader";
+import { SiteFooter } from "../../components/SiteFooter";
 import { TokenIcon } from "../../components/TokenIcon";
+import { useQorMarket } from "../../components/useQorMarket";
 import { assetForDenom, displaySymbol, formatBaseAmount } from "../../lib/qora-assets";
-import { ArrowDownLeft, ArrowUpRight, ExternalLink } from "lucide-react";
+import { formatUsdCompact } from "../../lib/qor-price";
 
 type Balance = { denom: string; amount: string };
 type Activity = { hash: string; timestamp: string; status: "success" | "failed"; label: string; direction: "in" | "out" | "action"; amount: string; denom: string };
@@ -84,6 +87,9 @@ export default function Profile() {
   }, [loadBalances, loadTransactions, loadPositions]);
 
   const qorBalance = balances.find((balance) => balance.denom === "uqor");
+  const market = useQorMarket("1");
+  // Display only: a float is precise enough to show a dollar estimate.
+  const qorUsd = qorBalance && market.data ? Number(formatBaseAmount(qorBalance.amount, 6, 6)) * market.data.price : null;
   const positionsNote = positionsLoading
     ? "Checking your positions"
     : positions === null
@@ -98,33 +104,56 @@ export default function Profile() {
     void loadTransactions(walletAddress);
     void loadPositions(walletAddress);
   };
-  return <main className="profile-shell">
+  return <div className="app-shell">
     <QoraHeader page="profile" onConnected={handleConnected} />
+    <main className="app-main">
+      <div className="container">
+        <section className="page-head">
+          <div>
+            <h1>Portfolio</h1>
+            <p>Balances, pool shares and recent activity for your QoreChain wallet.</p>
+          </div>
+          {address && <button type="button" className="btn btn-ghost btn-sm" onClick={() => { void loadBalances(address); void loadPositions(address); void loadTransactions(address); }} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>}
+        </section>
 
-    <section className="profile-hero">
-      <p className="eyebrow"><span className="status-dot online" /> WALLET OVERVIEW</p>
-      <div className="profile-title-row"><div><h1>Your Qora profile.</h1><p>See the assets and liquidity linked to your wallet, all in one place.</p></div><button type="button" className="outline-button" onClick={() => void loadBalances(address)} disabled={loading || !address}>{loading ? "Refreshing…" : "Refresh balances"}</button></div>
-    </section>
+        {!address ? <section className="panel empty">
+          <span className="empty-icon"><Wallet size={18} /></span>
+          <h3>Connect a wallet to see your portfolio</h3>
+          <p>Use Connect wallet at the top of the page. Only your public address is shared.</p>
+        </section> : <>
+          <section className="overview-grid" aria-label="Wallet overview">
+            <div className="stat-card stat"><span className="stat-label">Connected wallet</span><span className="stat-value">{shortAddress}</span><span className="address-value">{address}</span></div>
+            <div className="stat-card stat"><span className="stat-label">QOR balance</span><span className="stat-value num">{qorBalance ? formatBalance(qorBalance.amount, qorBalance.denom) : "0"}</span><span className="subtle">{qorUsd === null ? "USD value not available" : `About ${formatUsdCompact(qorUsd)} at the CoinGecko price`}</span></div>
+            <div className="stat-card stat" id="positions"><span className="stat-label">Pool positions</span><span className="stat-value num">{positions ?? "Not available"}</span><span className="subtle">{positionsNote}</span></div>
+          </section>
 
-    {!address ? <section className="profile-empty"><span className="empty-mark">+</span><h2>Connect a wallet first</h2><p>Use Connect wallet above and your balances will appear here.</p></section> : <>
-      <section className="wallet-overview">
-        <article className="address-card"><span>CONNECTED WALLET</span><strong>{shortAddress}</strong><p>{address}</p></article>
-        <article className="qor-card"><span>QOR BALANCE</span><strong>{qorBalance ? formatBalance(qorBalance.amount, qorBalance.denom) : "0"}</strong><p>QOR · available in your wallet</p></article>
-        <article className="position-card" id="positions"><span>LIQUIDITY POSITIONS</span><strong>{positions ?? "Not available"}</strong><p>{positionsNote}</p></article>
-      </section>
+          <div className="portfolio-sections">
+            <section className="panel assets-table" aria-labelledby="assets-title">
+              <div className="panel-head"><span className="panel-title" id="assets-title">Assets</span><span className="subtle">{balances.length} {balances.length === 1 ? "token" : "tokens"}</span></div>
+              {error ? <div className="empty"><h3>Balances could not be loaded</h3><p>{error}</p><button type="button" className="btn btn-ghost btn-sm" onClick={() => void loadBalances(address)}>Try again</button></div>
+                : loading ? <div className="empty"><p>Reading your balances…</p></div>
+                : balances.length ? <div className="table">{balances.map((balance) => <div className="table-row" key={balance.denom}>
+                  <span className="cell-main"><TokenIcon denom={balance.denom} size="regular" /><span><b>{displaySymbol(balance.denom)}</b><small>{balance.denom}</small></span></span>
+                  <b className="num">{formatBalance(balance.amount, balance.denom)}</b>
+                </div>)}</div>
+                : <div className="empty"><h3>No tokens yet</h3><p>Assets sent to this wallet will appear here.</p></div>}
+            </section>
 
-      <section className="asset-section">
-        <div className="asset-heading"><div><p className="kicker">YOUR ASSETS</p><h2>Tokens in your wallet</h2></div><span>{balances.length} assets</span></div>
-        {error ? <div className="profile-empty compact"><h3>Couldn&apos;t load balances</h3><p>{error}</p><button type="button" className="outline-button" onClick={() => void loadBalances(address)}>Try again</button></div> : loading ? <div className="profile-empty compact"><p>Reading your wallet balances…</p></div> : balances.length ? <div className="asset-list">{balances.map((balance) => <article className="asset-row" key={balance.denom}><TokenIcon denom={balance.denom} size="regular" /> <div><strong>{displaySymbol(balance.denom)}</strong><small>{balance.denom}</small></div><b>{formatBalance(balance.amount, balance.denom)}</b></article>)}</div> : <div className="profile-empty compact"><span className="empty-mark">+</span><h3>No tokens to show yet</h3><p>When assets arrive in this wallet, they&apos;ll show up here automatically.</p></div>}
-      </section>
-
-      <section className="activity-section">
-        <div className="asset-heading"><div><p className="kicker">RECENT ACTIVITY</p><h2>Latest transactions</h2></div><button type="button" className="outline-button" onClick={() => void loadTransactions(address)} disabled={transactionsLoading}>{transactionsLoading ? "Refreshing…" : "Refresh"}</button></div>
-        {transactionsError ? <div className="activity-empty"><p>{transactionsError}</p><button type="button" className="outline-button" onClick={() => void loadTransactions(address)}>Try again</button></div> : transactionsLoading ? <div className="activity-empty"><p>Reading your recent activity…</p></div> : transactions.length ? <div className="activity-list">{transactions.map((transaction) => <a className="activity-row" href={`https://explore.qore.network/tx/${transaction.hash}`} target="_blank" rel="noreferrer" key={transaction.hash}><span className={`activity-icon ${transaction.direction}`}>{transaction.direction === "in" ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}</span><span><b>{transaction.label}</b><small>{transaction.timestamp ? new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(transaction.timestamp)) : "Confirmed"} · {transaction.hash.slice(0, 10)}…</small></span><span className="activity-value">{transaction.amount ? `${formatBalance(transaction.amount, transaction.denom)} ${displaySymbol(transaction.denom)}` : "View details"}<ExternalLink size={13} /></span></a>)}</div> : <div className="activity-empty"><p>No recent transactions found for this wallet yet.</p></div>}
-      </section>
-
-      <section className="profile-note"><span>QORA WALLET</span><p>Your balances and liquidity positions, collected in one clear view.</p></section>
-
-    </>}
-  </main>;
+            <section className="panel activity-table" aria-labelledby="activity-title">
+              <div className="panel-head"><span className="panel-title" id="activity-title">Recent activity</span>{transactionsLoading && <span className="subtle">Refreshing…</span>}</div>
+              {transactionsError ? <div className="empty"><p>{transactionsError}</p><button type="button" className="btn btn-ghost btn-sm" onClick={() => void loadTransactions(address)}>Try again</button></div>
+                : transactionsLoading && !transactions.length ? <div className="empty"><p>Reading your recent activity…</p></div>
+                : transactions.length ? <div className="table">{transactions.map((transaction) => <a className="table-row" href={`https://explore.qore.network/tx/${transaction.hash}`} target="_blank" rel="noreferrer" key={transaction.hash}>
+                  <span className={`activity-icon ${transaction.direction}`}>{transaction.direction === "in" ? <ArrowDownLeft size={15} /> : <ArrowUpRight size={15} />}</span>
+                  <span className="cell-main"><span><b>{transaction.label}</b><small>{transaction.timestamp ? new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(transaction.timestamp)) : "Confirmed"} · {transaction.hash.slice(0, 10)}…</small></span></span>
+                  <span className="num">{transaction.amount ? `${formatBalance(transaction.amount, transaction.denom)} ${displaySymbol(transaction.denom)}` : <ExternalLink size={14} className="subtle" />}</span>
+                </a>)}</div>
+                : <div className="empty"><p>No recent transactions for this wallet.</p></div>}
+            </section>
+          </div>
+        </>}
+      </div>
+    </main>
+    <SiteFooter />
+  </div>;
 }

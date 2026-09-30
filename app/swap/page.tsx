@@ -2,9 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ArrowDownUp, Layers } from "lucide-react";
+import { PriceChart } from "../../components/PriceChart";
 import { QoraHeader } from "../../components/QoraHeader";
+import { SiteFooter } from "../../components/SiteFooter";
 import { TokenIcon } from "../../components/TokenIcon";
+import { useQorMarket } from "../../components/useQorMarket";
 import { assetForDenom, displaySymbol, formatBaseAmount, toBaseAmount } from "../../lib/qora-assets";
+import { MARKET_RANGES, MARKET_RANGE_LABELS, formatChange, formatUsdCompact, formatUsdPrice, type MarketRange } from "../../lib/qor-price";
 
 type RawPool = {
   id?: string | number;
@@ -56,6 +61,8 @@ export default function SwapPage() {
   const [feeConfig, setFeeConfig] = useState<FeeConfig>({ enabled: false, feeBps: 5 });
   const [networkState, setNetworkState] = useState<NetworkState>("checking");
   const [lastUpdated, setLastUpdated] = useState("Checking QoreChain Diana markets");
+  const [range, setRange] = useState<MarketRange>("7");
+  const market = useQorMarket(range);
 
   const selectedPool = useMemo(
     () => pools.find((pool) => poolId(pool) === selectedPoolId) ?? pools[0],
@@ -156,31 +163,85 @@ export default function SwapPage() {
     setReversed(false);
   }
 
-  const output = quote ? formatBaseAmount(quote.amountOut, outputDecimals, 6) : quoteState === "loading" ? "Quoting…" : "Unavailable";
-  const outputUnit = outputDecimals === 0 && denomOut ? `${denomOut} base units` : `Estimated ${shortDenom(denomOut)}`;
+  const output = quote ? formatBaseAmount(quote.amountOut, outputDecimals, 6) : quoteState === "loading" ? "…" : "0.0";
+  const outputHint = quoteState === "unavailable" ? quoteError : !selectedPool ? "A quote appears once QoreChain Diana has a pool." : outputDecimals === 0 && denomOut ? `${denomOut} base units` : `Estimated ${shortDenom(denomOut)}`;
+  const inputHint = inputDecimals === 0 && denomIn ? `Enter ${denomIn} base units.` : `Enter ${shortDenom(denomIn || "uqor")}. Converted to the on-chain unit for you.`;
   const feeBps = quote?.interfaceFee.feeBps ?? feeConfig.feeBps;
   const feeEnabled = quote?.interfaceFee.enabled ?? feeConfig.enabled;
-  const feeLabel = feeEnabled ? `${(feeBps / 100).toFixed(2)}%` : "Disabled";
-  const readiness = networkState === "checking" ? "Checking QoreChain Diana" : networkState === "unavailable" ? "QoreChain Diana unavailable" : pools.length ? "Live quotes connected" : "Quote engine ready";
+  const feeLabel = feeEnabled ? `${(feeBps / 100).toFixed(2)}%` : "None";
+  const readiness = networkState === "checking" ? "Checking QoreChain Diana" : networkState === "unavailable" ? "QoreChain Diana is unavailable" : pools.length ? "Live quotes from the native AMM" : "No QoreChain Diana pool is open yet";
+  const change = market.data?.change24h ?? null;
 
-  return <main className="profile-shell swap-shell">
+  return <div className="app-shell">
     <QoraHeader page="swap" />
-    <section className="swap-page-hero"><p className="eyebrow">SIMPLE SWAPS ON QORECHAIN</p><h1>Know your price <em>first.</em></h1><p>Pick a pool on QoreChain Diana for a live on-chain estimate, with price protection and every fee shown up front.</p></section>
-    <section className="swap-workspace" aria-label="Swap workspace">
-      <div className="swap-card swap-card-expanded">
-        <div className="card-heading"><div><p className="kicker">QUOTE</p><h2>Choose your assets</h2></div></div>
-        <div className={`swap-readiness ${networkState === "unavailable" ? "offline" : ""}`}><span className={`status-dot small ${networkState === "unavailable" ? "" : "online"}`} /><span>{readiness}</span><b>QORECHAIN DIANA</b></div>
-        <label className="amount-box"><span>You send</span><div className="amount-row"><input aria-label={`You send amount in ${shortDenom(denomIn)}`} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /><span className="token"><TokenIcon denom={denomIn || "uqor"} size="small" />{shortDenom(denomIn || "uqor")}</span></div><small>{inputDecimals === 0 && denomIn ? `Enter ${denomIn} base units.` : `Enter ${shortDenom(denomIn || "uqor")}. Qora converts it to the on-chain unit.`}</small></label>
-        <button type="button" className="flip" aria-label="Switch swap tokens" disabled={!selectedPool} onClick={() => setReversed((current) => !current)}>↓</button>
-        <label className="amount-box receive-box"><span>You receive</span><div className="amount-row muted-row"><output>{output}</output><span className="token"><TokenIcon denom={denomOut || "uusdc"} size="small" />{shortDenom(denomOut || "uusdc")}</span></div><small>{quoteState === "unavailable" ? quoteError : selectedPool ? outputUnit : "A live quote will appear once QoreChain Diana has a pool."}</small></label>
-        <div className="swap-details"><span>Quote <b>{quoteState === "ready" ? "Live" : quoteState === "loading" ? "Loading" : "Waiting"}</b></span><label>Slippage <select value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={10}>0.10%</option><option value={50}>0.50%</option><option value={100}>1.00%</option></select></label><span>Qora fee <b>{feeLabel}</b></span></div>
+    <main className="app-main">
+      <div className="container trade-grid">
+        <div className="trade-main">
+          <section className="panel pair-bar" aria-label="QOR market">
+            <div className="pair-title"><TokenIcon denom="uqor" size="large" /><div><b>QOR <span className="subtle">/ USD</span></b><span className="cell-sub">QoreChain</span></div></div>
+            <div><div className="pair-price">{market.data ? formatUsdPrice(market.data.price) : market.status === "unavailable" ? "Not available" : "…"}</div><span className={`change-cell ${change !== null && change < 0 ? "down" : "up"}`}>{market.data ? `${formatChange(change)} 24h` : ""}</span></div>
+            <div className="pair-stats">
+              <div className="stat"><span className="stat-label">24h volume</span><span className="stat-value">{formatUsdCompact(market.data?.volume24h ?? null)}</span></div>
+              <div className="stat"><span className="stat-label">Market cap</span><span className="stat-value">{formatUsdCompact(market.data?.marketCap ?? null)}</span></div>
+            </div>
+          </section>
+
+          <section className="panel" aria-labelledby="chart-title">
+            <div className="panel-head">
+              <span className="panel-title" id="chart-title">QOR price in USD</span>
+              <div className="segmented" role="group" aria-label="Chart range">{MARKET_RANGES.map((option) => <button type="button" key={option} aria-pressed={option === range} onClick={() => setRange(option)}>{MARKET_RANGE_LABELS[option]}</button>)}</div>
+            </div>
+            {market.data && market.data.points.length > 1
+              ? <PriceChart points={market.data.points} dimmed={market.status === "refreshing"} />
+              : <div className="chart-empty" style={{ height: 360 }}>{market.status === "unavailable" ? "QOR market data is temporarily unavailable." : "Loading QOR market data…"}</div>}
+            <p className="panel-note">QOR market across exchanges, from <a href="https://www.coingecko.com/en/coins/qorechain" target="_blank" rel="noreferrer">CoinGecko</a>. Pool prices on QoreChain Diana can differ.</p>
+          </section>
+
+          <section className="panel" aria-labelledby="pools-title">
+            <div className="panel-head"><span className="panel-title" id="pools-title">QoreChain Diana pools</span><span className="subtle"><span className={`dot ${networkState === "ready" ? "live" : ""}`} /> {lastUpdated}</span></div>
+            {pools.length ? <div className="table">{pools.map((pool, index) => {
+              const id = poolId(pool) || String(index + 1);
+              const tokenA = poolDenom(pool, "a");
+              const tokenB = poolDenom(pool, "b");
+              const selected = id === poolId(selectedPool);
+              return <button type="button" className={`table-row pool-pick ${selected ? "is-selected" : ""}`} key={id} onClick={() => selectPool(pool)} aria-pressed={selected}>
+                <span className="cell-main"><span className="pair-icons"><TokenIcon denom={tokenA} size="regular" /><TokenIcon denom={tokenB} size="regular" /></span><span><b>{shortDenom(tokenA)} / {shortDenom(tokenB)}</b><small>{poolKind(pool)}</small></span></span>
+                <span className="subtle mono">#{id}</span>
+              </button>;
+            })}</div> : <div className="empty">
+              <span className="empty-icon"><Layers size={18} /></span>
+              <h3>No pools are open yet</h3>
+              <p>QoreChain Diana has no native AMM pool right now. This list and the quote card update on their own when the first one opens.</p>
+              <Link className="btn btn-ghost btn-sm" href="/pools">View all markets</Link>
+            </div>}
+          </section>
+        </div>
+
+        <aside className="panel quote-card" aria-labelledby="quote-title">
+          <div className="panel-head"><span className="panel-title" id="quote-title">Quote</span><span className="kicker">Native AMM</span></div>
+          <div className="panel-body">
+            <label className="quote-field">
+              <span className="quote-field-top"><span>You pay</span></span>
+              <span className="quote-field-row"><input aria-label={`Amount in ${shortDenom(denomIn || "uqor")}`} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /><span className="token-chip"><TokenIcon denom={denomIn || "uqor"} size="small" />{shortDenom(denomIn || "uqor")}</span></span>
+              <span className="quote-hint">{inputHint}</span>
+            </label>
+            <button type="button" className="quote-switch" aria-label="Switch tokens" disabled={!selectedPool} onClick={() => setReversed((current) => !current)}><ArrowDownUp size={16} /></button>
+            <div className="quote-field">
+              <span className="quote-field-top"><span>You receive</span></span>
+              <span className="quote-field-row"><output aria-live="polite">{output}</output>{denomOut ? <span className="token-chip"><TokenIcon denom={denomOut} size="small" />{shortDenom(denomOut)}</span> : <span className="token-chip subtle">Select a pool</span>}</span>
+              <span className={`quote-hint ${quoteState === "unavailable" ? "is-error" : ""}`}>{outputHint}</span>
+            </div>
+            <div className="quote-meta">
+              <div className="quote-meta-row"><span>Minimum received</span><b className="num">{quote ? `${formatBaseAmount(quote.minOut, outputDecimals, 6)} ${shortDenom(denomOut)}` : "Not available"}</b></div>
+              <div className="quote-meta-row"><span>Pool fee</span><b className="num">{quote ? `${formatBaseAmount(quote.nativeAmmFee, inputDecimals, 6)} ${shortDenom(denomIn)}` : "Not available"}</b></div>
+              <div className="quote-meta-row"><span>Interface fee</span><b>{feeLabel}</b></div>
+              <div className="quote-meta-row"><label htmlFor="slippage">Price protection</label><select id="slippage" value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={10}>0.10%</option><option value={50}>0.50%</option><option value={100}>1.00%</option></select></div>
+            </div>
+            <p className="quote-status"><span className={`dot ${networkState === "ready" && pools.length ? "live" : ""}`} />{readiness}</p>
+          </div>
+        </aside>
       </div>
-      <aside className="market-card swap-market-card"><div className="card-heading"><div><p className="kicker">AVAILABLE MARKETS</p><h2>Choose a pool</h2></div><span className="pool-count">{pools.length}</span></div><p className="muted-copy">Select a pool to quote it in the card.</p>{pools.length ? <div className="pool-list">{pools.map((pool, index) => {
-        const id = poolId(pool) || String(index + 1);
-        const tokenA = poolDenom(pool, "a");
-        const tokenB = poolDenom(pool, "b");
-        return <button className={`pool-row pool-choice ${id === poolId(selectedPool) ? "selected" : ""}`} type="button" key={id} onClick={() => selectPool(pool)}><span className="pair-icons"><TokenIcon denom={tokenA} size="small" /><TokenIcon denom={tokenB} size="small" /></span><span><b>{shortDenom(tokenA)} / {shortDenom(tokenB)}</b><small>{poolKind(pool)}</small></span><span className="pool-id">#{id}</span></button>;
-      })}</div> : <div className="empty-state"><span className="empty-mark">✓</span><h3>Quote engine is connected</h3><p>QoreChain Diana has no AMM pool yet. Qora will detect and quote the first market automatically.</p><Link className="outline-button" href="/pools">View pool status</Link></div>}<p className="freshness"><span className={`status-dot small ${networkState === "unavailable" ? "" : "online"}`} /> {lastUpdated}</p></aside>
-    </section>
-  </main>;
+    </main>
+    <SiteFooter />
+  </div>;
 }

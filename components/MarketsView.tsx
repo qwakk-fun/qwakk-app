@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Search } from "lucide-react";
+import { ChevronRight, Layers, Search } from "lucide-react";
 import { QoraHeader } from "./QoraHeader";
+import { SiteFooter } from "./SiteFooter";
 import { TokenIcon } from "./TokenIcon";
+import { useQorMarket } from "./useQorMarket";
 import { formatBaseAmount } from "../lib/qora-assets";
+import { formatUsdPrice } from "../lib/qor-price";
 
 type Market = {
   id: string | number;
@@ -67,46 +70,56 @@ export function MarketsView() {
     return () => { active = false; window.clearInterval(timer); };
   }, []);
 
+  const qor = useQorMarket("1");
+  const swaps24h = markets.reduce((total, market) => total + (Number(market.transactions_24h) || 0), 0);
+
   const visibleMarkets = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return markets;
     return markets.filter((market) => `${market.token_a_symbol} ${market.token_b_symbol} ${market.token_a} ${market.token_b}`.toLowerCase().includes(needle));
   }, [markets, query]);
 
-  return <main className="market-shell">
+  return <div className="app-shell">
     <QoraHeader page="pools" />
-    <section className="market-topbar">
-      <div>
-        <p className="eyebrow">QORECHAIN MARKETS</p>
-        <h1>Explore every pool.</h1>
-        <p>Live markets, pricing and on-chain activity in one focused view.</p>
-      </div>
-      <label className="market-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search token or pool" aria-label="Search markets" /></label>
-    </section>
+    <main className="app-main">
+      <div className="container">
+        <section className="page-head">
+          <div>
+            <h1>Pools</h1>
+            <p>Every native AMM pool on QoreChain Diana, with prices and activity read from the chain.</p>
+          </div>
+          <label className="search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search token or pool" aria-label="Search pools" /></label>
+        </section>
 
-    <section className="market-toolbar" aria-label="Market data source">
-      <span className="market-source"><i />On-chain data</span>
-      <span className="market-source">{markets.length} {markets.length === 1 ? "pool" : "pools"}</span>
-    </section>
+        <section className="stat-row" aria-label="Pool summary">
+          <div className="stat-card stat"><span className="stat-label">Open pools</span><span className="stat-value num">{state === "ready" ? markets.length : "…"}</span></div>
+          <div className="stat-card stat"><span className="stat-label">Swaps in 24h</span><span className="stat-value num">{state === "ready" ? decimal(swaps24h, 0) : "…"}</span></div>
+          <div className="stat-card stat"><span className="stat-label">QOR price (CoinGecko)</span><span className="stat-value">{qor.data ? formatUsdPrice(qor.data.price) : "…"}</span></div>
+        </section>
 
-    <section className="market-table-wrap" aria-label="QoreChain markets">
-      <div className="market-table">
-        <div className="market-row market-head"><span>Market</span><span>Price</span><span>24h activity</span><span>24h change</span><span>Pool reserves</span><span aria-hidden="true" /></div>
-        {state === "loading" && <div className="terminal-empty">Reading current pool data.</div>}
-        {state === "unavailable" && <div className="terminal-empty"><span className="status-dot" />Market data is temporarily unavailable. Please refresh shortly.</div>}
-        {state === "ready" && visibleMarkets.length === 0 && <div className="terminal-empty"><span className="status-dot" />{markets.length === 0 ? "There are no active QoreChain pools yet." : "No markets match your search."}</div>}
-        {visibleMarkets.map((market) => {
-          const percentage = change(market);
-          return <Link className="market-row market-data" href={`/pools/${market.id}`} key={market.id}>
-            <span className="market-pair"><span className="pair-icons"><TokenIcon denom={market.token_a} size="regular" /><TokenIcon denom={market.token_b} size="regular" /></span><span><b>{market.token_a_symbol} / {market.token_b_symbol}</b><small>Pool #{market.id} · {market.pool_type.replace(/_/g, " ")}</small></span></span>
-            <span><b>{market.price_b_per_a === null ? "No trades yet" : `${decimal(market.price_b_per_a)} ${market.token_b_symbol}`}</b><small>per {market.token_a_symbol}</small></span>
-            <span><b>{decimal(market.transactions_24h, 0)} swaps</b><small>{market.volume_qor_24h === null ? "Volume not priced in QOR" : `${decimal(market.volume_qor_24h, 4)} QOR`}</small></span>
-            <span className={percentage === null ? "market-neutral" : percentage >= 0 ? "market-positive" : "market-negative"}>{percentage === null ? "Not available" : `${percentage >= 0 ? "+" : ""}${decimal(percentage, 2)}%`}</span>
-            <span className="reserve-cell"><b>{reserve(market.reserve_a, market.token_a_decimals, market.token_a_symbol)}</b><small>{reserve(market.reserve_b, market.token_b_decimals, market.token_b_symbol)}</small></span>
-            <ArrowUpRight size={18} aria-hidden="true" />
-          </Link>;
-        })}
+        <section className="panel markets-table" aria-label="QoreChain Diana pools" style={{ marginTop: 16 }}>
+          <div className="table">
+            <div className="table-row table-head"><span>Pool</span><span className="num">Price</span><span className="num hide-sm">24h swaps</span><span className="num hide-sm">24h change</span><span className="num hide-sm">Reserves</span><span aria-hidden="true" /></div>
+            {state === "loading" && <div className="empty"><p>Reading pools from QoreChain Diana…</p></div>}
+            {state === "unavailable" && <div className="empty"><h3>Pool data is temporarily unavailable</h3><p>The market indexer could not be reached. This page retries on its own.</p></div>}
+            {state === "ready" && visibleMarkets.length === 0 && (markets.length === 0
+              ? <div className="empty"><span className="empty-icon"><Layers size={18} /></span><h3>No pools are open yet</h3><p>The first native AMM pool on QoreChain Diana will show up here with its price, activity and chart.</p></div>
+              : <div className="empty"><h3>No pools match your search</h3><p>Try a token symbol such as QOR.</p></div>)}
+            {visibleMarkets.map((market) => {
+              const percentage = change(market);
+              return <Link className="table-row" href={`/pools/${market.id}`} key={market.id}>
+                <span className="cell-main"><span className="pair-icons"><TokenIcon denom={market.token_a} size="regular" /><TokenIcon denom={market.token_b} size="regular" /></span><span><b>{market.token_a_symbol} / {market.token_b_symbol}</b><small>#{market.id} · {market.pool_type.replace(/_/g, " ")}</small></span></span>
+                <span className="num"><b>{market.price_b_per_a === null ? "No trades yet" : decimal(market.price_b_per_a)}</b><span className="cell-sub">{market.token_b_symbol} per {market.token_a_symbol}</span></span>
+                <span className="num hide-sm"><b>{decimal(market.transactions_24h, 0)}</b><span className="cell-sub">{market.volume_qor_24h === null ? "Volume not in QOR" : `${decimal(market.volume_qor_24h, 4)} QOR`}</span></span>
+                <span className={`num hide-sm change-cell ${percentage === null ? "subtle" : percentage >= 0 ? "up" : "down"}`}>{percentage === null ? "Not available" : `${percentage >= 0 ? "▲" : "▼"} ${decimal(Math.abs(percentage), 2)}%`}</span>
+                <span className="num hide-sm"><b>{reserve(market.reserve_a, market.token_a_decimals, market.token_a_symbol)}</b><span className="cell-sub">{reserve(market.reserve_b, market.token_b_decimals, market.token_b_symbol)}</span></span>
+                <ChevronRight size={16} className="subtle" aria-hidden="true" />
+              </Link>;
+            })}
+          </div>
+        </section>
       </div>
-    </section>
-  </main>;
+    </main>
+    <SiteFooter />
+  </div>;
 }

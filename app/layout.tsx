@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { BRAND } from "../lib/brand";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -12,23 +13,25 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const title = `${BRAND.name} | ${BRAND.tagline.replace(/\.$/, "")}`;
+
 export const metadata: Metadata = {
-  title: "Qora | Simple swaps on QoreChain",
-  description: "Simple, non-custodial swaps and liquidity on QoreChain.",
+  title,
+  description: BRAND.description,
   openGraph: {
-    title: "Qora | Simple swaps on QoreChain",
-    description: "Simple, non-custodial swaps on QoreChain.",
-    images: [{ url: "/og.png", width: 1734, height: 909, alt: "Qora | Simple swaps on QoreChain" }],
+    title,
+    description: BRAND.description,
+    images: [{ url: "/og.png", width: 1734, height: 909, alt: title }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Qora | Simple swaps on QoreChain",
-    description: "Simple, non-custodial swaps on QoreChain.",
+    title,
+    description: BRAND.description,
     images: ["/og.png"],
   },
   icons: {
-    icon: "/qora-mark.png",
-    shortcut: "/qora-mark.png",
+    icon: "/brand-mark.svg",
+    shortcut: "/brand-mark.svg",
   },
 };
 

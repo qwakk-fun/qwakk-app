@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { QoraHeader } from "./QoraHeader";
+import { SiteFooter } from "./SiteFooter";
 import { TokenIcon } from "./TokenIcon";
 import { PoolChart, type PoolCandle } from "./PoolChart";
 import { formatBaseAmount } from "../lib/qora-assets";
+import { BRAND } from "../lib/brand";
 import { CHART_INTERVALS, CHART_INTERVAL_LABELS, type ChartInterval } from "../lib/qora-chart";
 
 type Pool = {
@@ -24,7 +26,13 @@ type Pool = {
   reserve_a: string;
   reserve_b: string;
   weighted_avg_price: string | number | null;
+  lp_supply?: string | null;
+  creator?: string | null;
+  created_height?: string | number | null;
 };
+
+/** QoreChain AMM params report lp_token_decimals = 6 on Diana and mainnet. */
+const LP_TOKEN_DECIMALS = 6;
 
 type Swap = {
   tx_hash: string;
@@ -89,37 +97,67 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
   }, [poolId, chartInterval]);
 
   if (state !== "ready" || !detail) {
-    const message = state === "loading" ? "Reading current pool data." : state === "missing" ? "This pool is no longer available." : "Pool data is temporarily unavailable. Please refresh shortly.";
-    return <main className="market-shell"><QoraHeader page="pools" /><section className="pool-loading"><Link href="/pools"><ArrowLeft size={16} />All markets</Link><div className="terminal-empty">{message}</div></section></main>;
+    const message = state === "loading" ? "Reading current pool data…" : state === "missing" ? "This pool does not exist on QoreChain Diana." : "Pool data is temporarily unavailable. This page retries on its own.";
+    return <div className="app-shell"><QoraHeader page="pools" /><main className="app-main"><div className="container"><Link className="back-link" href="/pools"><ArrowLeft size={15} />All pools</Link><div className="panel empty"><p>{message}</p></div></div></main><SiteFooter /></div>;
   }
 
   const { pool, candles, swaps } = detail;
-  return <main className="market-shell pool-detail-shell">
+  return <div className="app-shell">
     <QoraHeader page="pools" />
-    <section className="pool-titlebar">
-      <Link className="pool-back" href="/pools"><ArrowLeft size={16} />All markets</Link>
-      <div className="pool-title-main"><span className="pair-icons"><TokenIcon denom={pool.token_a} size="large" /><TokenIcon denom={pool.token_b} size="large" /></span><div><p>POOL #{pool.id}</p><h1>{pool.token_a_symbol} / {pool.token_b_symbol}</h1><span>{pool.token_a_name || pool.token_a_symbol} and {pool.token_b_name || pool.token_b_symbol}</span></div></div>
-      <div className="pool-title-price"><span>Latest price</span><b>{price(candles.at(-1)?.close ?? pool.weighted_avg_price, pool.token_b_symbol)}</b><small>per {pool.token_a_symbol}</small></div>
-    </section>
+    <main className="app-main">
+      <div className="container">
+        <Link className="back-link" href="/pools"><ArrowLeft size={15} />All pools</Link>
+        <section className="pool-head">
+          <div className="cell-main">
+            <span className="pair-icons"><TokenIcon denom={pool.token_a} size="large" /><TokenIcon denom={pool.token_b} size="large" /></span>
+            <div><span className="kicker">Pool #{pool.id}</span><h1>{pool.token_a_symbol} / {pool.token_b_symbol}</h1></div>
+          </div>
+          <div className="pool-head-price"><span className="stat-label">Latest price</span><strong>{price(candles.at(-1)?.close ?? pool.weighted_avg_price, pool.token_b_symbol)}</strong><span className="subtle">per {pool.token_a_symbol}</span></div>
+        </section>
 
-    <section className="pool-stat-grid" aria-label="Pool summary">
-      <article><span>Pool type</span><b>{pool.pool_type.replace(/_/g, " ")}</b></article>
-      <article><span>{pool.token_a_symbol} reserve</span><b>{formatBaseAmount(pool.reserve_a ?? "0", Number(pool.token_a_decimals), 6)}</b><small>{pool.token_a_symbol}</small></article>
-      <article><span>{pool.token_b_symbol} reserve</span><b>{formatBaseAmount(pool.reserve_b ?? "0", Number(pool.token_b_decimals), 6)}</b><small>{pool.token_b_symbol}</small></article>
-      <article><span>Recent swaps</span><b>{swaps.length}</b><small>indexed activity</small></article>
-    </section>
+        <section className="stat-row" aria-label="Pool summary">
+          <div className="stat-card stat"><span className="stat-label">{pool.token_a_symbol} reserve</span><span className="stat-value num">{formatBaseAmount(pool.reserve_a ?? "0", Number(pool.token_a_decimals), 6)}</span></div>
+          <div className="stat-card stat"><span className="stat-label">{pool.token_b_symbol} reserve</span><span className="stat-value num">{formatBaseAmount(pool.reserve_b ?? "0", Number(pool.token_b_decimals), 6)}</span></div>
+          <div className="stat-card stat"><span className="stat-label">Recent swaps</span><span className="stat-value num">{swaps.length}</span></div>
+        </section>
 
-    <section className="pool-terminal-grid">
-      <article className="chart-panel"><div className="panel-title"><div><p>PRICE HISTORY</p><h2>{pool.token_a_symbol} in {pool.token_b_symbol}</h2><span className="chart-window">{CHART_INTERVAL_LABELS[chartInterval]}</span></div><div className="chart-intervals" role="group" aria-label="Chart interval">{CHART_INTERVALS.map((option) => <button type="button" key={option} aria-pressed={option === chartInterval} onClick={() => setChartInterval(option)}>{option}</button>)}</div></div><PoolChart candles={candles} /></article>
-      <aside className="pool-side-panel"><p>MARKET STATUS</p><div className="pool-status"><i /><b>{pool.status}</b></div><div className="pool-side-rule" /><span>Liquidity is held in the pool. Qora does not custody assets.</span>
-      </aside>
-    </section>
+        <div className="pool-layout">
+          <section className="panel" aria-labelledby="pool-chart-title">
+            <div className="panel-head">
+              <div><span className="panel-title" id="pool-chart-title">{pool.token_a_symbol} price in {pool.token_b_symbol}</span><span className="cell-sub">{CHART_INTERVAL_LABELS[chartInterval]}</span></div>
+              <div className="segmented" role="group" aria-label="Chart interval">{CHART_INTERVALS.map((option) => <button type="button" key={option} aria-pressed={option === chartInterval} onClick={() => setChartInterval(option)}>{option}</button>)}</div>
+            </div>
+            <PoolChart candles={candles} />
+          </section>
+          <aside className="panel" aria-labelledby="pool-info-title">
+            <div className="panel-head"><span className="panel-title" id="pool-info-title">Pool details</span></div>
+            <div className="info-list">
+              <div><span>Status</span><b>{pool.status}</b></div>
+              <div><span>Type</span><b>{pool.pool_type.replace(/_/g, " ")}</b></div>
+              <div><span>LP supply</span><b className="num">{pool.lp_supply ? formatBaseAmount(pool.lp_supply, LP_TOKEN_DECIMALS, 4) : "Not available"}</b></div>
+              <div><span>Created at block</span><b className="num">{pool.created_height ? new Intl.NumberFormat("en-US").format(Number(pool.created_height)) : "Not available"}</b></div>
+              <div><span>Creator</span><b className="mono">{shortAddress(pool.creator ?? null)}</b></div>
+            </div>
+            <p className="panel-note">Liquidity is held by the pool on QoreChain. {BRAND.name} never holds assets.</p>
+          </aside>
+        </div>
 
-    <section className="transaction-panel"><div className="panel-title"><div><p>ON-CHAIN ACTIVITY</p><h2>Recent swaps</h2></div><span>{swaps.length} indexed</span></div>
-      <div className="transactions-table"><div className="transaction-row transaction-head"><span>Time</span><span>Action</span><span>From</span><span>To</span><span>Wallet</span><span>Transaction</span></div>
-        {swaps.length === 0 && <div className="terminal-empty">No swaps have been indexed for this pool yet.</div>}
-        {swaps.map((swap) => <div className="transaction-row" key={`${swap.tx_hash}-${swap.executed_at}`}><span>{dateTime(swap.executed_at)}</span><span className="swap-label">Swap</span><span>{amountForDenom(pool, swap.denom_in, swap.amount_in)} {symbolForDenom(pool, swap.denom_in)}</span><span>{amountForDenom(pool, swap.denom_out, swap.amount_out)} {symbolForDenom(pool, swap.denom_out)}</span><span>{shortAddress(swap.sender)}</span><a href={`https://explore.qore.network/tx/${swap.tx_hash}`} target="_blank" rel="noreferrer" aria-label="Open transaction in QoreChain explorer"><ExternalLink size={16} /></a></div>)}
+        <section className="panel swaps-table" aria-labelledby="swaps-title" style={{ marginTop: 16 }}>
+          <div className="panel-head"><span className="panel-title" id="swaps-title">Recent swaps</span><span className="subtle">{swaps.length} indexed</span></div>
+          <div className="table">
+            <div className="table-row table-head"><span>Time</span><span>Sold</span><span>Bought</span><span className="hide-sm">Wallet</span><span aria-hidden="true" /></div>
+            {swaps.length === 0 && <div className="empty"><p>No swaps have been indexed for this pool yet.</p></div>}
+            {swaps.map((swap) => <div className="table-row" key={`${swap.tx_hash}-${swap.executed_at}`}>
+              <span className="subtle">{dateTime(swap.executed_at)}</span>
+              <span className="num">{amountForDenom(pool, swap.denom_in, swap.amount_in)} {symbolForDenom(pool, swap.denom_in)}</span>
+              <span className="num">{amountForDenom(pool, swap.denom_out, swap.amount_out)} {symbolForDenom(pool, swap.denom_out)}</span>
+              <span className="mono subtle hide-sm">{shortAddress(swap.sender)}</span>
+              <a className="end subtle" href={`https://explore.qore.network/tx/${swap.tx_hash}`} target="_blank" rel="noreferrer" aria-label="Open transaction in the QoreChain explorer"><ExternalLink size={15} /></a>
+            </div>)}
+          </div>
+        </section>
       </div>
-    </section>
-  </main>;
+    </main>
+    <SiteFooter />
+  </div>;
 }

@@ -1,30 +1,69 @@
-import { QoraHeader } from "../components/QoraHeader";
-import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
+import { ArrowRight, Eye, KeyRound, Layers, ShieldCheck } from "lucide-react";
+import { StatsStrip, TickerCard } from "../components/LandingLive";
+import { QoraHeader } from "../components/QoraHeader";
+import { SiteFooter } from "../components/SiteFooter";
+import { BRAND } from "../lib/brand";
 
 export default function Home() {
-  return <main className="landing-shell">
+  return <div className="app-shell">
     <QoraHeader page="home" />
-    <section className="landing-hero" aria-labelledby="landing-title">
-      <div className="landing-copy">
-        <p className="eyebrow"><span className="status-dot online" /> QORECHAIN DIANA</p>
-        <h1 id="landing-title">Simple swaps.<br /><em>On QoreChain.</em></h1>
-        <p>Qora is a clear, non-custodial way to swap and provide liquidity on QoreChain. Every on-chain action is designed to feel straightforward.</p>
-        <div className="landing-actions"><Link className="landing-primary" href="/swap">Open Qora <ArrowUpRight size={17} strokeWidth={2.4} /></Link><Link className="landing-secondary" href="/pools">Explore pools</Link></div>
-        <div className="landing-trust"><span>Non-custodial</span><i /><span>Clear approvals</span><i /><span>Built on QoreChain</span></div>
-      </div>
-      <div className="landing-art" aria-label="Qora and QoreChain">
-        <span className="landing-ring ring-one" /><span className="landing-grid" />
-        <div className="qora-orb"><img src="/qora-mark.png" alt="Qora" /></div>
-      </div>
-    </section>
+    <main className="landing">
+      <section className="container hero" aria-labelledby="landing-title">
+        <div>
+          <span className="hero-badge"><b>Native</b>Built on the QoreChain AMM module</span>
+          <h1 id="landing-title">Simple swaps<br /><em>on QoreChain.</em></h1>
+          <p className="hero-copy">{BRAND.name} is a fast, non-custodial exchange for the QoreChain native network. Clear prices, visible fees, and your keys never leave your wallet.</p>
+          <div className="hero-actions">
+            <Link className="btn btn-primary btn-lg" href="/swap">Open app <ArrowRight size={17} /></Link>
+            <Link className="btn btn-ghost btn-lg" href="/pools">Explore pools</Link>
+          </div>
+          <div className="hero-trust">
+            <span><KeyRound size={15} />Non-custodial</span>
+            <span><ShieldCheck size={15} />Quantum-safe network</span>
+            <span><Eye size={15} />Fees shown up front</span>
+          </div>
+        </div>
+        <TickerCard />
+      </section>
 
-    <section className="landing-proof" aria-label="Qora principles">
-      <article><span>01</span><h2>Made to feel clear.</h2><p>Simple amounts, simple prices, and a calm confirmation flow without unnecessary trading clutter.</p></article>
-      <article><span>02</span><h2>Your wallet stays yours.</h2><p>Qora never takes custody. You review every on-chain action in your own wallet before it happens.</p></article>
-      <article><span>03</span><h2>Ready for what&apos;s next.</h2><p>Qora is built around QoreChain&apos;s native liquidity layer and its quantum-safe security foundation.</p></article>
-    </section>
+      <div className="container"><StatsStrip /></div>
 
-    <footer><span>QORA / QORECHAIN</span><span>Simple swaps on QoreChain</span><a href="https://docs.qorechain.io/" target="_blank" rel="noreferrer">Explore QoreChain ↗</a></footer>
-  </main>;
+      <section className="container section" aria-labelledby="features-title">
+        <div className="section-head">
+          <span className="kicker">Why {BRAND.name}</span>
+          <h2 id="features-title">A calmer way to trade on QoreChain.</h2>
+          <p>Everything you need to judge a trade sits on one screen, with nothing hidden behind extra steps.</p>
+        </div>
+        <div className="feature-grid">
+          <article className="panel feature">
+            <span className="feature-icon"><Layers size={19} /></span>
+            <h3>Native to QoreChain</h3>
+            <p>Pools and quotes come straight from the chain&apos;s own AMM module. No wrapped tokens and no separate contract layer.</p>
+          </article>
+          <article className="panel feature">
+            <span className="feature-icon"><KeyRound size={19} /></span>
+            <h3>Your wallet stays yours</h3>
+            <p>{BRAND.name} never holds keys or funds. Every on-chain action is approved in your own QoreX wallet.</p>
+          </article>
+          <article className="panel feature">
+            <span className="feature-icon"><Eye size={19} /></span>
+            <h3>Prices you can read</h3>
+            <p>Expected output, price protection and every fee are shown in plain numbers before anything reaches the chain.</p>
+          </article>
+        </div>
+      </section>
+
+      <section className="container">
+        <div className="panel cta-band">
+          <div>
+            <h2>Follow QOR and every pool in one place.</h2>
+            <p>Live QOR pricing, QoreChain Diana pools and your wallet, side by side.</p>
+          </div>
+          <Link className="btn btn-primary btn-lg" href="/swap">Open app <ArrowRight size={17} /></Link>
+        </div>
+      </section>
+    </main>
+    <SiteFooter />
+  </div>;
 }
