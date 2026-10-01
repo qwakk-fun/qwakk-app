@@ -83,7 +83,14 @@ export default function Profile() {
       void loadTransactions(savedAddress);
       void loadPositions(savedAddress);
     }, 0);
-    return () => window.clearTimeout(timer);
+    const refreshAfterTx = () => {
+      const current = window.localStorage.getItem("qora-wallet-address") ?? "";
+      void loadBalances(current);
+      void loadPositions(current);
+      void loadTransactions(current);
+    };
+    window.addEventListener("qora:tx-confirmed", refreshAfterTx);
+    return () => { window.clearTimeout(timer); window.removeEventListener("qora:tx-confirmed", refreshAfterTx); };
   }, [loadBalances, loadTransactions, loadPositions]);
 
   const qorBalance = balances.find((balance) => balance.denom === "uqor");

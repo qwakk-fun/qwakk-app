@@ -64,7 +64,7 @@ test("server-renders the QoreChain Diana quote workspace", async () => {
   assert.match(html, /Interface fee/);
   assert.match(html, /QOR price in USD/);
   // No wallet action is rendered until native signing works end to end.
-  assert.doesNotMatch(html, /Connect wallet to continue|Review live quote|Waiting for first pool/);
+  assert.doesNotMatch(html, /Connect wallet to continue|Review live quote|Waiting for first pool|Review swap|Confirm in QoreX/);
 });
 
 test("server-renders markets without unavailable pool actions", async () => {
@@ -74,5 +74,5 @@ test("server-renders markets without unavailable pool actions", async () => {
   const html = await response.text();
   assert.match(html, /Every native AMM pool on QoreChain Diana/);
   assert.match(html, /Open pools/);
-  assert.doesNotMatch(html, /Create a Native AMM pool|Prepare pool|MsgCreatePool|Most active/);
+  assert.doesNotMatch(html, /Create a Native AMM pool|Prepare pool|MsgCreatePool|Most active|New pool|Create pool/);
 });

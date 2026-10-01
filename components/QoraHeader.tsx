@@ -40,6 +40,13 @@ export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (addr
     return () => window.removeEventListener("qora:wallet-change", restoreWallet);
   }, []);
 
+  // Other components ask the header to connect, so there is one connect flow.
+  useEffect(() => {
+    const requestConnect = () => void connectWallet();
+    window.addEventListener("qora:request-connect", requestConnect);
+    return () => window.removeEventListener("qora:request-connect", requestConnect);
+  });
+
   async function connectWallet() {
     if (walletAddress) {
       if (page !== "profile") router.push("/profile");

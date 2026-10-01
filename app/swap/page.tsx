@@ -7,6 +7,9 @@ import { PriceChart } from "../../components/PriceChart";
 import { QoraHeader } from "../../components/QoraHeader";
 import { SiteFooter } from "../../components/SiteFooter";
 import { TokenIcon } from "../../components/TokenIcon";
+import { TxProgress } from "../../components/TxProgress";
+import { useFeatures } from "../../components/useFeatures";
+import { useNativeTransaction } from "../../components/useNativeTransaction";
 import { useQorMarket } from "../../components/useQorMarket";
 import { assetForDenom, displaySymbol, formatBaseAmount, toBaseAmount } from "../../lib/qora-assets";
 import { MARKET_RANGES, MARKET_RANGE_LABELS, formatChange, formatUsdCompact, formatUsdPrice, type MarketRange } from "../../lib/qor-price";
@@ -63,6 +66,11 @@ export default function SwapPage() {
   const [lastUpdated, setLastUpdated] = useState("Checking QoreChain Diana markets");
   const [range, setRange] = useState<MarketRange>("7");
   const market = useQorMarket(range);
+  const { nativeActions } = useFeatures();
+  const tx = useNativeTransaction();
+  const [walletAddress, setWalletAddress] = useState("");
+  const [reviewing, setReviewing] = useState(false);
+  const [quoteVersion, setQuoteVersion] = useState(0);
 
   const selectedPool = useMemo(
     () => pools.find((pool) => poolId(pool) === selectedPoolId) ?? pools[0],
@@ -94,6 +102,18 @@ export default function SwapPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => void refreshPools(), 0);
     return () => window.clearTimeout(timer);
+  }, [refreshPools]);
+
+  useEffect(() => {
+    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qora-wallet-address") ?? "");
+    const refreshAfterTx = () => { void refreshPools(); setQuoteVersion((value) => value + 1); };
+    restoreWallet();
+    window.addEventListener("qora:wallet-change", restoreWallet);
+    window.addEventListener("qora:tx-confirmed", refreshAfterTx);
+    return () => {
+      window.removeEventListener("qora:wallet-change", restoreWallet);
+      window.removeEventListener("qora:tx-confirmed", refreshAfterTx);
+    };
   }, [refreshPools]);
 
   useEffect(() => {
@@ -156,11 +176,23 @@ export default function SwapPage() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [amount, denomIn, denomOut, inputDecimals, selectedPool, slippageBps]);
+  }, [amount, denomIn, denomOut, inputDecimals, selectedPool, slippageBps, quoteVersion]);
 
   function selectPool(pool: RawPool) {
     setSelectedPoolId(poolId(pool));
     setReversed(false);
+    setReviewing(false);
+  }
+
+  function confirmSwap() {
+    if (!quote || !selectedPool) return;
+    let amountIn: string;
+    try {
+      amountIn = toBaseAmount(amount, inputDecimals);
+    } catch {
+      return;
+    }
+    void tx.run({ kind: "swap", poolId: poolId(selectedPool), denomIn, amountIn, denomOut, minOut: quote.minOut });
   }
 
   const output = quote ? formatBaseAmount(quote.amountOut, outputDecimals, 6) : quoteState === "loading" ? "…" : "0.0";
@@ -218,11 +250,11 @@ export default function SwapPage() {
         </div>
 
         <aside className="panel quote-card" aria-labelledby="quote-title">
-          <div className="panel-head"><span className="panel-title" id="quote-title">Quote</span><span className="kicker">Native AMM</span></div>
+          <div className="panel-head"><span className="panel-title" id="quote-title">{nativeActions ? "Swap" : "Quote"}</span><span className="kicker">Native AMM</span></div>
           <div className="panel-body">
             <label className="quote-field">
               <span className="quote-field-top"><span>You pay</span></span>
-              <span className="quote-field-row"><input aria-label={`Amount in ${shortDenom(denomIn || "uqor")}`} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /><span className="token-chip"><TokenIcon denom={denomIn || "uqor"} size="small" />{shortDenom(denomIn || "uqor")}</span></span>
+              <span className="quote-field-row"><input aria-label={`Amount in ${shortDenom(denomIn || "uqor")}`} inputMode="decimal" value={amount} disabled={tx.busy} onChange={(event) => { setAmount(event.target.value); setReviewing(false); }} /><span className="token-chip"><TokenIcon denom={denomIn || "uqor"} size="small" />{shortDenom(denomIn || "uqor")}</span></span>
               <span className="quote-hint">{inputHint}</span>
             </label>
             <button type="button" className="quote-switch" aria-label="Switch tokens" disabled={!selectedPool} onClick={() => setReversed((current) => !current)}><ArrowDownUp size={16} /></button>
@@ -237,6 +269,21 @@ export default function SwapPage() {
               <div className="quote-meta-row"><span>Interface fee</span><b>{feeLabel}</b></div>
               <div className="quote-meta-row"><label htmlFor="slippage">Price protection</label><select id="slippage" value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={10}>0.10%</option><option value={50}>0.50%</option><option value={100}>1.00%</option></select></div>
             </div>
+            {nativeActions && <div className="swap-action">
+              {tx.state.phase !== "idle"
+                ? <TxProgress state={tx.state} onDone={() => { tx.reset(); setReviewing(false); }} />
+                : reviewing && quote
+                  ? <div className="review">
+                    <p className="review-line">You pay <b>{amount} {shortDenom(denomIn)}</b> and receive at least <b>{formatBaseAmount(quote.minOut, outputDecimals, 6)} {shortDenom(denomOut)}</b>.</p>
+                    <div className="review-actions">
+                      <button type="button" className="btn btn-ghost" onClick={() => setReviewing(false)}>Edit</button>
+                      <button type="button" className="btn btn-primary" onClick={confirmSwap}>Confirm in QoreX</button>
+                    </div>
+                  </div>
+                  : !walletAddress
+                    ? <button type="button" className="btn btn-primary btn-block" onClick={() => window.dispatchEvent(new Event("qora:request-connect"))}>Connect wallet</button>
+                    : <button type="button" className="btn btn-primary btn-block" disabled={!quote} onClick={() => setReviewing(true)}>{quote ? "Review swap" : !selectedPool ? "No pool selected" : quoteState === "loading" ? "Getting a quote…" : "Quote unavailable"}</button>}
+            </div>}
             <p className="quote-status"><span className={`dot ${networkState === "ready" && pools.length ? "live" : ""}`} />{readiness}</p>
           </div>
         </aside>

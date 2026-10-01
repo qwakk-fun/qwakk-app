@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink } from "lucide-react";
+import { LiquidityPanel } from "./LiquidityPanel";
 import { QoraHeader } from "./QoraHeader";
 import { SiteFooter } from "./SiteFooter";
 import { TokenIcon } from "./TokenIcon";
+import { useFeatures } from "./useFeatures";
 import { PoolChart, type PoolCandle } from "./PoolChart";
 import { formatBaseAmount } from "../lib/qora-assets";
 import { BRAND } from "../lib/brand";
@@ -77,6 +79,15 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "missing" | "unavailable">("loading");
   const [chartInterval, setChartInterval] = useState<ChartInterval>("1m");
+  const { nativeActions } = useFeatures();
+  const [walletAddress, setWalletAddress] = useState("");
+
+  useEffect(() => {
+    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qora-wallet-address") ?? "");
+    restoreWallet();
+    window.addEventListener("qora:wallet-change", restoreWallet);
+    return () => window.removeEventListener("qora:wallet-change", restoreWallet);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -93,7 +104,10 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
     }
     void load();
     const timer = window.setInterval(() => void load(), 15_000);
-    return () => { active = false; window.clearInterval(timer); };
+    // The indexer polls the chain every few seconds, so read again shortly after a confirmed action.
+    const reloadSoon = () => window.setTimeout(() => void load(), 6_000);
+    window.addEventListener("qora:tx-confirmed", reloadSoon);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("qora:tx-confirmed", reloadSoon); };
   }, [poolId, chartInterval]);
 
   if (state !== "ready" || !detail) {
@@ -139,6 +153,12 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
               <div><span>Creator</span><b className="mono">{shortAddress(pool.creator ?? null)}</b></div>
             </div>
             <p className="panel-note">Liquidity is held by the pool on QoreChain. {BRAND.name} never holds assets.</p>
+            {nativeActions && <>
+              <div className="panel-head panel-head-split"><span className="panel-title">Liquidity</span></div>
+              {walletAddress
+                ? <LiquidityPanel pool={pool} walletAddress={walletAddress} />
+                : <div className="panel-body"><button type="button" className="btn btn-primary btn-block" onClick={() => window.dispatchEvent(new Event("qora:request-connect"))}>Connect wallet</button></div>}
+            </>}
           </aside>
         </div>
 

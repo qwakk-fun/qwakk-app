@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronRight, Layers, Search } from "lucide-react";
+import { ChevronRight, Layers, Plus, Search } from "lucide-react";
+import { CreatePoolPanel } from "./CreatePoolPanel";
 import { QoraHeader } from "./QoraHeader";
 import { SiteFooter } from "./SiteFooter";
 import { TokenIcon } from "./TokenIcon";
+import { useFeatures } from "./useFeatures";
 import { useQorMarket } from "./useQorMarket";
 import { formatBaseAmount } from "../lib/qora-assets";
 import { formatUsdPrice } from "../lib/qor-price";
@@ -67,8 +69,31 @@ export function MarketsView() {
     }
     void load();
     const timer = window.setInterval(() => void load(), 15_000);
-    return () => { active = false; window.clearInterval(timer); };
+    // The indexer polls the chain every few seconds, so read again shortly after a confirmed action.
+    const reloadSoon = () => window.setTimeout(() => void load(), 6_000);
+    window.addEventListener("qora:tx-confirmed", reloadSoon);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("qora:tx-confirmed", reloadSoon); };
   }, []);
+
+  const { nativeActions } = useFeatures();
+  const [walletAddress, setWalletAddress] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [amm, setAmm] = useState<{ poolCreationFee: string | null; minLiquidity: string | null } | null>(null);
+
+  useEffect(() => {
+    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qora-wallet-address") ?? "");
+    restoreWallet();
+    window.addEventListener("qora:wallet-change", restoreWallet);
+    return () => window.removeEventListener("qora:wallet-change", restoreWallet);
+  }, []);
+
+  useEffect(() => {
+    if (!nativeActions) return;
+    fetch("/api/network", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() as Promise<{ amm?: { poolCreationFee: string | null; minLiquidity: string | null } | null }> : null)
+      .then((data) => setAmm(data?.amm ?? null))
+      .catch(() => undefined);
+  }, [nativeActions]);
 
   const qor = useQorMarket("1");
   const swaps24h = markets.reduce((total, market) => total + (Number(market.transactions_24h) || 0), 0);
@@ -88,8 +113,15 @@ export function MarketsView() {
             <h1>Pools</h1>
             <p>Every native AMM pool on QoreChain Diana, with prices and activity read from the chain.</p>
           </div>
-          <label className="search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search token or pool" aria-label="Search pools" /></label>
+          <div className="page-head-actions">
+            <label className="search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search token or pool" aria-label="Search pools" /></label>
+            {nativeActions && (walletAddress
+              ? <button type="button" className="btn btn-primary" aria-expanded={creating} onClick={() => setCreating((value) => !value)}><Plus size={16} />New pool</button>
+              : <button type="button" className="btn btn-primary" onClick={() => window.dispatchEvent(new Event("qora:request-connect"))}>Connect wallet</button>)}
+          </div>
         </section>
+
+        {nativeActions && creating && walletAddress && <CreatePoolPanel walletAddress={walletAddress} amm={amm} />}
 
         <section className="stat-row" aria-label="Pool summary">
           <div className="stat-card stat"><span className="stat-label">Open pools</span><span className="stat-value num">{state === "ready" ? markets.length : "…"}</span></div>
