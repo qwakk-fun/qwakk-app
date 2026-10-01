@@ -41,7 +41,7 @@ export function buildCreatePoolPlan(input: CreatePoolInput): CreatePoolPlan {
   const amplificationCoefficient = input.poolType === "stable_swap"
     ? input.amplificationCoefficient ?? 200
     : 0;
-  if (!Number.isInteger(amplificationCoefficient) || amplificationCoefficient < 0 || amplificationCoefficient > 1_000_000) {
+  if (!Number.isInteger(amplificationCoefficient) || amplificationCoefficient < 0 || amplificationCoefficient > 5_000) {
     throw new Error("Use a valid amplification setting");
   }
   if (input.poolType === "stable_swap" && amplificationCoefficient === 0) {

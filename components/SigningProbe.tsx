@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { QoraHeader } from "./QoraHeader";
 import { QORECHAIN_DIANA } from "../lib/qorex-native";
+import { walletFailureCopy } from "../lib/qora-tx-copy";
 
 type Step = { label: string; state: "done" | "failed" | "waiting" };
 type Verdict = { title: string; detail: string; tone: "positive" | "negative" | "neutral" };
@@ -25,17 +26,6 @@ function toHex(bytes: number[]) {
 
 function wait(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
-/** Maps QoreX errors to controlled copy. The raw error only goes to the console. */
-function signingFailure(error: unknown) {
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  if (message.includes("rejected")) return "The request was declined in QoreX.";
-  if (message.includes("locked")) return "QoreX is locked. Unlock it and run the probe again.";
-  if (message.includes("active network") || message.includes("unsupported chain")) return "QoreX is on a different network. Switch it to QoreChain Diana and run the probe again.";
-  if (message.includes("not found in wallet") || message.includes("unknown signer")) return "QoreX could not match this account to its signer.";
-  if (message.includes("quantum-safe")) return "QoreX refused to sign without the post-quantum layer.";
-  return "QoreX did not return a signature. The browser console has the wallet's reason.";
 }
 
 /** Converts chain result codes into a controlled explanation. */
@@ -112,7 +102,7 @@ export function SigningProbe() {
         });
       } catch (error) {
         console.error("QoreX signDirect failed", error);
-        record(signingFailure(error), "failed");
+        record(walletFailureCopy(error), "failed");
         return;
       }
       record("QoreX returned a signature", "done");

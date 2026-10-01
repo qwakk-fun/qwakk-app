@@ -1,9 +1,9 @@
+import { getServerQoraFeeConfig } from "@/lib/qora-fee-config";
 import {
-  RELAYABLE_MESSAGE_TYPES,
   assembleSignedTx,
   base64ToBytes,
   broadcastTxSync,
-  messageTypesInBody,
+  isRelayableBody,
 } from "@/lib/qora-native-tx";
 
 type BroadcastRequest = { bodyBytes?: string; authInfoBytes?: string; signature?: string };
@@ -16,8 +16,9 @@ function json(body: unknown, status = 200) {
 
 /**
  * Relays a transaction the user already signed in their own wallet. Qora never
- * signs here: it only checks that the body holds native AMM messages, joins the
- * signed parts and submits them to QoreChain server-side to avoid browser CORS.
+ * signs here. It checks that the body holds native AMM messages, plus the
+ * disclosed interface fee transfer on a swap, then joins the signed parts and
+ * submits them to QoreChain server-side to avoid browser CORS.
  */
 export async function POST(request: Request) {
   const input = await request.json().catch(() => null) as BroadcastRequest | null;
@@ -32,9 +33,9 @@ export async function POST(request: Request) {
     if (!bodyBytes.length || !authInfoBytes.length || bodyBytes.length > MAX_PART_BYTES || authInfoBytes.length > MAX_PART_BYTES) {
       throw new Error("Invalid transaction size");
     }
-    const types = messageTypesInBody(bodyBytes);
-    if (!types.length || types.some((type) => !RELAYABLE_MESSAGE_TYPES.has(type))) {
-      return json({ error: "Qora only submits native AMM transactions" }, 400);
+    const fee = getServerQoraFeeConfig();
+    if (!isRelayableBody(bodyBytes, fee.enabled ? fee.recipient : undefined)) {
+      return json({ error: "Only native AMM transactions can be submitted here" }, 400);
     }
   } catch {
     return json({ error: "The signed transaction could not be read" }, 400);
