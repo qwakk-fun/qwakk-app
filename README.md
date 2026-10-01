@@ -6,8 +6,8 @@ AMM contract.
 
 ## Current status
 
-Qora is read-only today. Swap, pool creation and liquidity actions are not
-rendered until native signing works end to end.
+Qora is read-only today. Swap, pool creation and liquidity flows are built but
+stay hidden until native signing works end to end (see Wallet actions below).
 
 What works:
 
@@ -19,18 +19,37 @@ What works:
   PostgreSQL. Pool pages chart 1m, 5m, 1h and 1d candles.
 - Unsigned native transactions can be built for a QoreX account and relayed
   after the user signs them (`/api/native-tx/*`). The relay only accepts native
-  AMM messages.
+  AMM messages, plus the disclosed interface fee transfer on a swap.
+- QOR/USD price, volume and market cap come from CoinGecko and are labeled as
+  such wherever they appear.
 
-What is blocking trading (checked on 2026-09-30):
+What is blocking trading (checked on 2026-10-01):
 
-- The native AMM is not active yet. The public `qorechain-core` build ships a
-  stub keeper, and activation is planned for chain version `v3.2.1`.
+- The native AMM keeper is live on Diana: a simulated `MsgCreatePool` now fails
+  on balances instead of "not implemented". No pool exists yet.
 - QoreX 0.3.3 (Chrome) and 0.3.4 (Firefox) always use `qorechain-vladi` for
   dApp requests, so `signDirect` for `qorechain-diana` is refused before any
   approval. QoreX also has no documented way for a third-party dApp to add the
   required post-quantum signature.
 - Diana and mainnet only have `uqor` in bank supply. A second denom is expected
   once QoreChain bridges roll out.
+
+### Wallet actions
+
+Swap, pool creation and add or remove liquidity are implemented behind one
+switch:
+
+```text
+QORA_NATIVE_ACTIONS=enabled
+```
+
+It is read at runtime, so it can be changed in CapRover without a rebuild.
+While it is off, no wallet action is rendered and `/api/native-tx/prepare`
+returns 404. When it is on, every action is built on the server, simulated
+against QoreChain Diana (so a failing transaction is explained before the
+wallet opens, and the fee comes from simulated gas), signed in QoreX, relayed
+and followed into a block. Turn it on only after the signing probe below
+succeeds.
 
 ### Signing probe
 
@@ -126,6 +145,10 @@ QORECHAIN_REST_URL=https://api-testnet.qore.host
 QORECHAIN_RPC_URL=https://rpc-testnet.qore.host
 QORA_TREASURY_ADDRESS=<public-qor-address>
 QORA_SWAP_FEE_BPS=5
+# Leave unset until the signing probe succeeds on Diana.
+QORA_NATIVE_ACTIONS=
+# Optional CoinGecko demo key for higher market data limits.
+COINGECKO_API_KEY=
 PORT=3000
 ```
 
