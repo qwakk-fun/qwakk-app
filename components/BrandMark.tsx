@@ -1,25 +1,12 @@
-import { useId } from "react";
-
 /**
- * The product mark: a core with two swap arcs moving around it. It carries no
- * letter, so it survives a rename. public/brand-mark.svg mirrors it for the favicon.
+ * The Qwakk duck. The ring is both the duck's head and a "Q", and the beak is
+ * the Q's tail. public/brand-mark.svg mirrors it on a dark tile for the favicon.
  */
 export function BrandMark({ size = 28 }: { size?: number }) {
-  const gradient = useId();
-  return <svg className="brand-mark" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-    <defs>
-      <linearGradient id={gradient} x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stopColor="#a7f3c4" />
-        <stop offset="1" stopColor="#4ade80" />
-      </linearGradient>
-    </defs>
-    <rect width="32" height="32" rx="9" fill={`url(#${gradient})`} />
-    <g fill="none" stroke="#052e16" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M8.48 13.26A8 8 0 0 1 23.52 13.26" />
-      <path d="M24.63 9.88L23.52 13.26L20.49 11.38" />
-      <path d="M23.52 18.74A8 8 0 0 1 8.48 18.74" />
-      <path d="M7.37 22.12L8.48 18.74L11.51 20.62" />
-    </g>
-    <circle cx="16" cy="16" r="2.6" fill="#052e16" />
+  return <svg className="brand-mark" width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <path d="M26 13.5c-1.5-5-8-6.5-10.5-3 3.5-.5 6.5.8 8 3.6z" fill="#FFD43B" />
+    <circle cx="28" cy="34" r="16.5" fill="none" stroke="#FFD43B" strokeWidth="10" />
+    <path d="M37.5 42.5c7-3.6 16-3.8 23 .2-3.2 7.8-14.5 11-22.6 7.2z" fill="#FF8A3D" />
+    <circle cx="31.5" cy="29.5" r="3.8" fill="#FFD43B" />
   </svg>;
 }

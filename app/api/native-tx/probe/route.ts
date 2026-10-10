@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       keyType: "secp256k1",
       account,
       fee: PROBE_FEE,
-      memo: "Qora signing probe",
+      memo: "Qwakk signing probe",
     });
 
     return json({

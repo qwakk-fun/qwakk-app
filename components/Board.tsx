@@ -206,8 +206,8 @@ function QorColumn({ active }: { active: boolean }) {
       </dl>
     </div>
     <div className="pitch">
-      <h3>{BRAND.tagline}</h3>
-      <p>{BRAND.name} is a fast, non-custodial exchange for the QoreChain native network. Your keys never leave your wallet.</p>
+      <h3>{BRAND.slogan}</h3>
+      <p>{BRAND.name} is the fast, non-custodial way to swap on the QoreChain native network. Your keys never leave your wallet.</p>
       <ul className="pitch-points">
         <li><KeyRound size={14} />Non-custodial</li>
         <li><ShieldCheck size={14} />Quantum-safe network</li>

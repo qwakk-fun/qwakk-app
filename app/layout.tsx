@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   openGraph: {
     title,
     description: BRAND.description,
-    images: [{ url: "/og.png", width: 1734, height: 909, alt: title }],
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: title }],
   },
   twitter: {
     card: "summary_large_image",
@@ -30,8 +30,9 @@ export const metadata: Metadata = {
     images: ["/og.png"],
   },
   icons: {
-    icon: "/brand-mark.svg",
-    shortcut: "/brand-mark.svg",
+    icon: [{ url: "/brand-mark.svg", type: "image/svg+xml" }, { url: "/favicon.ico", sizes: "32x32" }],
+    shortcut: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
   },
 };
 

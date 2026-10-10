@@ -75,7 +75,7 @@ async function readAccount(address: string) {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(10_000),
   });
-  if (!response.ok) throw new Error("Fund the Qora testnet wallet before preparing a pool transaction");
+  if (!response.ok) throw new Error("Fund the Qwakk testnet wallet before preparing a pool transaction");
   const info = findAccountInfo(await response.json());
   if (!info) throw new Error("Diana returned an unsupported account response");
   return info;
@@ -86,7 +86,7 @@ async function readBalances(address: string) {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(10_000),
   });
-  if (!response.ok) throw new Error("Unable to read the Qora testnet wallet balance");
+  if (!response.ok) throw new Error("Unable to read the Qwakk testnet wallet balance");
   const data = await response.json() as { balances?: Array<{ denom?: string; amount?: string }> };
   return new Map((data.balances ?? []).map((coin) => [coin.denom ?? "", coin.amount ?? "0"]));
 }
@@ -143,7 +143,7 @@ async function main() {
   });
   const pqcStatus = await getPqcStatus(client, account.cosmos);
 
-  console.log(`Qora testnet wallet: ${account.cosmos}`);
+  console.log(`Qwakk testnet wallet: ${account.cosmos}`);
   console.log(`Balance ${denomA}: ${balances.get(denomA) ?? "0"}`);
   console.log(`Balance ${denomB}: ${balances.get(denomB) ?? "0"}`);
   console.log(`PQC registered: ${pqcStatus.registered ? "yes" : "no"}`);
@@ -168,7 +168,7 @@ async function main() {
       sequence: auth.sequence,
       messages: [registration],
       fee: TX_FEE,
-      memo: "Qora testnet PQC registration",
+      memo: "Qwakk testnet PQC registration",
     });
     await waitForTx(client.rest, result.transactionHash);
     console.log(`PQC registration confirmed: ${result.transactionHash}`);
@@ -182,7 +182,7 @@ async function main() {
     sequence: auth.sequence,
     messages: [plan.message],
     fee: TX_FEE,
-    memo: "Qora first Diana AMM pool",
+    memo: "Qwakk first Diana AMM pool",
   });
   const included = await waitForTx(client.rest, result.transactionHash);
   console.log(`Pool transaction confirmed at height ${included.height}: ${included.txHash}`);

@@ -1,12 +1,15 @@
-# Qora
+# Qwakk
 
-Qora is a non-custodial interface for QoreChain's native `x/amm` module. The
-current target is the Diana testnet. Qora does not deploy or use a separate EVM
+Swap it. Qwakk it. (Formerly Qora. Internal file names, storage keys and
+`QORA_*` environment variables keep the old prefix so deployments keep working.)
+
+Qwakk is a non-custodial interface for QoreChain's native `x/amm` module. The
+current target is the Diana testnet. Qwakk does not deploy or use a separate EVM
 AMM contract.
 
 ## Current status
 
-Qora is read-only today. Swap, pool creation and liquidity flows are built but
+Qwakk is read-only today. Swap, pool creation and liquidity flows are built but
 stay hidden until native signing works end to end (see Wallet actions below).
 
 What works:
@@ -23,16 +26,18 @@ What works:
 - QOR/USD price, volume and market cap come from CoinGecko and are labeled as
   such wherever they appear.
 
-What is blocking trading (checked on 2026-10-01):
+What is blocking trading (checked on 2026-10-10):
 
-- The native AMM keeper is live on Diana: a simulated `MsgCreatePool` now fails
-  on balances instead of "not implemented". No pool exists yet.
-- QoreX 0.3.3 (Chrome) and 0.3.4 (Firefox) always use `qorechain-vladi` for
-  dApp requests, so `signDirect` for `qorechain-diana` is refused before any
-  approval. QoreX also has no documented way for a third-party dApp to add the
-  required post-quantum signature.
-- Diana and mainnet only have `uqor` in bank supply. A second denom is expected
-  once QoreChain bridges roll out.
+- The native AMM keeper is live on Diana: a simulated `MsgCreatePool` fails on
+  balances instead of "not implemented". No pool exists yet.
+- Diana only has `uqor` in bank supply, so no pool can be opened. There is no
+  token factory, ERC20 registration is permissioned
+  (`permissionless_registration: false`), there are no IBC channels and every
+  bridge is `pending`. QoreChain has been asked for a test denom.
+- QoreX up to 0.3.5 refuses dApp `signDirect` for `qorechain-diana` ("does not
+  match the active network") and has no public way for a third-party dApp to
+  add the required post-quantum signature. QoreChain is designing a method
+  where QoreX adds that layer after user approval.
 
 ### Wallet actions
 
@@ -59,7 +64,7 @@ accepts the signature. No tokens move. The network fee is 0.06 QOR. Run it again
 once the blockers above are resolved.
 
 Never add a mnemonic or private key to the repository, browser, PostgreSQL or
-CapRover. Qora only needs public wallet addresses.
+CapRover. Qwakk only needs public wallet addresses.
 
 ## Requirements
 
@@ -89,7 +94,7 @@ and PostgreSQL on port `5438`.
 
 The same root Docker image can run in two roles:
 
-- `QORA_PROCESS_ROLE=web`: starts the Qora web application on port `3000`.
+- `QORA_PROCESS_ROLE=web`: starts the Qwakk web application on port `3000`.
 - `QORA_PROCESS_ROLE=indexer`: starts the QoreChain indexer on port `4400`.
 
 The indexer reads Diana REST/RPC data and writes normalized pools, swaps and

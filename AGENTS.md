@@ -1,6 +1,6 @@
-# Agent instructions for Qora
+# Agent instructions for Qwakk
 
-Read and follow [CLAUDE.md](./CLAUDE.md) before making changes. It is the source of truth for Qora product, brand, safety, engineering and Git rules.
+Read and follow [CLAUDE.md](./CLAUDE.md) before making changes. It is the source of truth for Qwakk product, brand, safety, engineering and Git rules.
 
 Additional requirements:
 

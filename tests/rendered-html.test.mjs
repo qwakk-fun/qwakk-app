@@ -40,7 +40,7 @@ test("server-renders the live board", async () => {
   assert.doesNotMatch(html, /codex-preview|Building your site|Starter Project/i);
 });
 
-test("keeps the retired Sites preview out of the Qora application", async () => {
+test("keeps the retired Sites preview out of the Qwakk application", async () => {
   const [page, layout] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),

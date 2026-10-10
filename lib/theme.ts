@@ -9,9 +9,9 @@ export const THEME = {
   grid: "#1a1b1f",
   axis: "#2a2b30",
   text: "#a0a1a8",
-  accent: "#86efac",
-  accentWash: "rgba(134, 239, 172, 0.18)",
-  accentClear: "rgba(134, 239, 172, 0)",
+  accent: "#ffd43b",
+  accentWash: "rgba(255, 212, 59, 0.18)",
+  accentClear: "rgba(255, 212, 59, 0)",
   up: "#4ade80",
   down: "#f87171",
 } as const;

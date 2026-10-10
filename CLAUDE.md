@@ -1,14 +1,15 @@
-# Qora project instructions
+# Qwakk project instructions
 
 ## Product and brand
 
-- Qora is a simple, fast, non-custodial DEX interface for QoreChain.
-- The core message is: "Simple swaps on QoreChain."
-- Write in a calm, premium and trustworthy tone. Avoid hype, unnecessary crypto jargon and developer-facing language in marketing copy.
+- Qwakk (formerly Qora) is a simple, fast, non-custodial DEX interface for QoreChain. The product name lives only in `lib/brand.ts`. Internal identifiers (file names, `qora-*` storage keys and events, `QORA_*` environment variables) keep the old prefix so deployments keep working.
+- The core message is: "Simple swaps on QoreChain." The slogan is "Swap it. Qwakk it."
+- Write in an energetic, playful, pump-style voice that stays honest and trustworthy. Short punchy lines and the duck personality (quacks, waddles, ponds) are welcome in moderation. Never let playfulness blur facts: amounts, fees, risks and transaction status are always stated plainly. Avoid unnecessary crypto jargon and developer-facing language in marketing copy.
 - Avoid repeated copy within the same component. A heading, supporting copy and primary button must each add distinct information or intent. Do not repeat the same action label, such as "Send QOR", in more than one of those elements.
 - Do not use em dashes anywhere in user-facing copy, metadata or documentation. Use a full stop, comma, colon or parentheses instead.
-- Never render untrusted wallet, API or provider error text directly. Convert it to controlled Qora copy that follows the no-em-dash rule.
-- Qora and QoreChain are distinct brands. Use `public/qora-mark.png` only for Qora branding. Each coin and token must use its own official icon. Use `public/qorechain-mark.png` for the native QOR coin, never the Qora mark.
+- Never render untrusted wallet, API or provider error text directly. Convert it to controlled Qwakk copy that follows the no-em-dash rule.
+- Qwakk and QoreChain are distinct brands. Use the duck mark (`components/BrandMark.tsx`, `public/brand-mark.svg`) only for Qwakk branding. Each coin and token must use its own official icon. Use `public/qorechain-mark.png` for the native QOR coin, never the Qwakk mark.
+- Brand colors: duck yellow `#ffd43b` for the brand and primary actions, beak orange `#ff8a3d` as the secondary accent. Green and red are reserved for gains and losses. CSS tokens live in `app/globals.css` and chart colors in `lib/theme.ts`.
 - Display QOR to users. Convert to the native `uqor` denomination only at the API or transaction boundary. QOR has 6 decimals.
 - Refer to the connected Diana network as "QoreChain Diana" when the network name must be shown. Do not make testnet language prominent in marketing surfaces.
 
@@ -23,7 +24,7 @@
 - Never make a premature technical conclusion about a QoreChain or QoreX capability. First inspect `https://docs.qorechain.io/` and the official QoreChain packages. If the answer is not documented there, inspect the relevant official source code, SDKs, adapters and QoreX integration surfaces to trace the actual implementation before proposing a blocker or asking QoreChain for help.
 - Treat QoreX's own working product behaviour as evidence to investigate, not as a reason to assume an integration is unavailable. Reproduce its documented or inspectable transaction path and develop a non-custodial solution from it whenever possible.
 - Ask QoreChain only after the public documentation, official packages and available official source have been exhausted, and ask for one precise missing API contract or example rather than a broad feasibility opinion.
-- Qora's trading and wallet actions must use the QoreChain Native rail. Do not substitute the EVM rail as a workaround for an unavailable Native integration.
+- Qwakk's trading and wallet actions must use the QoreChain Native rail. Do not substitute the EVM rail as a workaround for an unavailable Native integration.
 
 ## Engineering
 

@@ -2,9 +2,11 @@
 
 /*
  * Design tokens. Chart colors in lib/theme.ts mirror these values.
- * Direction: a pump-style trading terminal. Flat near-black surfaces, hairline
- * dividers, a narrow icon rail, a live trade ticker and side-by-side live
- * columns. Mint is reserved for primary actions and gains.
+ * Direction: a pump-style trading terminal for Qwakk. Flat near-black
+ * surfaces, hairline dividers, a narrow icon rail, a live trade ticker and
+ * side-by-side live columns. Duck yellow is the brand and primary-action
+ * color, beak orange is its sidekick, and green and red stay reserved for
+ * gains and losses so the brand never reads as a price move.
  */
 :root {
   --bg: #0d0e10;
@@ -19,18 +21,18 @@
   --text-2: #a0a1a8;
   --text-3: #6c6d74;
 
-  --accent: #86efac;
-  --accent-strong: #a7f3c4;
-  --accent-ink: #052e16;
-  --accent-wash: rgba(134, 239, 172, 0.08);
-  --accent-line: rgba(134, 239, 172, 0.32);
+  --accent: #ffd43b;
+  --accent-strong: #ffe170;
+  --accent-ink: #1f1600;
+  --accent-wash: rgba(255, 212, 59, 0.08);
+  --accent-line: rgba(255, 212, 59, 0.35);
+  --beak: #ff8a3d;
 
   /* Always paired with a sign, arrow or word, never color alone. */
   --up: #4ade80;
   --up-wash: rgba(74, 222, 128, 0.12);
   --down: #f87171;
   --down-wash: rgba(248, 113, 113, 0.12);
-  --hot: #ff5c5c;
 
   --radius-sm: 6px;
   --radius: 10px;
@@ -97,7 +99,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .change-pill.is-up { background: var(--up-wash); color: var(--up); }
 .change-pill.is-down { background: var(--down-wash); color: var(--down); }
 
-.hot-tag { padding: 1px 6px; border-radius: 4px; background: rgba(255, 92, 92, 0.14); color: var(--hot); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
+.hot-tag { padding: 1px 6px; border-radius: 4px; background: rgba(255, 138, 61, 0.15); color: var(--beak); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
 
 .identicon { display: block; flex: none; border-radius: 50%; }
 
@@ -156,9 +158,10 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 
 .topbar { position: sticky; top: 0; z-index: 20; background: var(--bg); border-bottom: 1px solid var(--line); }
 .topbar-inner { display: flex; align-items: center; gap: 12px; height: var(--topbar); padding: 0 16px; }
-.brand { display: inline-flex; align-items: center; gap: 9px; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+.brand { display: inline-flex; align-items: center; gap: 8px; font-size: 21px; font-weight: 800; letter-spacing: -0.05em; text-transform: lowercase; }
 .brand-mark { display: block; flex: none; }
-.topbar-brand { display: none; }
+.topbar-brand { flex: none; margin-right: 6px; }
+.topbar-brand .brand-mark { display: none; }
 .top-search {
   display: flex;
   align-items: center;
@@ -221,6 +224,7 @@ a.ticker-item:hover b { color: var(--accent); }
 .btn-sm { height: 32px; padding: 0 10px; font-size: 13px; border-radius: 8px; }
 .btn-primary { background: var(--accent); color: var(--accent-ink); }
 .btn-primary:hover:not(:disabled) { background: var(--accent-strong); }
+.btn-primary:active:not(:disabled) { transform: translateY(1px); }
 .btn-ghost { background: var(--raised); border-color: var(--line-strong); color: var(--text); }
 .btn-ghost:hover:not(:disabled) { background: var(--hover); }
 .btn-block { width: 100%; }
@@ -280,7 +284,7 @@ a.ticker-item:hover b { color: var(--accent); }
 }
 .board-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
 .board-col:last-child { border-right: 0; }
-.board-col:first-child { background: linear-gradient(180deg, rgba(134, 239, 172, 0.045), transparent 55%); }
+.board-col:first-child { background: linear-gradient(180deg, rgba(255, 212, 59, 0.045), transparent 55%); }
 .col-head { display: flex; align-items: center; gap: 8px; flex: none; height: 48px; padding: 0 14px; border-bottom: 1px solid var(--line); }
 .col-head h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
 .col-icon { display: grid; place-items: center; color: var(--text-2); }
@@ -620,7 +624,7 @@ a.table-row:hover, button.table-row:hover { background: rgba(255, 255, 255, 0.03
   .rail-label, .rail-link:hover .rail-label { position: static; padding: 0; border: 0; background: none; color: inherit; font-size: 10.5px; opacity: 1; transform: none; }
   .rail-create .rail-label { display: none; }
   .topbar-inner { padding: 0 12px; gap: 8px; }
-  .topbar-brand { display: inline-flex; }
+  .topbar-brand .brand-mark { display: block; }
   .top-search { display: none; }
   .search-inline { display: flex; width: 100%; }
   .topbar-actions .icon-btn { display: none; }
