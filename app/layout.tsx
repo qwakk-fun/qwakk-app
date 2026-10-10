@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Unbounded } from "next/font/google";
 import "./globals.css";
 import { BRAND } from "../lib/brand";
 
@@ -10,6 +10,11 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+const unbounded = Unbounded({
+  variable: "--font-unbounded",
   subsets: ["latin"],
 });
 
@@ -41,10 +46,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+    // Font variables sit on <html> so the :root tokens in globals.css can read them.
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${unbounded.variable}`}>
+      <body className="antialiased">
         {children}
       </body>
     </html>

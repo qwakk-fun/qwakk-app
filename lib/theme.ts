@@ -1,16 +1,16 @@
 /**
  * Chart colors mirror the CSS tokens in app/globals.css. Canvas charts cannot
- * read CSS variables, so both places must change together. Up and down were
- * validated for colorblind separation on the panel surface, and every change
- * also carries a sign and an arrow.
+ * read CSS variables, so both places must change together. Up and down are
+ * never the only signal: every change also carries a sign and an arrow.
  */
 export const THEME = {
-  surface: "#0c0f13",
-  grid: "#161b21",
-  axis: "#232a32",
-  text: "#9aa3ad",
-  accent: "#8f7cff",
-  accentWash: "rgba(143, 124, 255, 0.10)",
-  up: "#12a8a0",
-  down: "#f05a3c",
+  surface: "#111113",
+  grid: "#1c1d20",
+  axis: "#2c2e33",
+  text: "#a1a1aa",
+  accent: "#86efac",
+  accentWash: "rgba(134, 239, 172, 0.18)",
+  accentClear: "rgba(134, 239, 172, 0)",
+  up: "#4ade80",
+  down: "#f87171",
 } as const;

@@ -48,6 +48,9 @@ function poolKind(pool: RawPool) {
   return (pool.pool_type ?? pool.type ?? "liquidity_pool").replace(/_/g, " ");
 }
 
+/** Quick amounts for the pay field, in display units of the input token. */
+const QUICK_AMOUNTS = ["1", "10", "100", "1000"];
+
 function shortDenom(denom: string) {
   return denom ? displaySymbol(denom) : "Unknown";
 }
@@ -210,8 +213,8 @@ export default function SwapPage() {
       <div className="container trade-grid">
         <div className="trade-main">
           <section className="panel pair-bar" aria-label="QOR market">
-            <div className="pair-title"><TokenIcon denom="uqor" size="large" /><div><b>QOR <span className="subtle">/ USD</span></b><span className="cell-sub">QoreChain</span></div></div>
-            <div><div className="pair-price">{market.data ? formatUsdPrice(market.data.price) : market.status === "unavailable" ? "Not available" : "…"}</div><span className={`change-cell ${change !== null && change < 0 ? "down" : "up"}`}>{market.data ? `${formatChange(change)} 24h` : ""}</span></div>
+            <div className="pair-title"><TokenIcon denom="uqor" size="large" /><div><b>QOR <span className="subtle">/ USD</span></b><span className="cell-sub">QoreChain native coin</span></div></div>
+            <div className="pair-quote"><div className="pair-price num">{market.data ? formatUsdPrice(market.data.price) : market.status === "unavailable" ? "Not available" : "…"}</div>{market.data && <span className={`change-pill ${change !== null && change < 0 ? "is-down" : "is-up"}`}>{formatChange(change)} 24h</span>}</div>
             <div className="pair-stats">
               <div className="stat"><span className="stat-label">24h volume</span><span className="stat-value">{formatUsdCompact(market.data?.volume24h ?? null)}</span></div>
               <div className="stat"><span className="stat-label">Market cap</span><span className="stat-value">{formatUsdCompact(market.data?.marketCap ?? null)}</span></div>
@@ -252,11 +255,11 @@ export default function SwapPage() {
         <aside className="panel quote-card" aria-labelledby="quote-title">
           <div className="panel-head"><span className="panel-title" id="quote-title">{nativeActions ? "Swap" : "Quote"}</span><span className="kicker">Native AMM</span></div>
           <div className="panel-body">
-            <label className="quote-field">
-              <span className="quote-field-top"><span>You pay</span></span>
+            <div className="quote-field">
+              <span className="quote-field-top"><span>You pay</span><span className="quick-amounts" role="group" aria-label="Quick amounts">{QUICK_AMOUNTS.map((value) => <button type="button" key={value} aria-pressed={amount === value} disabled={tx.busy} onClick={() => { setAmount(value); setReviewing(false); }}>{new Intl.NumberFormat("en-US").format(Number(value))}</button>)}</span></span>
               <span className="quote-field-row"><input aria-label={`Amount in ${shortDenom(denomIn || "uqor")}`} inputMode="decimal" value={amount} disabled={tx.busy} onChange={(event) => { setAmount(event.target.value); setReviewing(false); }} /><span className="token-chip"><TokenIcon denom={denomIn || "uqor"} size="small" />{shortDenom(denomIn || "uqor")}</span></span>
               <span className="quote-hint">{inputHint}</span>
-            </label>
+            </div>
             <button type="button" className="quote-switch" aria-label="Switch tokens" disabled={!selectedPool} onClick={() => setReversed((current) => !current)}><ArrowDownUp size={16} /></button>
             <div className="quote-field">
               <span className="quote-field-top"><span>You receive</span></span>

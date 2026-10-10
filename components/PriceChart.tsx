@@ -40,7 +40,7 @@ export function PriceChart({ points, dimmed = false, height = 360 }: { points: M
       lineColor: THEME.accent,
       lineWidth: 2,
       topColor: THEME.accentWash,
-      bottomColor: "rgba(143, 124, 255, 0)",
+      bottomColor: THEME.accentClear,
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerRadius: 4,
