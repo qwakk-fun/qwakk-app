@@ -24,7 +24,7 @@ export function PriceChart({ points, dimmed = false, height = 360 }: { points: M
     const instance = createChart(element, {
       autoSize: true,
       height,
-      layout: { background: { type: ColorType.Solid, color: THEME.surface }, textColor: THEME.text, fontFamily: "var(--font-geist-mono), ui-monospace, monospace", fontSize: 11 },
+      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: THEME.text, fontFamily: "var(--font-geist-mono), ui-monospace, monospace", fontSize: 11 },
       grid: { vertLines: { visible: false }, horzLines: { color: THEME.grid } },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
       timeScale: { borderColor: THEME.axis, timeVisible: true, secondsVisible: false },

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ChevronRight, Clock3, Flame, Layers, LayoutGrid, List, Plus, Search, TrendingUp } from "lucide-react";
 import { CreatePoolPanel } from "./CreatePoolPanel";
 import { PoolCard } from "./PoolCard";
-import { QoraHeader, SEARCH_EVENT } from "./QoraHeader";
+import { CREATE_EVENT, QoraHeader, SEARCH_EVENT } from "./QoraHeader";
 import { SiteFooter } from "./SiteFooter";
 import { TokenIcon } from "./TokenIcon";
 import { useFeatures } from "./useFeatures";
@@ -72,6 +72,16 @@ export function MarketsView() {
   const [walletAddress, setWalletAddress] = useState("");
   const [creating, setCreating] = useState(false);
   const [amm, setAmm] = useState<{ poolCreationFee: string | null; minLiquidity: string | null } | null>(null);
+
+  // The rail and top bar "+" link here with ?create=1.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (new URLSearchParams(window.location.search).get("create") === "1") setCreating(true);
+    }, 0);
+    const openCreate = () => setCreating(true);
+    window.addEventListener(CREATE_EVENT, openCreate);
+    return () => { window.clearTimeout(timer); window.removeEventListener(CREATE_EVENT, openCreate); };
+  }, []);
 
   useEffect(() => {
     const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qora-wallet-address") ?? "");

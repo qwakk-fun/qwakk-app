@@ -93,7 +93,9 @@ export default function SwapPage() {
       const data = await response.json() as { pools?: RawPool[] };
       const nextPools = Array.isArray(data.pools) ? data.pools : [];
       setPools(nextPools);
-      setSelectedPoolId((current) => nextPools.some((pool) => poolId(pool) === current) ? current : poolId(nextPools[0]));
+      // Pool pages link here with ?pool=<id> to open that pool first.
+      const requested = new URLSearchParams(window.location.search).get("pool") ?? "";
+      setSelectedPoolId((current) => nextPools.some((pool) => poolId(pool) === current) ? current : nextPools.some((pool) => poolId(pool) === requested) ? requested : poolId(nextPools[0]));
       setNetworkState("ready");
       setLastUpdated(`QoreChain Diana checked ${new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit" }).format(new Date())}`);
     } catch {

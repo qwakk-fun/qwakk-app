@@ -23,7 +23,7 @@ async function render(pathname = "/") {
   );
 }
 
-test("server-renders the landing page", async () => {
+test("server-renders the live board", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -31,7 +31,9 @@ test("server-renders the landing page", async () => {
   const html = await response.text();
   assert.match(html, /<title>[^<|]+ \| Simple swaps on QoreChain<\/title>/i);
   assert.match(html, /Simple swaps/);
-  assert.match(html, /Built on the QoreChain AMM module/);
+  assert.match(html, /Trending/);
+  assert.match(html, /Live trades/);
+  assert.match(html, /Top traders/);
   assert.match(html, /Non-custodial/);
   assert.match(html, /href="\/swap"/);
   assert.match(html, /href="\/pools"/);
@@ -44,7 +46,7 @@ test("keeps the retired Sites preview out of the Qora application", async () => 
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /non-custodial/i);
+  assert.match(page, /<Board \/>/);
   assert.match(layout, /BRAND\.tagline/);
   assert.doesNotMatch(page, /SkeletonPreview|codex-preview/i);
   assert.doesNotMatch(layout, /SkeletonPreview|codex-preview/i);

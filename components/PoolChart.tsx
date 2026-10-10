@@ -21,7 +21,7 @@ export function PoolChart({ candles }: { candles: PoolCandle[] }) {
     const chart = createChart(container, {
       autoSize: true,
       height: 400,
-      layout: { background: { type: ColorType.Solid, color: THEME.surface }, textColor: THEME.text, fontFamily: "var(--font-geist-mono), ui-monospace, monospace", fontSize: 11 },
+      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: THEME.text, fontFamily: "var(--font-geist-mono), ui-monospace, monospace", fontSize: 11 },
       grid: { vertLines: { visible: false }, horzLines: { color: THEME.grid } },
       rightPriceScale: { borderVisible: false },
       timeScale: { borderColor: THEME.axis, timeVisible: true },

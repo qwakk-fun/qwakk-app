@@ -123,7 +123,7 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
         <Link className="back-link" href="/pools"><ArrowLeft size={15} />All pools</Link>
         <section className="pool-head">
           <div className="cell-main">
-            <span className="pair-icons"><TokenIcon denom={pool.token_a} size="large" /><TokenIcon denom={pool.token_b} size="large" /></span>
+            <span className="coin-avatar is-large"><TokenIcon denom={pool.token_a} size="avatar" /><span className="coin-badge"><TokenIcon denom={pool.token_b} size="small" /></span></span>
             <div><span className="kicker">Pool #{pool.id}</span><h1>{pool.token_a_symbol} / {pool.token_b_symbol}</h1></div>
           </div>
           <div className="pool-head-price"><span className="stat-label">Latest price</span><strong>{price(candles.at(-1)?.close ?? pool.weighted_avg_price, pool.token_b_symbol)}</strong><span className="subtle">per {pool.token_a_symbol}</span></div>
@@ -136,14 +136,31 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
         </section>
 
         <div className="pool-layout">
-          <section className="panel" aria-labelledby="pool-chart-title">
-            <div className="panel-head">
-              <div><span className="panel-title" id="pool-chart-title">{pool.token_a_symbol} price in {pool.token_b_symbol}</span><span className="cell-sub">{CHART_INTERVAL_LABELS[chartInterval]}</span></div>
-              <div className="segmented" role="group" aria-label="Chart interval">{CHART_INTERVALS.map((option) => <button type="button" key={option} aria-pressed={option === chartInterval} onClick={() => setChartInterval(option)}>{option}</button>)}</div>
-            </div>
-            <PoolChart candles={candles} />
-          </section>
+          <div className="pool-main">
+            <section className="panel" aria-labelledby="pool-chart-title">
+              <div className="panel-head">
+                <div><span className="panel-title" id="pool-chart-title">{pool.token_a_symbol} price in {pool.token_b_symbol}</span><span className="cell-sub">{CHART_INTERVAL_LABELS[chartInterval]}</span></div>
+                <div className="segmented" role="group" aria-label="Chart interval">{CHART_INTERVALS.map((option) => <button type="button" key={option} aria-pressed={option === chartInterval} onClick={() => setChartInterval(option)}>{option}</button>)}</div>
+              </div>
+              <PoolChart candles={candles} />
+            </section>
+            <section className="panel swaps-table" aria-labelledby="swaps-title">
+              <div className="panel-head"><span className="panel-title" id="swaps-title">Recent swaps</span><span className="subtle">{swaps.length} indexed</span></div>
+              <div className="table">
+                <div className="table-row table-head"><span>Time</span><span>Sold</span><span>Bought</span><span className="hide-sm">Wallet</span><span aria-hidden="true" /></div>
+                {swaps.length === 0 && <div className="empty"><p>No swaps have been indexed for this pool yet.</p></div>}
+                {swaps.map((swap) => <div className="table-row" key={`${swap.tx_hash}-${swap.executed_at}`}>
+                  <span className="subtle">{dateTime(swap.executed_at)}</span>
+                  <span className="num">{amountForDenom(pool, swap.denom_in, swap.amount_in)} {symbolForDenom(pool, swap.denom_in)}</span>
+                  <span className="num">{amountForDenom(pool, swap.denom_out, swap.amount_out)} {symbolForDenom(pool, swap.denom_out)}</span>
+                  <span className="mono subtle hide-sm">{shortAddress(swap.sender)}</span>
+                  <a className="end subtle" href={`https://explore.qore.network/tx/${swap.tx_hash}`} target="_blank" rel="noreferrer" aria-label="Open transaction in the QoreChain explorer"><ExternalLink size={15} /></a>
+                </div>)}
+              </div>
+            </section>
+          </div>
           <aside className="panel" aria-labelledby="pool-info-title">
+            <div className="pool-trade"><Link className="btn btn-primary btn-block" href={`/swap?pool=${pool.id}`}>{nativeActions ? `Swap ${pool.token_a_symbol} and ${pool.token_b_symbol}` : "Get a live quote"}</Link></div>
             <div className="panel-head"><span className="panel-title" id="pool-info-title">Pool details</span></div>
             <div className="info-list">
               <div><span>Status</span><b>{pool.status}</b></div>
@@ -161,21 +178,6 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
             </>}
           </aside>
         </div>
-
-        <section className="panel swaps-table" aria-labelledby="swaps-title" style={{ marginTop: 16 }}>
-          <div className="panel-head"><span className="panel-title" id="swaps-title">Recent swaps</span><span className="subtle">{swaps.length} indexed</span></div>
-          <div className="table">
-            <div className="table-row table-head"><span>Time</span><span>Sold</span><span>Bought</span><span className="hide-sm">Wallet</span><span aria-hidden="true" /></div>
-            {swaps.length === 0 && <div className="empty"><p>No swaps have been indexed for this pool yet.</p></div>}
-            {swaps.map((swap) => <div className="table-row" key={`${swap.tx_hash}-${swap.executed_at}`}>
-              <span className="subtle">{dateTime(swap.executed_at)}</span>
-              <span className="num">{amountForDenom(pool, swap.denom_in, swap.amount_in)} {symbolForDenom(pool, swap.denom_in)}</span>
-              <span className="num">{amountForDenom(pool, swap.denom_out, swap.amount_out)} {symbolForDenom(pool, swap.denom_out)}</span>
-              <span className="mono subtle hide-sm">{shortAddress(swap.sender)}</span>
-              <a className="end subtle" href={`https://explore.qore.network/tx/${swap.tx_hash}`} target="_blank" rel="noreferrer" aria-label="Open transaction in the QoreChain explorer"><ExternalLink size={15} /></a>
-            </div>)}
-          </div>
-        </section>
       </div>
     </main>
     <SiteFooter />

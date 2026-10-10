@@ -1,13 +1,14 @@
 /**
  * Chart colors mirror the CSS tokens in app/globals.css. Canvas charts cannot
- * read CSS variables, so both places must change together. Up and down are
+ * read CSS variables, so both places must change together. Chart backgrounds
+ * are transparent so they sit on whichever surface holds them. Up and down are
  * never the only signal: every change also carries a sign and an arrow.
  */
 export const THEME = {
-  surface: "#111113",
-  grid: "#1c1d20",
-  axis: "#2c2e33",
-  text: "#a1a1aa",
+  surface: "#111214",
+  grid: "#1a1b1f",
+  axis: "#2a2b30",
+  text: "#a0a1a8",
   accent: "#86efac",
   accentWash: "rgba(134, 239, 172, 0.18)",
   accentClear: "rgba(134, 239, 172, 0)",
