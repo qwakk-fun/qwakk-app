@@ -121,6 +121,14 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 }
 .rail-brand { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 14px; border-radius: 12px; transition: transform 0.2s; }
 .rail-brand:hover { transform: rotate(-8deg); }
+.is-quacking .brand-mark { animation: quack-shake 0.5s ease-in-out; }
+@keyframes quack-shake {
+  0%, 100% { transform: rotate(0) scale(1); }
+  20% { transform: rotate(-14deg) scale(1.12); }
+  45% { transform: rotate(10deg) scale(1.05); }
+  65% { transform: rotate(-12deg) scale(1.12); }
+  85% { transform: rotate(6deg) scale(1.02); }
+}
 .rail-links, .rail-foot { display: grid; justify-items: center; gap: 6px; }
 .rail-foot { margin-top: auto; }
 .rail-link, .rail-create {
@@ -592,6 +600,7 @@ a.table-row:hover, button.table-row:hover { background: rgba(255, 255, 255, 0.03
   .ticker-track { animation: none; }
   .ticker { overflow-x: auto; mask-image: none; }
   .quote-switch, .rail-brand, .rail-label { transition: none; }
+  .is-quacking .brand-mark { animation: none; }
   .quote-switch:hover:not(:disabled), .rail-brand:hover { transform: none; }
 }
 

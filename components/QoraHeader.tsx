@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeftRight, BookOpen, Compass, House, Layers, Plus, Search, Wallet } from "lucide-react";
 import { BRAND } from "../lib/brand";
+import { quack } from "../lib/quack";
 import { QORECHAIN_DIANA } from "../lib/qorex-native";
 import { BrandMark } from "./BrandMark";
 import { LiveTicker } from "./LiveTicker";
@@ -45,6 +46,14 @@ export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (addr
   const [notice, setNotice] = useState("");
   const [needsQoreX, setNeedsQoreX] = useState(false);
   const { nativeActions } = useFeatures();
+  const [quacking, setQuacking] = useState(false);
+
+  // Easter egg: the duck says "wak wak" and shakes its head.
+  function quackLogo() {
+    quack();
+    setQuacking(true);
+    window.setTimeout(() => setQuacking(false), 520);
+  }
 
   useEffect(() => {
     const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qora-wallet-address") ?? "");
@@ -123,7 +132,7 @@ export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (addr
 
   return <>
     <nav className="rail" aria-label="Primary navigation">
-      <Link className="rail-brand" href="/" aria-label={`${BRAND.name} home`}><BrandMark size={32} /></Link>
+      <Link className={`rail-brand ${quacking ? "is-quacking" : ""}`} href="/" aria-label={`${BRAND.name} home`} onClick={quackLogo}><BrandMark size={32} /></Link>
       <div className="rail-links">
         {NAV_ITEMS.map(({ page: itemPage, href, label, icon: Icon }) => <Link key={itemPage} className={`rail-link ${page === itemPage ? "is-active" : ""}`} href={href} aria-current={page === itemPage ? "page" : undefined}>
           <Icon size={20} strokeWidth={2} aria-hidden="true" />
@@ -138,7 +147,7 @@ export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (addr
     </nav>
     <header className="topbar">
       <div className="topbar-inner">
-        <Link className="brand topbar-brand" href="/" aria-label={`${BRAND.name} home`}><BrandMark size={28} /><span>{BRAND.name}</span></Link>
+        <Link className={`brand topbar-brand ${quacking ? "is-quacking" : ""}`} href="/" aria-label={`${BRAND.name} home`} onClick={quackLogo}><BrandMark size={28} /><span>{BRAND.name}</span></Link>
         <form className="top-search" role="search" action="/pools" onSubmit={submitSearch}>
           <Search size={16} aria-hidden="true" />
           <input ref={searchInput} name="q" type="search" placeholder="Search pools and tokens" aria-label="Search pools and tokens" autoComplete="off" onChange={(event) => search(event.target.value.trim())} />
