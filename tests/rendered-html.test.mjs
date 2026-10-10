@@ -78,3 +78,32 @@ test("server-renders markets without unavailable pool actions", async () => {
   assert.match(html, /Open pools/);
   assert.doesNotMatch(html, /Create a Native AMM pool|Prepare pool|MsgCreatePool|Most active|New pool|Create pool/);
 });
+
+test("server-renders the fees page with the interface fee cap", async () => {
+  const response = await render("/fees");
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /Never more than (<!-- -->)?0\.30%/);
+  assert.match(html, /Interface fee/);
+  assert.match(html, /Pool fee/);
+  assert.match(html, /Price protection is not a fee/);
+  assert.doesNotMatch(html, /\u2014/);
+});
+
+test("points share previews at the public site, not localhost", async () => {
+  const html = await (await render()).text();
+  assert.match(html, /property="og:image" content="https:\/\/qwakk\.fun\/og\.png"/);
+  assert.doesNotMatch(html, /localhost:3000/);
+});
+
+for (const [path, heading] of [["/terms", "Terms of Use"], ["/privacy", "Privacy Policy"], ["/risk", "Risk Disclosure"]]) {
+  test(`server-renders ${path}`, async () => {
+    const response = await render(path);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, new RegExp(`<h1>${heading}</h1>`));
+    assert.match(html, /Last updated/);
+    assert.doesNotMatch(html, /\u2014/);
+  });
+}

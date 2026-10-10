@@ -101,6 +101,7 @@ function TrendingColumn({ active }: { active: boolean }) {
           </Link>
         </li>;
       })}</ol>}
+    {rows.length > 0 && <p className="col-foot">Rankings are automated and are not financial advice.</p>}
   </Column>;
 }
 

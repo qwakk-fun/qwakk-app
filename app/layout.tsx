@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { BRAND } from "../lib/brand";
+import { ConsentGate } from "../components/ConsentGate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,7 +16,11 @@ const geistMono = Geist_Mono({
 
 const title = `${BRAND.name} | ${BRAND.tagline.replace(/\.$/, "")}`;
 
+/** Absolute base for share images and links. Override per deployment with QORA_SITE_URL. */
+const siteUrl = process.env.QORA_SITE_URL?.trim() || "https://qwakk.fun";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title,
   description: BRAND.description,
   openGraph: {
@@ -46,6 +51,7 @@ export default function RootLayout({
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="antialiased">
         {children}
+        <ConsentGate />
       </body>
     </html>
   );

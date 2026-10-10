@@ -64,7 +64,7 @@ export default function SwapPage() {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteState, setQuoteState] = useState<QuoteState>("idle");
   const [quoteError, setQuoteError] = useState("");
-  const [feeConfig, setFeeConfig] = useState<FeeConfig>({ enabled: false, feeBps: 5 });
+  const [feeConfig, setFeeConfig] = useState<FeeConfig>({ enabled: false, feeBps: 10 });
   const [networkState, setNetworkState] = useState<NetworkState>("checking");
   const [lastUpdated, setLastUpdated] = useState("Checking QoreChain Diana markets");
   const [range, setRange] = useState<MarketRange>("7");
@@ -271,7 +271,7 @@ export default function SwapPage() {
             <div className="quote-meta">
               <div className="quote-meta-row"><span>Minimum received</span><b className="num">{quote ? `${formatBaseAmount(quote.minOut, outputDecimals, 6)} ${shortDenom(denomOut)}` : "Not available"}</b></div>
               <div className="quote-meta-row"><span>Pool fee</span><b className="num">{quote ? `${formatBaseAmount(quote.nativeAmmFee, inputDecimals, 6)} ${shortDenom(denomIn)}` : "Not available"}</b></div>
-              <div className="quote-meta-row"><span>Interface fee</span><b>{feeLabel}</b></div>
+              <div className="quote-meta-row"><Link className="fee-link" href="/fees">Interface fee</Link><b>{feeLabel}</b></div>
               <div className="quote-meta-row"><label htmlFor="slippage">Price protection</label><select id="slippage" value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={10}>0.10%</option><option value={50}>0.50%</option><option value={100}>1.00%</option></select></div>
             </div>
             {nativeActions && <div className="swap-action">

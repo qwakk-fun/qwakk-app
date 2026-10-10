@@ -1,6 +1,4 @@
-import { DEFAULT_QORA_INTERFACE_FEE_BPS } from "@/lib/qora-swap-route";
-
-const MAX_QORA_INTERFACE_FEE_BPS = 100;
+import { DEFAULT_QORA_INTERFACE_FEE_BPS, MAX_QORA_INTERFACE_FEE_BPS } from "@/lib/qora-swap-route";
 
 export type ServerQoraFeeConfig =
   | { enabled: true; recipient: string; feeBps: number }

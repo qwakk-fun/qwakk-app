@@ -5,13 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeftRight, BookOpen, Compass, House, Layers, Plus, Search, Wallet } from "lucide-react";
 import { BRAND } from "../lib/brand";
+import { CONSENT_EVENT, hasConsent } from "../lib/legal";
 import { quack } from "../lib/quack";
 import { QORECHAIN_DIANA } from "../lib/qorex-native";
 import { BrandMark } from "./BrandMark";
 import { LiveTicker } from "./LiveTicker";
 import { useFeatures } from "./useFeatures";
 
-type Page = "home" | "swap" | "pools" | "profile";
+type Page = "home" | "swap" | "pools" | "profile" | "fees" | "legal";
 
 const NAV_ITEMS = [
   { page: "home", href: "/", label: "Board", icon: House },
@@ -86,6 +87,11 @@ export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (addr
   async function connectWallet() {
     if (walletAddress) {
       if (page !== "profile") router.push("/profile");
+      return;
+    }
+    // The terms and risk notice must be accepted before any wallet connects.
+    if (!hasConsent()) {
+      window.dispatchEvent(new Event(CONSENT_EVENT));
       return;
     }
     const nativeWallet = window.qorex?.native;

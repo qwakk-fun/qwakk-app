@@ -149,7 +149,7 @@ QORA_INDEXER_URL=http://srv-captain--qora-indexer:4400
 QORECHAIN_REST_URL=https://api-testnet.qore.host
 QORECHAIN_RPC_URL=https://rpc-testnet.qore.host
 QORA_TREASURY_ADDRESS=<public-qor-address>
-QORA_SWAP_FEE_BPS=5
+QORA_SWAP_FEE_BPS=10
 # Leave unset until the signing probe succeeds on Diana.
 QORA_NATIVE_ACTIONS=
 # Optional CoinGecko demo key for higher market data limits.
@@ -157,7 +157,8 @@ COINGECKO_API_KEY=
 PORT=3000
 ```
 
-`QORA_SWAP_FEE_BPS=5` means a disclosed 0.05% interface fee. If the public
+`QORA_SWAP_FEE_BPS=10` means a disclosed 0.10% interface fee. The code caps it
+at 30 (0.30%), the limit promised on the public `/fees` page. If the public
 treasury address is missing or invalid, the fee route stays disabled. The web
 health endpoint is `/api/health` and reports both Diana and indexer readiness.
 
