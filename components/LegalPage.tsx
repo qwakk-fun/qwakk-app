@@ -1,13 +1,13 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { QoraHeader } from "./QoraHeader";
+import { QwakkHeader } from "./QwakkHeader";
 import { SiteFooter } from "./SiteFooter";
 import { LEGAL_PAGES, LEGAL_UPDATED } from "../lib/legal";
 
 /** Shared frame for the Terms, Privacy Policy and Risk Disclosure. */
 export function LegalPage({ href, title, intro, children }: { href: string; title: string; intro: string; children: ReactNode }) {
   return <div className="app-shell">
-    <QoraHeader page="legal" />
+    <QwakkHeader page="legal" />
     <main className="app-main">
       <div className="container legal">
         <nav className="legal-nav" aria-label="Legal documents">

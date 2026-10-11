@@ -1,9 +1,9 @@
 import { amm, type EncodeObject } from "@qorechain/sdk";
 
-import type { ServerQoraFeeConfig } from "@/lib/qora-fee-config";
-import { buildLiquidityRoute } from "@/lib/qora-liquidity-route";
-import { buildCreatePoolPlan } from "@/lib/qora-pool-route";
-import { buildQoraSwapRoute } from "@/lib/qora-swap-route";
+import type { ServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
+import { buildLiquidityRoute } from "@/lib/qwakk-liquidity-route";
+import { buildCreatePoolPlan } from "@/lib/qwakk-pool-route";
+import { buildQwakkSwapRoute } from "@/lib/qwakk-swap-route";
 
 export type NativeAction =
   | { kind: "swap"; poolId: string; denomIn: string; amountIn: string; denomOut: string; minOut: string }
@@ -44,14 +44,14 @@ export function parseNativeAction(value: unknown): NativeAction {
 
 /**
  * Turns an action into native messages for the sender to sign. A swap carries
- * Qora's disclosed interface fee as a separate transfer only when a treasury is
+ * Qwakk's disclosed interface fee as a separate transfer only when a treasury is
  * configured; the quote route splits the input the same way.
  */
-export function messagesForAction(sender: string, action: NativeAction, fee: ServerQoraFeeConfig): EncodeObject[] {
+export function messagesForAction(sender: string, action: NativeAction, fee: ServerQwakkFeeConfig): EncodeObject[] {
   switch (action.kind) {
     case "swap":
       if (fee.enabled) {
-        return buildQoraSwapRoute({ sender, ...action, fee: { recipient: fee.recipient, feeBps: fee.feeBps } }).messages;
+        return buildQwakkSwapRoute({ sender, ...action, fee: { recipient: fee.recipient, feeBps: fee.feeBps } }).messages;
       }
       if (!/^\d+$/.test(action.minOut)) throw new Error("Minimum output must be an integer");
       if (!/^\d+$/.test(action.amountIn) || BigInt(action.amountIn) <= BigInt(0)) throw new Error("Swap amount must be a positive integer");

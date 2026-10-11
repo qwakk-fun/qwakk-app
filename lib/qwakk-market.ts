@@ -1,4 +1,4 @@
-const INDEXER_URL = (process.env.QORA_INDEXER_URL ?? "http://localhost:4400").replace(/\/$/, "");
+const INDEXER_URL = (process.env.QWAKK_INDEXER_URL ?? "http://localhost:4400").replace(/\/$/, "");
 
 /** Reads the indexer and keeps its HTTP status, so a missing pool is not reported as an outage. */
 export async function indexerRequest(path: string): Promise<{ status: number; data: unknown } | null> {

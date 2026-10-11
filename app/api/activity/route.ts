@@ -1,4 +1,4 @@
-import { indexerRead } from "../../../lib/qora-market";
+import { indexerRead } from "../../../lib/qwakk-market";
 
 type MarketRow = {
   id: string | number;

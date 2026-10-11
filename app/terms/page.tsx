@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { LegalPage } from "../../components/LegalPage";
 import { BRAND } from "../../lib/brand";
-import { MAX_QORA_INTERFACE_FEE_BPS } from "../../lib/qora-swap-route";
+import { MAX_QWAKK_INTERFACE_FEE_BPS } from "../../lib/qwakk-swap-route";
 
 export const metadata = {
   title: `Terms of Use | ${BRAND.name}`,
@@ -39,7 +39,7 @@ export default function TermsPage() {
     </section>
     <section>
       <h2>6. Fees</h2>
-      <p>{name} may charge an interface fee on swaps. When it applies, it is shown before you sign and will never exceed {(MAX_QORA_INTERFACE_FEE_BPS / 100).toFixed(2)}% of the amount you pay. Pool fees and network fees are set by QoreChain and are never paid to {name}. See <Link href="/fees">Fees</Link> for details.</p>
+      <p>{name} may charge an interface fee on swaps. When it applies, it is shown before you sign and will never exceed {(MAX_QWAKK_INTERFACE_FEE_BPS / 100).toFixed(2)}% of the amount you pay. Pool fees and network fees are set by QoreChain and are never paid to {name}. See <Link href="/fees">Fees</Link> for details.</p>
     </section>
     <section>
       <h2>7. Your responsibilities</h2>

@@ -1,9 +1,9 @@
 import { Coins, Droplets, Gauge, Network, ShieldCheck } from "lucide-react";
-import { QoraHeader } from "../../components/QoraHeader";
+import { QwakkHeader } from "../../components/QwakkHeader";
 import { SiteFooter } from "../../components/SiteFooter";
 import { BRAND } from "../../lib/brand";
-import { getServerQoraFeeConfig } from "../../lib/qora-fee-config";
-import { MAX_QORA_INTERFACE_FEE_BPS } from "../../lib/qora-swap-route";
+import { getServerQwakkFeeConfig } from "../../lib/qwakk-fee-config";
+import { MAX_QWAKK_INTERFACE_FEE_BPS } from "../../lib/qwakk-swap-route";
 import { QORECHAIN_REST_URL } from "../../lib/qorechain-endpoints";
 
 export const metadata = {
@@ -31,16 +31,16 @@ async function poolFeeBps() {
 const EXAMPLE_QOR = 1_000;
 
 export default async function FeesPage() {
-  const fee = getServerQoraFeeConfig();
+  const fee = getServerQwakkFeeConfig();
   const poolBps = await poolFeeBps();
-  const cap = percent(MAX_QORA_INTERFACE_FEE_BPS);
+  const cap = percent(MAX_QWAKK_INTERFACE_FEE_BPS);
   const interfacePct = percent(fee.feeBps);
   const exampleInterface = fee.enabled ? (EXAMPLE_QOR * fee.feeBps) / 10_000 : 0;
   const examplePool = poolBps === null ? null : ((EXAMPLE_QOR - exampleInterface) * poolBps) / 10_000;
   const qor = (value: number) => `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(value)} QOR`;
 
   return <div className="app-shell">
-    <QoraHeader page="fees" />
+    <QwakkHeader page="fees" />
     <main className="app-main">
       <div className="container fees">
         <section className="page-head">

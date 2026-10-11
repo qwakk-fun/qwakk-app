@@ -1,5 +1,5 @@
 {
-  "name": "qora-indexer",
+  "name": "qwakk-indexer",
   "private": true,
   "type": "module",
   "dependencies": {

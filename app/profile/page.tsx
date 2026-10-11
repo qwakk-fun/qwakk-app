@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, ExternalLink, Wallet } from "lucide-react";
-import { QoraHeader } from "../../components/QoraHeader";
+import { QwakkHeader } from "../../components/QwakkHeader";
 import { SiteFooter } from "../../components/SiteFooter";
 import { TokenIcon } from "../../components/TokenIcon";
 import { useQorMarket } from "../../components/useQorMarket";
-import { assetForDenom, displaySymbol, formatBaseAmount } from "../../lib/qora-assets";
+import { assetForDenom, displaySymbol, formatBaseAmount } from "../../lib/qwakk-assets";
 import { formatUsdCompact } from "../../lib/qor-price";
 
 type Balance = { denom: string; amount: string };
@@ -77,20 +77,20 @@ export default function Profile() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const savedAddress = window.localStorage.getItem("qora-wallet-address") ?? "";
+      const savedAddress = window.localStorage.getItem("qwakk-wallet-address") ?? "";
       setAddress(savedAddress);
       void loadBalances(savedAddress);
       void loadTransactions(savedAddress);
       void loadPositions(savedAddress);
     }, 0);
     const refreshAfterTx = () => {
-      const current = window.localStorage.getItem("qora-wallet-address") ?? "";
+      const current = window.localStorage.getItem("qwakk-wallet-address") ?? "";
       void loadBalances(current);
       void loadPositions(current);
       void loadTransactions(current);
     };
-    window.addEventListener("qora:tx-confirmed", refreshAfterTx);
-    return () => { window.clearTimeout(timer); window.removeEventListener("qora:tx-confirmed", refreshAfterTx); };
+    window.addEventListener("qwakk:tx-confirmed", refreshAfterTx);
+    return () => { window.clearTimeout(timer); window.removeEventListener("qwakk:tx-confirmed", refreshAfterTx); };
   }, [loadBalances, loadTransactions, loadPositions]);
 
   const qorBalance = balances.find((balance) => balance.denom === "uqor");
@@ -112,7 +112,7 @@ export default function Profile() {
     void loadPositions(walletAddress);
   };
   return <div className="app-shell">
-    <QoraHeader page="profile" onConnected={handleConnected} />
+    <QwakkHeader page="profile" onConnected={handleConnected} />
     <main className="app-main">
       <div className="container">
         <section className="page-head">

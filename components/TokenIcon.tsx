@@ -1,4 +1,4 @@
-import { assetForDenom, displaySymbol } from "../lib/qora-assets";
+import { assetForDenom, displaySymbol } from "../lib/qwakk-assets";
 
 export function TokenIcon({ denom, size = "regular" }: { denom: string; size?: "small" | "regular" | "large" | "avatar" }) {
   const asset = assetForDenom(denom);

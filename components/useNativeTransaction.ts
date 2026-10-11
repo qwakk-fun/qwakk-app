@@ -2,8 +2,8 @@
 
 import { useCallback, useState } from "react";
 import { QORECHAIN_DIANA } from "../lib/qorex-native";
-import { chainFailureCopy, walletFailureCopy } from "../lib/qora-tx-copy";
-import type { NativeAction } from "../lib/qora-native-actions";
+import { chainFailureCopy, walletFailureCopy } from "../lib/qwakk-tx-copy";
+import type { NativeAction } from "../lib/qwakk-native-actions";
 
 export type TxPhase = "idle" | "preparing" | "signing" | "submitting" | "confirming" | "success" | "failed";
 export type TxState = { phase: TxPhase; message: string; txhash: string; fee: string };
@@ -107,7 +107,7 @@ export function useNativeTransaction() {
         if (status.state !== "included") continue;
         if (!status.success) return fail(chainFailureCopy(status.codespace ?? "", status.code ?? 0), txhash);
         setState((current) => ({ ...current, phase: "success", message: "Confirmed on QoreChain Diana." }));
-        window.dispatchEvent(new Event("qora:tx-confirmed"));
+        window.dispatchEvent(new Event("qwakk:tx-confirmed"));
         return;
       } catch {
         // A missed poll is retried; the transaction itself is already submitted.

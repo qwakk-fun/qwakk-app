@@ -1,7 +1,7 @@
 import { QORECHAIN_CHAIN_ID } from "@/lib/qorechain-endpoints";
 import { nativeActionsEnabled } from "@/lib/features";
-import { getServerQoraFeeConfig } from "@/lib/qora-fee-config";
-import { messagesForAction, parseNativeAction } from "@/lib/qora-native-actions";
+import { getServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
+import { messagesForAction, parseNativeAction } from "@/lib/qwakk-native-actions";
 import {
   buildUnsignedNativeTx,
   bytesToBase64,
@@ -10,8 +10,8 @@ import {
   parseCompressedPublicKey,
   readAccountAuth,
   simulateTx,
-} from "@/lib/qora-native-tx";
-import { SIMULATION_FAILURE_COPY } from "@/lib/qora-tx-copy";
+} from "@/lib/qwakk-native-tx";
+import { SIMULATION_FAILURE_COPY } from "@/lib/qwakk-tx-copy";
 
 /** Used only for the first simulation. Kept small so a low balance is not refused for a fee it would never pay. */
 const DRAFT_FEE = { amount: [{ denom: "uqor", amount: "30000" }], gas: "1000000" };
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
 
   let messages;
   try {
-    messages = messagesForAction(address, parseNativeAction(input?.action), getServerQoraFeeConfig());
+    messages = messagesForAction(address, parseNativeAction(input?.action), getServerQwakkFeeConfig());
   } catch (error) {
     // Builder errors are fixed strings written in this codebase, never chain text.
     return json({ error: error instanceof Error ? error.message : "Check the transaction details" }, 400);

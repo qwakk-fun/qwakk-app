@@ -5,13 +5,13 @@ import Link from "next/link";
 import { ChevronRight, Clock3, Flame, Layers, LayoutGrid, List, Plus, Search, TrendingUp } from "lucide-react";
 import { CreatePoolPanel } from "./CreatePoolPanel";
 import { PoolCard } from "./PoolCard";
-import { CREATE_EVENT, QoraHeader, SEARCH_EVENT } from "./QoraHeader";
+import { CREATE_EVENT, QwakkHeader, SEARCH_EVENT } from "./QwakkHeader";
 import { SiteFooter } from "./SiteFooter";
 import { TokenIcon } from "./TokenIcon";
 import { useFeatures } from "./useFeatures";
 import { formatDecimal, formatPercentChange, marketChange, useMarkets, type Market } from "./useMarkets";
 import { useQorMarket } from "./useQorMarket";
-import { formatBaseAmount } from "../lib/qora-assets";
+import { formatBaseAmount } from "../lib/qwakk-assets";
 import { formatUsdPrice } from "../lib/qor-price";
 
 type Sort = "trending" | "newest" | "moves";
@@ -23,7 +23,7 @@ const SORTS = [
   { value: "moves", label: "Biggest moves", icon: TrendingUp },
 ] as const;
 
-const VIEW_KEY = "qora-pools-view";
+const VIEW_KEY = "qwakk-pools-view";
 
 function reserve(value: string, decimals: string | number, symbol: string) {
   return `${formatBaseAmount(value ?? "0", Number(decimals), 4)} ${symbol}`;
@@ -84,10 +84,10 @@ export function MarketsView() {
   }, []);
 
   useEffect(() => {
-    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qora-wallet-address") ?? "");
+    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qwakk-wallet-address") ?? "");
     restoreWallet();
-    window.addEventListener("qora:wallet-change", restoreWallet);
-    return () => window.removeEventListener("qora:wallet-change", restoreWallet);
+    window.addEventListener("qwakk:wallet-change", restoreWallet);
+    return () => window.removeEventListener("qwakk:wallet-change", restoreWallet);
   }, []);
 
   useEffect(() => {
@@ -116,7 +116,7 @@ export function MarketsView() {
         : <div className="empty"><h3>No pools match “{query}”</h3><p>Try a token symbol such as QOR.</p></div>;
 
   return <div className="app-shell">
-    <QoraHeader page="pools" />
+    <QwakkHeader page="pools" />
     <main className="app-main">
       <div className="container">
         <section className="page-head">
@@ -129,7 +129,7 @@ export function MarketsView() {
             <label className="search search-inline"><Search size={16} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search token or pool" aria-label="Search pools" /></label>
             {nativeActions && (walletAddress
               ? <button type="button" className="btn btn-primary" aria-expanded={creating} onClick={() => setCreating((value) => !value)}><Plus size={16} />New pool</button>
-              : <button type="button" className="btn btn-primary" onClick={() => window.dispatchEvent(new Event("qora:request-connect"))}>Connect wallet</button>)}
+              : <button type="button" className="btn btn-primary" onClick={() => window.dispatchEvent(new Event("qwakk:request-connect"))}>Connect wallet</button>)}
           </div>
         </section>
 

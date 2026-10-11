@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { QoraHeader } from "./QoraHeader";
+import { QwakkHeader } from "./QwakkHeader";
 import { QORECHAIN_DIANA } from "../lib/qorex-native";
-import { walletFailureCopy } from "../lib/qora-tx-copy";
+import { walletFailureCopy } from "../lib/qwakk-tx-copy";
 
 type Step = { label: string; state: "done" | "failed" | "waiting" };
 type Verdict = { title: string; detail: string; tone: "positive" | "negative" | "neutral" };
@@ -145,7 +145,7 @@ export function SigningProbe() {
   }
 
   return <div className="app-shell">
-    <QoraHeader page="home" />
+    <QwakkHeader page="home" />
     <main className="app-main">
       <div className="container">
         <section className="page-head">

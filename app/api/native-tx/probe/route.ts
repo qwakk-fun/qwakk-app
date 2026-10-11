@@ -7,7 +7,7 @@ import {
   classicalAddressFromPublicKey,
   parseCompressedPublicKey,
   readAccountAuth,
-} from "@/lib/qora-native-tx";
+} from "@/lib/qwakk-native-tx";
 
 /** A pool ID far beyond anything Diana has created, so the swap cannot execute. */
 const PROBE_POOL_ID = "999999999";

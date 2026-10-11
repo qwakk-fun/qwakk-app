@@ -62,8 +62,8 @@ export function useMarkets(refreshMs = 15_000): MarketsState {
     const timer = window.setInterval(() => void load(), refreshMs);
     // The indexer polls the chain every few seconds, so read again shortly after a confirmed action.
     const reloadSoon = () => window.setTimeout(() => void load(), 6_000);
-    window.addEventListener("qora:tx-confirmed", reloadSoon);
-    return () => { active = false; window.clearInterval(timer); window.removeEventListener("qora:tx-confirmed", reloadSoon); };
+    window.addEventListener("qwakk:tx-confirmed", reloadSoon);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("qwakk:tx-confirmed", reloadSoon); };
   }, [refreshMs]);
 
   return result;

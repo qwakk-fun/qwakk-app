@@ -1,19 +1,19 @@
 import { amm, bank, type EncodeObject } from "@qorechain/sdk";
 
 /**
- * Qora's application fee is deliberately separate from the native AMM fee.
+ * Qwakk's application fee is deliberately separate from the native AMM fee.
  * The caller must disclose it before the user signs the transaction.
  */
-export const DEFAULT_QORA_INTERFACE_FEE_BPS = 10;
+export const DEFAULT_QWAKK_INTERFACE_FEE_BPS = 10;
 
 /**
  * Public promise on the fees page: the interface fee never exceeds 0.30%.
  * Every path that sets or applies the fee enforces this cap.
  */
-export const MAX_QORA_INTERFACE_FEE_BPS = 30;
+export const MAX_QWAKK_INTERFACE_FEE_BPS = 30;
 
-export type QoraFeeConfig = {
-  /** Qora treasury. Leave unset until a production treasury is approved. */
+export type QwakkFeeConfig = {
+  /** Qwakk treasury. Leave unset until a production treasury is approved. */
   recipient: string;
   /** 10 bps = 0.10%. Keep this low and visible in the confirmation UI. */
   feeBps?: number;
@@ -27,11 +27,11 @@ export type SwapRouteInput = {
   amountIn: string;
   denomOut: string;
   minOut: string;
-  fee: QoraFeeConfig;
+  fee: QwakkFeeConfig;
 };
 
-export type QoraSwapRoute = {
-  /** Amount used by the AMM after the explicitly disclosed Qora fee. */
+export type QwakkSwapRoute = {
+  /** Amount used by the AMM after the explicitly disclosed Qwakk fee. */
   swapAmount: string;
   interfaceFee: { denom: string; amount: string };
   /** Fee transfer first, then native AMM swap. Both are signed in one transaction. */
@@ -51,14 +51,14 @@ function validateAddress(address: string) {
  * user funds. The QoreX adapter must add the required hybrid PQC extension and
  * request the user's signature before the returned messages can be broadcast.
  */
-export function buildQoraSwapRoute(input: SwapRouteInput): QoraSwapRoute {
-  const feeBps = input.fee.feeBps ?? DEFAULT_QORA_INTERFACE_FEE_BPS;
+export function buildQwakkSwapRoute(input: SwapRouteInput): QwakkSwapRoute {
+  const feeBps = input.fee.feeBps ?? DEFAULT_QWAKK_INTERFACE_FEE_BPS;
   if (!validateAddress(input.sender)) throw new Error("A valid sender address is required");
-  if (!validateAddress(input.fee.recipient)) throw new Error("A valid Qora treasury address is required");
+  if (!validateAddress(input.fee.recipient)) throw new Error("A valid Qwakk treasury address is required");
   if (!/^\d+$/.test(input.poolId) || BigInt(input.poolId) <= BigInt(0)) throw new Error("A valid pool ID is required");
   if (!isPositiveInteger(input.amountIn)) throw new Error("Swap amount must be a positive integer");
   if (!/^\d+$/.test(input.minOut)) throw new Error("Minimum output must be an integer");
-  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_QORA_INTERFACE_FEE_BPS) throw new Error(`Interface fee must be between 0 and ${MAX_QORA_INTERFACE_FEE_BPS} bps`);
+  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_QWAKK_INTERFACE_FEE_BPS) throw new Error(`Interface fee must be between 0 and ${MAX_QWAKK_INTERFACE_FEE_BPS} bps`);
 
   const totalAmount = BigInt(input.amountIn);
   const interfaceFee = (totalAmount * BigInt(feeBps)) / BigInt(10_000);

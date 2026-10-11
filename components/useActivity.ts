@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatBaseAmount } from "../lib/qora-assets";
+import { formatBaseAmount } from "../lib/qwakk-assets";
 
 export type Trade = {
   tx_hash: string;
@@ -41,8 +41,8 @@ export function useActivity(refreshMs = 12_000): ActivityState {
     void load();
     const timer = window.setInterval(() => void load(), refreshMs);
     const reloadSoon = () => window.setTimeout(() => void load(), 6_000);
-    window.addEventListener("qora:tx-confirmed", reloadSoon);
-    return () => { active = false; window.clearInterval(timer); window.removeEventListener("qora:tx-confirmed", reloadSoon); };
+    window.addEventListener("qwakk:tx-confirmed", reloadSoon);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("qwakk:tx-confirmed", reloadSoon); };
   }, [refreshMs]);
 
   return result;

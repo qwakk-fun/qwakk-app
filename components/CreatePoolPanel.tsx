@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { TxProgress } from "./TxProgress";
 import { useNativeTransaction } from "./useNativeTransaction";
-import { assetForDenom, displaySymbol, formatBaseAmount, toBaseAmount } from "../lib/qora-assets";
+import { assetForDenom, displaySymbol, formatBaseAmount, toBaseAmount } from "../lib/qwakk-assets";
 
 type Balance = { denom: string; amount: string };
 type AmmInfo = { poolCreationFee: string | null; minLiquidity: string | null } | null;

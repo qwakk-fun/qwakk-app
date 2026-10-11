@@ -24,9 +24,9 @@ const NAV_ITEMS = [
 const QOREX_INSTALL_URL = "https://chromewebstore.google.com/detail/qorex/cflpnggbnnifibblifgbeobogdpfjpcg";
 
 /** The pools list listens for this event so typing in the top bar filters it in place. */
-export const SEARCH_EVENT = "qora:search";
+export const SEARCH_EVENT = "qwakk:search";
 /** Opens the pool creation form when the pools page is already showing. */
-export const CREATE_EVENT = "qora:request-create";
+export const CREATE_EVENT = "qwakk:request-create";
 
 function walletConnectionMessage(error: unknown) {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
@@ -39,7 +39,7 @@ function walletConnectionMessage(error: unknown) {
   return "QoreX could not complete the connection. Make sure it is unlocked, then try again.";
 }
 
-export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (address: string) => void; page?: Page }) {
+export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (address: string) => void; page?: Page }) {
   const router = useRouter();
   const searchInput = useRef<HTMLInputElement>(null);
   const [walletAddress, setWalletAddress] = useState("");
@@ -57,17 +57,17 @@ export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (addr
   }
 
   useEffect(() => {
-    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qora-wallet-address") ?? "");
+    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qwakk-wallet-address") ?? "");
     restoreWallet();
-    window.addEventListener("qora:wallet-change", restoreWallet);
-    return () => window.removeEventListener("qora:wallet-change", restoreWallet);
+    window.addEventListener("qwakk:wallet-change", restoreWallet);
+    return () => window.removeEventListener("qwakk:wallet-change", restoreWallet);
   }, []);
 
   // Other components ask the header to connect, so there is one connect flow.
   useEffect(() => {
     const requestConnect = () => void connectWallet();
-    window.addEventListener("qora:request-connect", requestConnect);
-    return () => window.removeEventListener("qora:request-connect", requestConnect);
+    window.addEventListener("qwakk:request-connect", requestConnect);
+    return () => window.removeEventListener("qwakk:request-connect", requestConnect);
   });
 
   // Cmd+K or Ctrl+K focuses search from anywhere.
@@ -105,8 +105,8 @@ export function QoraHeader({ onConnected, page = "home" }: { onConnected?: (addr
     try {
       await nativeWallet.enable(QORECHAIN_DIANA);
       const key = await nativeWallet.getKey(QORECHAIN_DIANA);
-      window.localStorage.setItem("qora-wallet-address", key.bech32Address);
-      window.dispatchEvent(new Event("qora:wallet-change"));
+      window.localStorage.setItem("qwakk-wallet-address", key.bech32Address);
+      window.dispatchEvent(new Event("qwakk:wallet-change"));
       setWalletAddress(key.bech32Address);
       onConnected?.(key.bech32Address);
       setNotice("Wallet connected. Your portfolio is ready.");

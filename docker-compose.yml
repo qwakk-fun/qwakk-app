@@ -1,15 +1,18 @@
+# Pinned so container and volume names do not depend on the folder name.
+name: qwakk
+
 services:
   web:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: qora-web
+    container_name: qwakk-web
     depends_on:
       indexer:
         condition: service_healthy
     environment:
-      QORA_PROCESS_ROLE: web
-      QORA_INDEXER_URL: http://indexer:4400
+      QWAKK_PROCESS_ROLE: web
+      QWAKK_INDEXER_URL: http://indexer:4400
       QORECHAIN_REST_URL: https://api-testnet.qore.host
       QORECHAIN_RPC_URL: https://rpc-testnet.qore.host
       PORT: 3000
@@ -19,17 +22,17 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: qora-postgres
+    container_name: qwakk-postgres
     environment:
-      POSTGRES_DB: qora
-      POSTGRES_USER: qora
-      POSTGRES_PASSWORD: qora_local
+      POSTGRES_DB: qwakk
+      POSTGRES_USER: qwakk
+      POSTGRES_PASSWORD: qwakk_local
     ports:
       - "5438:5432"
     volumes:
-      - qora-postgres-data:/var/lib/postgresql/data
+      - qwakk-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U qora -d qora"]
+      test: ["CMD-SHELL", "pg_isready -U qwakk -d qwakk"]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -38,16 +41,16 @@ services:
     build:
       context: .
       dockerfile: indexer/Dockerfile
-    container_name: qora-indexer
+    container_name: qwakk-indexer
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      QORA_PROCESS_ROLE: indexer
-      DATABASE_URL: postgresql://qora:qora_local@postgres:5432/qora
+      QWAKK_PROCESS_ROLE: indexer
+      DATABASE_URL: postgresql://qwakk:qwakk_local@postgres:5432/qwakk
       QORECHAIN_REST_URL: https://api-testnet.qore.host
       QORECHAIN_RPC_URL: https://rpc-testnet.qore.host
-      QORA_INDEXER_PORT: 4400
+      QWAKK_INDEXER_PORT: 4400
     ports:
       - "4400:4400"
     healthcheck:
@@ -58,4 +61,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  qora-postgres-data:
+  qwakk-postgres-data:

@@ -2,7 +2,7 @@
 
 ## Product and brand
 
-- Qwakk (formerly Qora) is a simple, fast, non-custodial DEX interface for QoreChain. The product name lives only in `lib/brand.ts`. Internal identifiers (file names, `qora-*` storage keys and events, `QORA_*` environment variables) keep the old prefix so deployments keep working.
+- Qwakk is a simple, fast, non-custodial DEX interface for QoreChain. The product name lives only in `lib/brand.ts`. Internal identifiers use the `qwakk` prefix everywhere: file names, `qwakk-*` storage keys and events, `QWAKK_*` environment variables, Docker and database names. Do not reintroduce the old "Qora" name.
 - The core message is: "Simple swaps on QoreChain." The slogan is "Swap it. Qwakk it."
 - Write in an energetic, playful, pump-style voice that stays honest and trustworthy. Short punchy lines and the duck personality (quacks, waddles, ponds) are welcome in moderation. Never let playfulness blur facts: amounts, fees, risks and transaction status are always stated plainly. Avoid unnecessary crypto jargon and developer-facing language in marketing copy.
 - Avoid repeated copy within the same component. A heading, supporting copy and primary button must each add distinct information or intent. Do not repeat the same action label, such as "Send QOR", in more than one of those elements.
@@ -32,7 +32,7 @@
 - Do not start a development server unless explicitly asked. The user runs `npm run dev` locally.
 - Use `apply_patch` for source edits. Do not overwrite unrelated user changes.
 - Run `npm run build` for relevant implementation changes before handing work over.
-- Keep shared navigation in `components/QoraHeader.tsx` and keep its layout consistent across pages.
+- Keep shared navigation in `components/QwakkHeader.tsx` and keep its layout consistent across pages.
 
 ## Git
 

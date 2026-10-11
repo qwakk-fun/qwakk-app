@@ -7,7 +7,7 @@ import { AuthInfo, Fee, ModeInfo, SignerInfo, TxBody, TxRaw } from "cosmjs-types
 import { QORECHAIN_REST_URL } from "@/lib/qorechain-endpoints";
 
 /**
- * Only native AMM messages may pass through Qora's broadcast relay. Anything
+ * Only native AMM messages may pass through Qwakk's broadcast relay. Anything
  * else is refused so the relay cannot be used for unrelated transactions.
  */
 export const RELAYABLE_MESSAGE_TYPES = new Set([
@@ -92,7 +92,7 @@ export function classicalAddressFromPublicKey(publicKey: Uint8Array) {
 
 /**
  * Builds the SIGN_MODE_DIRECT body and auth info for a wallet key. The wallet
- * signs these bytes; Qora never sees a private key.
+ * signs these bytes; Qwakk never sees a private key.
  */
 export function buildUnsignedNativeTx(input: {
   messages: readonly EncodeObject[];
@@ -132,7 +132,7 @@ const SEND_TYPE = "/cosmos.bank.v1beta1.MsgSend";
 
 /**
  * A body may be relayed when every message is a native AMM message, or when a
- * swap is paired with Qora's interface fee: one transfer to the configured
+ * swap is paired with Qwakk's interface fee: one transfer to the configured
  * treasury. Any other transfer is refused.
  */
 export function isRelayableBody(bodyBytes: Uint8Array, treasury?: string) {

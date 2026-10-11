@@ -1,4 +1,4 @@
-import type { ServerQoraFeeConfig } from "@/lib/qora-fee-config";
+import type { ServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
 
 export const DEFAULT_SLIPPAGE_BPS = 50;
 export const MAX_SLIPPAGE_BPS = 500;
@@ -8,7 +8,7 @@ export type ExactInQuoteInput = {
   denomIn: string;
   amountIn: string;
   slippageBps?: number;
-  fee: ServerQoraFeeConfig;
+  fee: ServerQwakkFeeConfig;
 };
 
 export type ExactInQuoteRequest = {

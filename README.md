@@ -1,7 +1,6 @@
 # Qwakk
 
-Swap it. Qwakk it. (Formerly Qora. Internal file names, storage keys and
-`QORA_*` environment variables keep the old prefix so deployments keep working.)
+Swap it. Qwakk it.
 
 Qwakk is a non-custodial interface for QoreChain's native `x/amm` module. The
 current target is the Diana testnet. Qwakk does not deploy or use a separate EVM
@@ -45,7 +44,7 @@ Swap, pool creation and add or remove liquidity are implemented behind one
 switch:
 
 ```text
-QORA_NATIVE_ACTIONS=enabled
+QWAKK_NATIVE_ACTIONS=enabled
 ```
 
 It is read at runtime, so it can be changed in CapRover without a rebuild.
@@ -94,8 +93,8 @@ and PostgreSQL on port `5438`.
 
 The same root Docker image can run in two roles:
 
-- `QORA_PROCESS_ROLE=web`: starts the Qwakk web application on port `3000`.
-- `QORA_PROCESS_ROLE=indexer`: starts the QoreChain indexer on port `4400`.
+- `QWAKK_PROCESS_ROLE=web`: starts the Qwakk web application on port `3000`.
+- `QWAKK_PROCESS_ROLE=indexer`: starts the QoreChain indexer on port `4400`.
 
 The indexer reads Diana REST/RPC data and writes normalized pools, swaps and
 candles to PostgreSQL. The web application reads that indexed data through the
@@ -108,56 +107,56 @@ internal service discovery.
 
 ### 1. PostgreSQL
 
-Create a one-click PostgreSQL app named `qora-postgres` with a persistent
+Create a one-click PostgreSQL app named `qwakk-postgres` with a persistent
 volume. Create a strong password and keep the database private to the CapRover
 network.
 
 Recommended database values:
 
 ```text
-POSTGRES_DB=qora
-POSTGRES_USER=qora
+POSTGRES_DB=qwakk
+POSTGRES_USER=qwakk
 POSTGRES_PASSWORD=<strong-password>
 ```
 
 ### 2. Indexer
 
-Create `qora-indexer`, deploy this repository and set its container HTTP port
+Create `qwakk-indexer`, deploy this repository and set its container HTTP port
 to `4400`. Configure:
 
 ```text
-QORA_PROCESS_ROLE=indexer
-DATABASE_URL=postgresql://qora:<url-encoded-password>@srv-captain--qora-postgres:5432/qora
+QWAKK_PROCESS_ROLE=indexer
+DATABASE_URL=postgresql://qwakk:<url-encoded-password>@srv-captain--qwakk-postgres:5432/qwakk
 QORECHAIN_REST_URL=https://api-testnet.qore.host
 QORECHAIN_RPC_URL=https://rpc-testnet.qore.host
-QORA_INDEXER_PORT=4400
+QWAKK_INDEXER_PORT=4400
 # Optional: first block to index on a fresh database. It must still be kept by
 # the node. Without it the indexer starts from the current height.
-QORA_INDEXER_START_HEIGHT=
+QWAKK_INDEXER_START_HEIGHT=
 ```
 
 The indexer health endpoint is `/health`.
 
 ### 3. Web application
 
-Create `qora-web`, deploy the same repository and set its container HTTP port
+Create `qwakk-web`, deploy the same repository and set its container HTTP port
 to `3000`. Configure:
 
 ```text
-QORA_PROCESS_ROLE=web
-QORA_INDEXER_URL=http://srv-captain--qora-indexer:4400
+QWAKK_PROCESS_ROLE=web
+QWAKK_INDEXER_URL=http://srv-captain--qwakk-indexer:4400
 QORECHAIN_REST_URL=https://api-testnet.qore.host
 QORECHAIN_RPC_URL=https://rpc-testnet.qore.host
-QORA_TREASURY_ADDRESS=<public-qor-address>
-QORA_SWAP_FEE_BPS=10
+QWAKK_TREASURY_ADDRESS=<public-qor-address>
+QWAKK_SWAP_FEE_BPS=10
 # Leave unset until the signing probe succeeds on Diana.
-QORA_NATIVE_ACTIONS=
+QWAKK_NATIVE_ACTIONS=
 # Optional CoinGecko demo key for higher market data limits.
 COINGECKO_API_KEY=
 PORT=3000
 ```
 
-`QORA_SWAP_FEE_BPS=10` means a disclosed 0.10% interface fee. The code caps it
+`QWAKK_SWAP_FEE_BPS=10` means a disclosed 0.10% interface fee. The code caps it
 at 30 (0.30%), the limit promised on the public `/fees` page. If the public
 treasury address is missing or invalid, the fee route stays disabled. The web
 health endpoint is `/api/health` and reports both Diana and indexer readiness.
@@ -165,8 +164,8 @@ health endpoint is `/api/health` and reports both Diana and indexer readiness.
 After configuring both applications, deploy the same branch to each:
 
 ```bash
-caprover deploy -n <captain-machine-name> -a qora-indexer -b main
-caprover deploy -n <captain-machine-name> -a qora-web -b main
+caprover deploy -n <captain-machine-name> -a qwakk-indexer -b main
+caprover deploy -n <captain-machine-name> -a qwakk-web -b main
 ```
 
 The root `captain-definition` uses the production `Dockerfile`; the environment
@@ -178,7 +177,7 @@ The bootstrap command uses the official QoreChain SDK and creates a native
 `MsgCreatePool`. It performs a dry run unless `--broadcast` is explicitly
 provided.
 
-Set `QORA_TESTNET_MNEMONIC` only in the current trusted terminal session. Do not
+Set `QWAKK_TESTNET_MNEMONIC` only in the current trusted terminal session. Do not
 put it in `.env`, shell history, CapRover or source control.
 
 ```bash

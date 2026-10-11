@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildExactInQuoteRequest, calculateMinimumOut } from "../lib/qora-quote";
+import { buildExactInQuoteRequest, calculateMinimumOut } from "../lib/qwakk-quote";
 
 test("subtracts the configured interface fee before requesting an AMM quote", () => {
   const quote = buildExactInQuoteRequest({

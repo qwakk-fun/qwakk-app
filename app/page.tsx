@@ -1,10 +1,10 @@
 import { Board } from "../components/Board";
-import { QoraHeader } from "../components/QoraHeader";
+import { QwakkHeader } from "../components/QwakkHeader";
 import { SiteFooter } from "../components/SiteFooter";
 
 export default function Home() {
   return <div className="app-shell">
-    <QoraHeader page="home" />
+    <QwakkHeader page="home" />
     <main className="board-main">
       <Board />
     </main>

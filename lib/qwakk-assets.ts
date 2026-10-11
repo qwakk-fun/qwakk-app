@@ -1,4 +1,4 @@
-export type QoraAsset = {
+export type QwakkAsset = {
   denom: string;
   symbol: string;
   name: string;
@@ -6,12 +6,12 @@ export type QoraAsset = {
   icon: "qor" | "usd" | "generic";
 };
 
-const KNOWN_ASSETS: Record<string, QoraAsset> = {
+const KNOWN_ASSETS: Record<string, QwakkAsset> = {
   uqor: { denom: "uqor", symbol: "QOR", name: "Qore", decimals: 6, icon: "qor" },
   uusdc: { denom: "uusdc", symbol: "USDC", name: "USD Coin", decimals: 6, icon: "usd" },
 };
 
-export function assetForDenom(denom: string): QoraAsset | undefined {
+export function assetForDenom(denom: string): QwakkAsset | undefined {
   return KNOWN_ASSETS[denom.toLowerCase()];
 }
 

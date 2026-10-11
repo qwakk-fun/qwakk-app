@@ -53,7 +53,7 @@ async function loadMarket(range: MarketRange): Promise<QorMarket> {
 
 /**
  * Public QOR/USD market data from CoinGecko. It describes the wider QOR market,
- * not trading on Qora, and every surface that shows it names the source.
+ * not trading on Qwakk, and every surface that shows it names the source.
  */
 export async function GET(request: Request) {
   const range = new URL(request.url).searchParams.get("range") ?? "7";

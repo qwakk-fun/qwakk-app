@@ -8,7 +8,7 @@ import {
   type EthBroadcaster,
 } from "@qorechain/sdk";
 
-import { buildCreatePoolPlan } from "../lib/qora-pool-route";
+import { buildCreatePoolPlan } from "../lib/qwakk-pool-route";
 
 const CHAIN_ID = "qorechain-diana";
 const REST_URL = (process.env.QORECHAIN_REST_URL ?? "https://api-testnet.qore.host").replace(/\/$/, "");
@@ -115,15 +115,15 @@ const broadcaster: EthBroadcaster = {
 };
 
 async function main() {
-  const mnemonic = required("QORA_TESTNET_MNEMONIC");
-  const denomA = argument("--denom-a") ?? process.env.QORA_POOL_DENOM_A?.trim() ?? "uqor";
-  const amountA = positiveInteger("--amount-a or QORA_POOL_AMOUNT_A", argument("--amount-a") ?? process.env.QORA_POOL_AMOUNT_A?.trim());
-  const denomB = argument("--denom-b") ?? required("QORA_POOL_DENOM_B");
-  const amountB = positiveInteger("--amount-b or QORA_POOL_AMOUNT_B", argument("--amount-b") ?? process.env.QORA_POOL_AMOUNT_B?.trim());
-  const poolTypeValue = argument("--pool-type") ?? process.env.QORA_POOL_TYPE;
+  const mnemonic = required("QWAKK_TESTNET_MNEMONIC");
+  const denomA = argument("--denom-a") ?? process.env.QWAKK_POOL_DENOM_A?.trim() ?? "uqor";
+  const amountA = positiveInteger("--amount-a or QWAKK_POOL_AMOUNT_A", argument("--amount-a") ?? process.env.QWAKK_POOL_AMOUNT_A?.trim());
+  const denomB = argument("--denom-b") ?? required("QWAKK_POOL_DENOM_B");
+  const amountB = positiveInteger("--amount-b or QWAKK_POOL_AMOUNT_B", argument("--amount-b") ?? process.env.QWAKK_POOL_AMOUNT_B?.trim());
+  const poolTypeValue = argument("--pool-type") ?? process.env.QWAKK_POOL_TYPE;
   const poolType = poolTypeValue === "stable_swap" ? "stable_swap" : "constant_product";
   const amplificationCoefficient = poolType === "stable_swap"
-    ? Number(argument("--amplification") ?? process.env.QORA_POOL_AMPLIFICATION ?? "200")
+    ? Number(argument("--amplification") ?? process.env.QWAKK_POOL_AMPLIFICATION ?? "200")
     : 0;
 
   const account = await deriveUnifiedAccount(mnemonic);

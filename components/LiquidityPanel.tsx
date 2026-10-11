@@ -3,8 +3,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { TxProgress } from "./TxProgress";
 import { useNativeTransaction } from "./useNativeTransaction";
-import { formatBaseAmount, toBaseAmount } from "../lib/qora-assets";
-import { applySlippage, expectedLpForDeposit, expectedWithdrawal, matchingDeposit } from "../lib/qora-liquidity-math";
+import { formatBaseAmount, toBaseAmount } from "../lib/qwakk-assets";
+import { applySlippage, expectedLpForDeposit, expectedWithdrawal, matchingDeposit } from "../lib/qwakk-liquidity-math";
 
 /** QoreChain AMM params report lp_token_decimals = 6 on Diana and mainnet. */
 const LP_DECIMALS = 6;

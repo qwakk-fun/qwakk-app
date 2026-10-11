@@ -4,14 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowDownUp, Layers } from "lucide-react";
 import { PriceChart } from "../../components/PriceChart";
-import { QoraHeader } from "../../components/QoraHeader";
+import { QwakkHeader } from "../../components/QwakkHeader";
 import { SiteFooter } from "../../components/SiteFooter";
 import { TokenIcon } from "../../components/TokenIcon";
 import { TxProgress } from "../../components/TxProgress";
 import { useFeatures } from "../../components/useFeatures";
 import { useNativeTransaction } from "../../components/useNativeTransaction";
 import { useQorMarket } from "../../components/useQorMarket";
-import { assetForDenom, displaySymbol, formatBaseAmount, toBaseAmount } from "../../lib/qora-assets";
+import { assetForDenom, displaySymbol, formatBaseAmount, toBaseAmount } from "../../lib/qwakk-assets";
 import { MARKET_RANGES, MARKET_RANGE_LABELS, formatChange, formatUsdCompact, formatUsdPrice, type MarketRange } from "../../lib/qor-price";
 
 type RawPool = {
@@ -110,21 +110,21 @@ export default function SwapPage() {
   }, [refreshPools]);
 
   useEffect(() => {
-    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qora-wallet-address") ?? "");
+    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qwakk-wallet-address") ?? "");
     const refreshAfterTx = () => { void refreshPools(); setQuoteVersion((value) => value + 1); };
     restoreWallet();
-    window.addEventListener("qora:wallet-change", restoreWallet);
-    window.addEventListener("qora:tx-confirmed", refreshAfterTx);
+    window.addEventListener("qwakk:wallet-change", restoreWallet);
+    window.addEventListener("qwakk:tx-confirmed", refreshAfterTx);
     return () => {
-      window.removeEventListener("qora:wallet-change", restoreWallet);
-      window.removeEventListener("qora:tx-confirmed", refreshAfterTx);
+      window.removeEventListener("qwakk:wallet-change", restoreWallet);
+      window.removeEventListener("qwakk:tx-confirmed", refreshAfterTx);
     };
   }, [refreshPools]);
 
   useEffect(() => {
     const timer = window.setTimeout(async () => {
       try {
-        const response = await fetch("/api/qora-fee", { cache: "no-store" });
+        const response = await fetch("/api/qwakk-fee", { cache: "no-store" });
         if (!response.ok) return;
         const data = await response.json() as FeeConfig;
         setFeeConfig({ enabled: Boolean(data.enabled), feeBps: Number(data.feeBps) || 0 });
@@ -210,7 +210,7 @@ export default function SwapPage() {
   const change = market.data?.change24h ?? null;
 
   return <div className="app-shell">
-    <QoraHeader page="swap" />
+    <QwakkHeader page="swap" />
     <main className="app-main">
       <div className="container trade-grid">
         <div className="trade-main">
@@ -286,7 +286,7 @@ export default function SwapPage() {
                     </div>
                   </div>
                   : !walletAddress
-                    ? <button type="button" className="btn btn-primary btn-block" onClick={() => window.dispatchEvent(new Event("qora:request-connect"))}>Connect wallet</button>
+                    ? <button type="button" className="btn btn-primary btn-block" onClick={() => window.dispatchEvent(new Event("qwakk:request-connect"))}>Connect wallet</button>
                     : <button type="button" className="btn btn-primary btn-block" disabled={!quote} onClick={() => setReviewing(true)}>{quote ? "Review swap" : !selectedPool ? "No pool selected" : quoteState === "loading" ? "Getting a quote…" : "Quote unavailable"}</button>}
             </div>}
             <p className="quote-status"><span className={`dot ${networkState === "ready" && pools.length ? "live" : ""}`} />{readiness}</p>

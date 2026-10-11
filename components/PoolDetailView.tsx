@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { LiquidityPanel } from "./LiquidityPanel";
-import { QoraHeader } from "./QoraHeader";
+import { QwakkHeader } from "./QwakkHeader";
 import { SiteFooter } from "./SiteFooter";
 import { TokenIcon } from "./TokenIcon";
 import { useFeatures } from "./useFeatures";
 import { PoolChart, type PoolCandle } from "./PoolChart";
-import { formatBaseAmount } from "../lib/qora-assets";
+import { formatBaseAmount } from "../lib/qwakk-assets";
 import { BRAND } from "../lib/brand";
-import { CHART_INTERVALS, CHART_INTERVAL_LABELS, type ChartInterval } from "../lib/qora-chart";
+import { CHART_INTERVALS, CHART_INTERVAL_LABELS, type ChartInterval } from "../lib/qwakk-chart";
 
 type Pool = {
   id: string | number;
@@ -83,10 +83,10 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
   const [walletAddress, setWalletAddress] = useState("");
 
   useEffect(() => {
-    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qora-wallet-address") ?? "");
+    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qwakk-wallet-address") ?? "");
     restoreWallet();
-    window.addEventListener("qora:wallet-change", restoreWallet);
-    return () => window.removeEventListener("qora:wallet-change", restoreWallet);
+    window.addEventListener("qwakk:wallet-change", restoreWallet);
+    return () => window.removeEventListener("qwakk:wallet-change", restoreWallet);
   }, []);
 
   useEffect(() => {
@@ -106,18 +106,18 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
     const timer = window.setInterval(() => void load(), 15_000);
     // The indexer polls the chain every few seconds, so read again shortly after a confirmed action.
     const reloadSoon = () => window.setTimeout(() => void load(), 6_000);
-    window.addEventListener("qora:tx-confirmed", reloadSoon);
-    return () => { active = false; window.clearInterval(timer); window.removeEventListener("qora:tx-confirmed", reloadSoon); };
+    window.addEventListener("qwakk:tx-confirmed", reloadSoon);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("qwakk:tx-confirmed", reloadSoon); };
   }, [poolId, chartInterval]);
 
   if (state !== "ready" || !detail) {
     const message = state === "loading" ? "Reading current pool data…" : state === "missing" ? "This pool does not exist on QoreChain Diana." : "Pool data is temporarily unavailable. This page retries on its own.";
-    return <div className="app-shell"><QoraHeader page="pools" /><main className="app-main"><div className="container"><Link className="back-link" href="/pools"><ArrowLeft size={15} />All pools</Link><div className="panel empty"><p>{message}</p></div></div></main><SiteFooter /></div>;
+    return <div className="app-shell"><QwakkHeader page="pools" /><main className="app-main"><div className="container"><Link className="back-link" href="/pools"><ArrowLeft size={15} />All pools</Link><div className="panel empty"><p>{message}</p></div></div></main><SiteFooter /></div>;
   }
 
   const { pool, candles, swaps } = detail;
   return <div className="app-shell">
-    <QoraHeader page="pools" />
+    <QwakkHeader page="pools" />
     <main className="app-main">
       <div className="container">
         <Link className="back-link" href="/pools"><ArrowLeft size={15} />All pools</Link>
@@ -174,7 +174,7 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
               <div className="panel-head panel-head-split"><span className="panel-title">Liquidity</span></div>
               {walletAddress
                 ? <LiquidityPanel pool={pool} walletAddress={walletAddress} />
-                : <div className="panel-body"><button type="button" className="btn btn-primary btn-block" onClick={() => window.dispatchEvent(new Event("qora:request-connect"))}>Connect wallet</button></div>}
+                : <div className="panel-body"><button type="button" className="btn btn-primary btn-block" onClick={() => window.dispatchEvent(new Event("qwakk:request-connect"))}>Connect wallet</button></div>}
             </>}
           </aside>
         </div>

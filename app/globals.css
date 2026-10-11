@@ -612,7 +612,7 @@ a.table-row:hover, button.table-row:hover { background: rgba(255, 255, 255, 0.03
 .activity-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius); background: var(--raised); color: var(--text-2); }
 .activity-icon.in { background: var(--up-wash); color: var(--up); }
 
-/* Wallet actions (rendered only when QORA_NATIVE_ACTIONS is enabled) */
+/* Wallet actions (rendered only when QWAKK_NATIVE_ACTIONS is enabled) */
 .swap-action { margin-top: 12px; }
 .review { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--accent-line); border-radius: var(--radius); background: var(--raised); }
 .review-line { color: var(--text-2); }

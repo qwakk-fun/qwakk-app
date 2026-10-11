@@ -4,9 +4,9 @@ import test from "node:test";
 import { bank, qorechainRegistry } from "@qorechain/sdk";
 import { TxBody } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 
-import { applySlippage, expectedLpForDeposit, expectedWithdrawal, matchingDeposit } from "../lib/qora-liquidity-math";
-import { messagesForAction, parseNativeAction } from "../lib/qora-native-actions";
-import { classifySimulationError, feeForSimulatedGas, isRelayableBody } from "../lib/qora-native-tx";
+import { applySlippage, expectedLpForDeposit, expectedWithdrawal, matchingDeposit } from "../lib/qwakk-liquidity-math";
+import { messagesForAction, parseNativeAction } from "../lib/qwakk-native-actions";
+import { classifySimulationError, feeForSimulatedGas, isRelayableBody } from "../lib/qwakk-native-tx";
 
 const sender = "qor1exampleaddress000000000000";
 const treasury = "qor1treasuryaddress0000000000000";

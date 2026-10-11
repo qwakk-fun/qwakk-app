@@ -1,4 +1,4 @@
-import { readTxResult } from "@/lib/qora-native-tx";
+import { readTxResult } from "@/lib/qwakk-native-tx";
 
 function json(body: unknown, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });

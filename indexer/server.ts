@@ -8,10 +8,10 @@ import { priceBPerA, toDisplayUnits } from "./market-math";
 
 const REST_URL = (process.env.QORECHAIN_REST_URL ?? "https://api-testnet.qore.host").replace(/\/$/, "");
 const RPC_URL = (process.env.QORECHAIN_RPC_URL ?? "https://rpc-testnet.qore.host").replace(/\/$/, "");
-const PORT = Number(process.env.QORA_INDEXER_PORT ?? 4400);
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://qora:qora_local@localhost:5438/qora";
+const PORT = Number(process.env.QWAKK_INDEXER_PORT ?? 4400);
+const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://qwakk:qwakk_local@localhost:5438/qwakk";
 /** Optional first block for a fresh database. It must still be kept by the node. */
-const START_HEIGHT = Number(process.env.QORA_INDEXER_START_HEIGHT ?? 0);
+const START_HEIGHT = Number(process.env.QWAKK_INDEXER_START_HEIGHT ?? 0);
 const db = new Pool({ connectionString: DATABASE_URL });
 
 type ChainPool = {
@@ -339,12 +339,12 @@ const server = createServer(async (request, response) => {
 async function main() {
   const schemaPath = fileURLToPath(new URL("./schema.sql", import.meta.url));
   await db.query(await readFile(schemaPath, "utf8"));
-  server.listen(PORT, () => console.log(`Qora indexer listening on ${PORT}`));
+  server.listen(PORT, () => console.log(`Qwakk indexer listening on ${PORT}`));
   void runSync();
   setInterval(() => void runSync(), 5_000).unref();
 }
 
 main().catch((error) => {
-  console.error("Qora indexer could not start", error);
+  console.error("Qwakk indexer could not start", error);
   process.exit(1);
 });

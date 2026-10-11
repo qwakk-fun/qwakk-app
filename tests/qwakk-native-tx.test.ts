@@ -14,7 +14,7 @@ import {
   findAccountInfo,
   messageTypesInBody,
   parseCompressedPublicKey,
-} from "../lib/qora-native-tx";
+} from "../lib/qwakk-native-tx";
 
 const sender = "qor1exampleaddress000000000000";
 const publicKey = parseCompressedPublicKey(`02${"ab".repeat(32)}`);

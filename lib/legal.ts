@@ -5,9 +5,9 @@
 export const LEGAL_VERSION = "2026-10-10";
 export const LEGAL_UPDATED = "October 10, 2026";
 
-export const CONSENT_KEY = "qora-legal-consent";
+export const CONSENT_KEY = "qwakk-legal-consent";
 /** Asks the consent dialog to open, for example before a wallet connects. */
-export const CONSENT_EVENT = "qora:request-consent";
+export const CONSENT_EVENT = "qwakk:request-consent";
 
 export const LEGAL_PAGES = [
   { href: "/terms", label: "Terms of Use" },

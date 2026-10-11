@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildLiquidityRoute } from "../lib/qora-liquidity-route";
+import { buildLiquidityRoute } from "../lib/qwakk-liquidity-route";
 
 const sender = "qor1exampleaddress000000000000";
 

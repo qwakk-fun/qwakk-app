@@ -1,10 +1,10 @@
-import { getServerQoraFeeConfig } from "@/lib/qora-fee-config";
+import { getServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
 import {
   assembleSignedTx,
   base64ToBytes,
   broadcastTxSync,
   isRelayableBody,
-} from "@/lib/qora-native-tx";
+} from "@/lib/qwakk-native-tx";
 
 type BroadcastRequest = { bodyBytes?: string; authInfoBytes?: string; signature?: string };
 
@@ -15,7 +15,7 @@ function json(body: unknown, status = 200) {
 }
 
 /**
- * Relays a transaction the user already signed in their own wallet. Qora never
+ * Relays a transaction the user already signed in their own wallet. Qwakk never
  * signs here. It checks that the body holds native AMM messages, plus the
  * disclosed interface fee transfer on a swap, then joins the signed parts and
  * submits them to QoreChain server-side to avoid browser CORS.
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     if (!bodyBytes.length || !authInfoBytes.length || bodyBytes.length > MAX_PART_BYTES || authInfoBytes.length > MAX_PART_BYTES) {
       throw new Error("Invalid transaction size");
     }
-    const fee = getServerQoraFeeConfig();
+    const fee = getServerQwakkFeeConfig();
     if (!isRelayableBody(bodyBytes, fee.enabled ? fee.recipient : undefined)) {
       return json({ error: "Only native AMM transactions can be submitted here" }, 400);
     }

@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 
 const title = `${BRAND.name} | ${BRAND.tagline.replace(/\.$/, "")}`;
 
-/** Absolute base for share images and links. Override per deployment with QORA_SITE_URL. */
-const siteUrl = process.env.QORA_SITE_URL?.trim() || "https://qwakk.fun";
+/** Absolute base for share images and links. Override per deployment with QWAKK_SITE_URL. */
+const siteUrl = process.env.QWAKK_SITE_URL?.trim() || "https://qwakk.fun";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

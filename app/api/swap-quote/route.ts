@@ -1,6 +1,6 @@
 import { QORECHAIN_REST_URL } from "@/lib/qorechain-endpoints";
-import { getServerQoraFeeConfig } from "@/lib/qora-fee-config";
-import { buildExactInQuoteRequest, calculateMinimumOut } from "@/lib/qora-quote";
+import { getServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
+import { buildExactInQuoteRequest, calculateMinimumOut } from "@/lib/qwakk-quote";
 
 type ChainQuote = {
   amount_out?: string;
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
       denomIn: url.searchParams.get("denomIn") ?? "",
       amountIn: url.searchParams.get("amountIn") ?? "",
       slippageBps: parseSlippage(url.searchParams.get("slippageBps")),
-      fee: getServerQoraFeeConfig(),
+      fee: getServerQwakkFeeConfig(),
     });
 
     const query = new URLSearchParams({

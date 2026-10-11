@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckCircle2, CircleAlert, ExternalLink, Loader2 } from "lucide-react";
-import { formatBaseAmount } from "../lib/qora-assets";
+import { formatBaseAmount } from "../lib/qwakk-assets";
 import type { TxState } from "./useNativeTransaction";
 
 const STEPS = [

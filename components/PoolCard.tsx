@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { TokenIcon } from "./TokenIcon";
 import { formatDecimal, formatPercentChange, marketChange, type Market } from "./useMarkets";
-import { formatBaseAmount } from "../lib/qora-assets";
+import { formatBaseAmount } from "../lib/qwakk-assets";
 
 function reserve(value: string, decimals: string | number, symbol: string) {
   return `${formatBaseAmount(value ?? "0", Number(decimals), 4)} ${symbol}`;

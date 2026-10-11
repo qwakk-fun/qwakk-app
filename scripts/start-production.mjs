@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-const role = process.env.QORA_PROCESS_ROLE === "indexer" ? "indexer" : "web";
+const role = process.env.QWAKK_PROCESS_ROLE === "indexer" ? "indexer" : "web";
 const command = role === "indexer"
   ? ["node", ["--import", "tsx", "indexer/server.ts"]]
   : ["npm", ["run", "start", "--", "--hostname", "0.0.0.0", "--port", process.env.PORT || "3000"]];

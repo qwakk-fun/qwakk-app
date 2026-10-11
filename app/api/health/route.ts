@@ -1,5 +1,5 @@
 import { QORECHAIN_RPC_URL } from "@/lib/qorechain-endpoints";
-import { indexerRead } from "@/lib/qora-market";
+import { indexerRead } from "@/lib/qwakk-market";
 
 export async function GET() {
   const [diana, indexer] = await Promise.all([
@@ -10,7 +10,7 @@ export async function GET() {
   ]);
 
   return Response.json(
-    { ok: true, service: "qora-web", network: "qorechain-diana", dependencies: { diana, indexer } },
+    { ok: true, service: "qwakk-web", network: "qorechain-diana", dependencies: { diana, indexer } },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
