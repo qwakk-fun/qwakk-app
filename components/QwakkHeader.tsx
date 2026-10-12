@@ -8,6 +8,7 @@ import { BRAND } from "../lib/brand";
 import { CONSENT_EVENT, hasConsent } from "../lib/legal";
 import { quack } from "../lib/quack";
 import { QORECHAIN_DIANA } from "../lib/qorex-native";
+import { QOREX_NETWORK_COPY } from "../lib/qwakk-tx-copy";
 import { BrandMark } from "./BrandMark";
 import { LiveTicker } from "./LiveTicker";
 import { useFeatures } from "./useFeatures";
@@ -33,6 +34,7 @@ function walletConnectionMessage(error: unknown) {
   if (message.includes("lock") || message.includes("unlock") || message.includes("vault")) {
     return "QoreX is locked. Open the QoreX extension from your browser toolbar, unlock it, then try again.";
   }
+  if (message.includes("active network") || message.includes("unsupported chain")) return QOREX_NETWORK_COPY;
   if (message.includes("reject") || message.includes("denied")) {
     return "Wallet connection was not approved. Try again whenever you are ready.";
   }

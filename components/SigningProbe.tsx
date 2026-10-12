@@ -2,60 +2,54 @@
 
 import { useState } from "react";
 import { QwakkHeader } from "./QwakkHeader";
-import { QORECHAIN_DIANA } from "../lib/qorex-native";
-import { walletFailureCopy } from "../lib/qwakk-tx-copy";
+import { QORECHAIN_DIANA, qorexSupport, type QoreXMessage } from "../lib/qorex-native";
+import { BRAND } from "../lib/brand";
+import { formatBaseAmount } from "../lib/qwakk-assets";
+import { QOREX_MISSING_COPY, QOREX_OUTDATED_COPY, walletFailure } from "../lib/qwakk-tx-copy";
 
-type Step = { label: string; state: "done" | "failed" | "waiting" };
-type Verdict = { title: string; detail: string; tone: "positive" | "negative" | "neutral" };
+type Step = { label: string; state: "done" | "failed" };
+type Verdict = { title: string; detail: string };
+type Outcome = { txhash: string; code: string; height: string; shield: string };
 
-type ProbeTx = { chainId: string; accountNumber: string; bodyBytes: string; authInfoBytes: string };
-type BroadcastReply = { txhash?: string; accepted?: boolean; code?: number; codespace?: string; error?: string };
-type StatusReply = { state?: "pending" | "included"; success?: boolean; code?: number; codespace?: string; error?: string };
+type ProbeTx = {
+  chainId: string;
+  messages: QoreXMessage[];
+  memo: string;
+  gasLimit: string;
+  fee: { amount: string };
+  pqcKeyRegistered: boolean | null;
+  error?: string;
+};
+type StatusReply = { state?: "pending" | "included"; success?: boolean; code?: number; codespace?: string; height?: string };
 
-function base64ToArray(value: string) {
-  return Array.from(atob(value), (character) => character.charCodeAt(0));
-}
-
-function arrayToBase64(value: number[] | Record<string, number>) {
-  return btoa(String.fromCharCode(...Object.values(value)));
-}
-
-function toHex(bytes: number[]) {
-  return bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
+const SHIELD_COPY: Record<string, string> = {
+  shielded: "QoreX reports the block includes its post-quantum layer.",
+  pending: "QoreX stopped waiting before the block, so it could not confirm the post-quantum layer yet.",
+  downgraded: "QoreX reports the block does not include its post-quantum layer.",
+  classical: "QoreX reports a classical signature only.",
+};
 
 function wait(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-/** Converts chain result codes into a controlled explanation. */
-function checkTxVerdict(reply: BroadcastReply): Verdict {
-  if (reply.accepted) {
-    return {
-      title: "Diana accepted the QoreX signature",
-      detail: "CheckTx passed without a post-quantum layer. Native AMM transactions signed by QoreX can reach the chain.",
-      tone: "positive",
-    };
-  }
-  if (reply.codespace === "pqc") {
-    return {
-      title: "Diana requires the post-quantum layer",
-      detail: `CheckTx refused the classical signature (pqc code ${reply.code}). A third-party PQC signing path from QoreX is still needed.`,
-      tone: "negative",
-    };
-  }
-  return {
-    title: "Diana refused the transaction for another reason",
-    detail: `CheckTx returned ${reply.codespace || "sdk"} code ${reply.code}. The server console has the chain log.`,
-    tone: "neutral",
-  };
+function isHash(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9A-F]{64}$/i.test(value);
 }
 
+function short(address: string) {
+  return `${address.slice(0, 10)}…${address.slice(-6)}`;
+}
+
+/**
+ * Development-only probe for the QoreX 0.3.5 `signAndBroadcast` path. It sends
+ * 1 uqor (0.000001 QOR) from the connected address to itself, which needs no pool and uses
+ * the same bank transfer as the interface fee. It runs only on click.
+ */
 export function SigningProbe() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
-  const [finalResult, setFinalResult] = useState("");
-  const [txhash, setTxhash] = useState("");
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [running, setRunning] = useState(false);
 
   function record(label: string, state: Step["state"]) {
@@ -65,78 +59,108 @@ export function SigningProbe() {
   async function runProbe() {
     setSteps([]);
     setVerdict(null);
-    setFinalResult("");
-    setTxhash("");
-    const wallet = window.qorex?.native;
-    if (!wallet) {
-      record("QoreX was not found in this browser", "failed");
+    setOutcome(null);
+
+    const support = qorexSupport(window.qorex?.native);
+    if (support.state !== "ready") {
+      record(support.state === "missing" ? QOREX_MISSING_COPY : QOREX_OUTDATED_COPY, "failed");
       return;
     }
+    const wallet = support.wallet;
+    record("QoreX supports signAndBroadcast", "done");
 
     setRunning(true);
     try {
-      await wallet.enable(QORECHAIN_DIANA);
-      const key = await wallet.getKey(QORECHAIN_DIANA);
-      const publicKey = key.pubKeyHex ?? toHex(key.pubKey);
-      record(`Wallet ${key.bech32Address.slice(0, 10)}…${key.bech32Address.slice(-6)} connected`, "done");
+      let address: string;
+      try {
+        await wallet.enable(QORECHAIN_DIANA);
+        address = (await wallet.getKey(QORECHAIN_DIANA)).bech32Address;
+      } catch (error) {
+        record(walletFailure(error).copy, "failed");
+        return;
+      }
+      record(`Wallet ${short(address)} connected`, "done");
 
       const probeResponse = await fetch("/api/native-tx/probe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address: key.bech32Address, publicKey }),
+        body: JSON.stringify({ address }),
       });
-      const probe = await probeResponse.json() as ProbeTx & { error?: string };
+      const probe = await probeResponse.json() as ProbeTx;
       if (!probeResponse.ok) {
         record(probe.error ?? "The probe transaction could not be prepared", "failed");
         return;
       }
-      record("Probe swap built for pool #999999999", "done");
+      record(`0.000001 QOR self-transfer simulated on QoreChain Diana. Gas limit ${probe.gasLimit}, expected network fee ${formatBaseAmount(probe.fee.amount, 6, 6)} QOR`, "done");
+      if (probe.pqcKeyRegistered === false) record("This wallet has no post-quantum key on chain yet. QoreX will register it first in its own transaction", "done");
 
-      let signed;
+      let result;
       try {
-        signed = await wallet.signDirect(key.bech32Address, {
-          bodyBytes: base64ToArray(probe.bodyBytes),
-          authInfoBytes: base64ToArray(probe.authInfoBytes),
-          chainId: probe.chainId,
-          accountNumber: probe.accountNumber,
-        });
+        result = await wallet.signAndBroadcast({ chainId: probe.chainId, messages: probe.messages, memo: probe.memo, gasLimit: probe.gasLimit });
       } catch (error) {
-        console.error("QoreX signDirect failed", error);
-        record(walletFailureCopy(error), "failed");
+        console.error("QoreX signAndBroadcast failed", error);
+        const failure = walletFailure(error);
+        record(failure.copy, "failed");
+        if (failure.kind === "chain") {
+          setVerdict({
+            title: "Diana refused the wallet-built transaction",
+            detail: `CheckTx returned ${failure.codespace || "an unknown codespace"} code ${failure.code}. Nothing was included in a block.`,
+          });
+        } else if (failure.kind === "onchain") {
+          setVerdict({
+            title: "The transaction reached a block but failed",
+            detail: `${failure.code !== undefined ? `QoreX reported block result code ${failure.code}. ` : ""}The transaction passed CheckTx, so Diana took it in, but it did not succeed. QoreX did not return the hash, so check its activity list.`,
+          });
+        }
         return;
       }
-      record("QoreX returned a signature", "done");
 
-      const broadcastResponse = await fetch("/api/native-tx/broadcast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bodyBytes: arrayToBase64(signed.signed.bodyBytes),
-          authInfoBytes: arrayToBase64(signed.signed.authInfoBytes),
-          signature: signed.signature.signature,
-        }),
-      });
-      const broadcast = await broadcastResponse.json() as BroadcastReply;
-      if (!broadcastResponse.ok || !broadcast.txhash) {
-        record(broadcast.error ?? "The signed transaction could not be submitted", "failed");
+      if (!isHash(result?.txHash)) {
+        record("QoreX did not return a transaction hash", "failed");
         return;
       }
-      setTxhash(broadcast.txhash);
-      record("Submitted to QoreChain Diana", "done");
-      setVerdict(checkTxVerdict(broadcast));
-      if (!broadcast.accepted) return;
+      const txhash = result.txHash;
+      const shield = typeof result.shield === "string" ? result.shield : "";
+      record("QoreX approved, signed and broadcast the transaction", "done");
 
-      for (let attempt = 0; attempt < 15; attempt += 1) {
+      let code = String(result.code ?? "");
+      // Only a real block height counts. Zero, missing or a "pending" shield means
+      // QoreX stopped waiting before the block, so follow the hash here.
+      let height = Number(result.height) > 0 && shield !== "pending" ? String(result.height) : "";
+      let success = result.code === 0 && height !== "";
+      setOutcome({ txhash, code: height ? code : "", height, shield });
+      if (!height) setVerdict({ title: "Broadcast, waiting for a block", detail: "QoreX broadcast the transaction. Checking QoreChain Diana for the block result." });
+      for (let attempt = 0; attempt < 15 && !height; attempt += 1) {
         await wait(2_000);
-        const statusResponse = await fetch(`/api/native-tx/status?hash=${broadcast.txhash}`, { cache: "no-store" });
-        const status = await statusResponse.json() as StatusReply;
-        if (status.state !== "included") continue;
-        setFinalResult(status.success
-          ? "Included in a block with success."
-          : `Included in a block and failed with ${status.codespace || "sdk"} code ${status.code}. An amm failure is expected here because the pool does not exist.`);
-        return;
+        try {
+          const statusResponse = await fetch(`/api/native-tx/status?hash=${txhash}`, { cache: "no-store" });
+          const status = await statusResponse.json() as StatusReply;
+          if (status.state !== "included") continue;
+          code = String(status.code ?? "");
+          height = Number(status.height) > 0 ? String(status.height) : "";
+          success = status.success === true;
+        } catch {
+          // A missed poll is retried. The hash stays on screen either way.
+        }
       }
-      setFinalResult("Not yet included after 30 seconds. Check the explorer link.");
+      setOutcome({ txhash, code: height ? code : "", height, shield });
+
+      if (success) {
+        setVerdict({
+          title: "Diana accepted the QoreX post-quantum transaction",
+          detail: `QoreX built, signed and broadcast a 0.000001 QOR transfer to your own address, and it landed in a block with code 0. The wallet path works, and so does the bank transfer ${BRAND.name} uses for its interface fee. Only the network fee was spent.`,
+        });
+      } else if (height) {
+        setVerdict({
+          title: "Included in a block but failed",
+          detail: `The block result code is ${code}. Open the explorer for details.`,
+        });
+      } else {
+        setVerdict({
+          title: "Broadcast, not yet in a block",
+          detail: "QoreX broadcast the transaction, but it was not found in a block within about a minute. Check the explorer link.",
+        });
+      }
     } catch {
       record("The probe stopped unexpectedly. Make sure QoreX is unlocked and set to QoreChain Diana.", "failed");
     } finally {
@@ -152,22 +176,27 @@ export function SigningProbe() {
           <div>
             <span className="kicker">Development only</span>
             <h1>Native signing probe</h1>
-            <p>Checks whether QoreChain Diana accepts a QoreX signature on a native AMM message. The test swap targets a pool that does not exist, so no tokens change hands. Only the network fee of 0.06 QOR is spent.</p>
+            <p>Asks QoreX to approve, sign and broadcast a 0.000001 QOR transfer from your wallet to itself on QoreChain Diana. No pool is needed and no funds leave your wallet except the network fee (about 0.03 QOR). QoreX must be set to QoreChain Diana: turn on Developer mode, then Switch to testnet (diana).</p>
           </div>
           <button type="button" className="btn btn-primary" onClick={() => void runProbe()} disabled={running}>{running ? "Running…" : "Run probe"}</button>
         </section>
 
         {steps.length > 0 && <section className="panel" aria-labelledby="probe-steps">
           <div className="panel-head"><span className="panel-title" id="probe-steps">Progress</span></div>
-          <div className="info-list">{steps.map((step, index) => <div key={`${index}-${step.label}`}><span>{step.label}</span><b className={step.state === "failed" ? "down" : step.state === "done" ? "up" : "subtle"}>{step.state === "done" ? "✓ Done" : step.state === "failed" ? "× Stopped" : "…"}</b></div>)}</div>
+          <div className="info-list">{steps.map((step, index) => <div key={`${index}-${step.label}`}><span>{step.label}</span><b className={step.state === "failed" ? "down" : "up"}>{step.state === "done" ? "✓ Done" : "× Stopped"}</b></div>)}</div>
         </section>}
 
         {verdict && <section className="panel" aria-labelledby="probe-result" style={{ marginTop: 16 }}>
           <div className="panel-head"><span className="panel-title" id="probe-result">{verdict.title}</span></div>
           <div className="panel-body" style={{ display: "grid", gap: 10 }}>
             <p className="muted">{verdict.detail}</p>
-            {finalResult && <p className="muted">{finalResult}</p>}
-            {txhash && <a className="btn btn-ghost btn-sm" style={{ justifySelf: "start" }} href={`https://explore.qore.network/tx/${txhash}`} target="_blank" rel="noreferrer">Open in explorer</a>}
+            {outcome && <div className="info-list">
+              <div><span>Transaction hash</span><b style={{ wordBreak: "break-all" }}>{outcome.txhash}</b></div>
+              <div><span>Result code</span><b>{outcome.code || "Unknown"}</b></div>
+              <div><span>Block height</span><b>{outcome.height || "Not yet included"}</b></div>
+              {SHIELD_COPY[outcome.shield] && <div><span>Post-quantum layer</span><b>{SHIELD_COPY[outcome.shield]}</b></div>}
+            </div>}
+            {outcome && <a className="btn btn-ghost btn-sm" style={{ justifySelf: "start" }} href={`https://explore.qore.network/tx/${outcome.txhash}`} target="_blank" rel="noreferrer">Open in explorer</a>}
           </div>
         </section>}
       </div>

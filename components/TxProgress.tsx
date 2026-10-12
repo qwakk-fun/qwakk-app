@@ -1,13 +1,13 @@
 "use client";
 
 import { CheckCircle2, CircleAlert, ExternalLink, Loader2 } from "lucide-react";
-import { formatBaseAmount } from "../lib/qwakk-assets";
+import { BRAND } from "../lib/brand";
+import { assetForDenom, displaySymbol, formatBaseAmount } from "../lib/qwakk-assets";
 import type { TxState } from "./useNativeTransaction";
 
 const STEPS = [
   { phase: "preparing", label: "Checking with QoreChain Diana" },
   { phase: "signing", label: "Approve in QoreX" },
-  { phase: "submitting", label: "Submitting" },
   { phase: "confirming", label: "Waiting for a block" },
 ] as const;
 
@@ -27,7 +27,10 @@ export function TxProgress({ state, onDone }: { state: TxState; onDone: () => vo
         {step.label}
       </li>)}
     </ol>}
-    {state.fee && <p className="subtle">Network fee {formatBaseAmount(state.fee, 6, 6)} QOR</p>}
+    {state.phase === "signing" && <p className="subtle">After you approve, QoreX signs and sends the transaction, then waits for a block.</p>}
+    {state.phase === "signing" && state.keySetup && <p className="subtle">First time on QoreChain Diana: QoreX also registers your quantum-safe key in a separate transaction with its own network fee.</p>}
+    {state.phase === "signing" && state.interfaceFee && <p className="subtle">This transaction includes the {formatBaseAmount(state.interfaceFee.amount, assetForDenom(state.interfaceFee.denom)?.decimals ?? 0, 6)} {displaySymbol(state.interfaceFee.denom)} interface fee. In QoreX it appears as a MsgSend to the {BRAND.name} treasury.</p>}
+    {state.phase === "signing" && state.fee && <p className="subtle">Estimated network fee {formatBaseAmount(state.fee, 6, 6)} QOR. QoreX shows the final fee.</p>}
     <div className="tx-actions">
       {state.txhash && <a className="btn btn-ghost btn-sm" href={`https://explore.qore.network/tx/${state.txhash}`} target="_blank" rel="noreferrer">View in explorer <ExternalLink size={13} /></a>}
       {finished && <button type="button" className="btn btn-ghost btn-sm" onClick={onDone}>{state.phase === "success" ? "Done" : "Close"}</button>}

@@ -1,7 +1,11 @@
 import { amm, type EncodeObject } from "@qorechain/sdk";
 
+import { MsgSend } from "cosmjs-types/cosmos/bank/v1beta1/tx";
+import type { Any } from "cosmjs-types/google/protobuf/any";
+
 import type { ServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
 import { buildLiquidityRoute } from "@/lib/qwakk-liquidity-route";
+import { encodeAsAny, isAllowedMessageSet } from "@/lib/qwakk-native-tx";
 import { buildCreatePoolPlan } from "@/lib/qwakk-pool-route";
 import { buildQwakkSwapRoute } from "@/lib/qwakk-swap-route";
 
@@ -65,4 +69,29 @@ export function messagesForAction(sender: string, action: NativeAction, fee: Ser
     case "remove_liquidity":
       return [buildLiquidityRoute({ action: "remove", sender, ...action }).message];
   }
+}
+
+/**
+ * Builds, encodes and checks the messages QoreX will be asked to sign. The
+ * sender is always the connected address, and only native AMM messages plus the
+ * disclosed treasury fee transfer can leave the server.
+ */
+export function encodedMessagesForAction(sender: string, action: NativeAction, fee: ServerQwakkFeeConfig): Any[] {
+  const encoded = encodeAsAny(messagesForAction(sender, action, fee));
+  if (!isAllowedMessageSet(encoded, sender, fee.enabled ? fee.recipient : undefined)) {
+    throw new Error("Only native AMM transactions can be prepared here");
+  }
+  return encoded;
+}
+
+/**
+ * The interface fee carried by an allowed message set, read back from the
+ * encoded transfer itself so the disclosed amount is exactly what QoreX signs.
+ * Null when the set carries no fee transfer.
+ */
+export function interfaceFeeInMessages(encoded: readonly Any[]): { denom: string; amount: string } | null {
+  const transfer = encoded.find((message) => message.typeUrl === "/cosmos.bank.v1beta1.MsgSend");
+  if (!transfer) return null;
+  const [coin] = MsgSend.decode(transfer.value).amount;
+  return coin ? { denom: coin.denom, amount: coin.amount } : null;
 }

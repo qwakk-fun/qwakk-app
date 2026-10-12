@@ -48,8 +48,8 @@ function validateAddress(address: string) {
 
 /**
  * Builds a non-custodial route only. It never signs, broadcasts, or receives
- * user funds. The QoreX adapter must add the required hybrid PQC extension and
- * request the user's signature before the returned messages can be broadcast.
+ * user funds. QoreX `signAndBroadcast` asks the user to approve the messages,
+ * adds the hybrid PQC layer, signs and broadcasts them in the wallet.
  */
 export function buildQwakkSwapRoute(input: SwapRouteInput): QwakkSwapRoute {
   const feeBps = input.fee.feeBps ?? DEFAULT_QWAKK_INTERFACE_FEE_BPS;

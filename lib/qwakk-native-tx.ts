@@ -1,16 +1,18 @@
-import { ETHSECP256K1_PUBKEY_TYPE, bytesToBech32, qorechainRegistry, ripemd160, sha256, type EncodeObject } from "@qorechain/sdk";
+import { qorechainRegistry, type EncodeObject } from "@qorechain/sdk";
 import { MsgSend } from "cosmjs-types/cosmos/bank/v1beta1/tx";
-import { PubKey } from "cosmjs-types/cosmos/crypto/secp256k1/keys";
 import { SignMode } from "cosmjs-types/cosmos/tx/signing/v1beta1/signing";
 import { AuthInfo, Fee, ModeInfo, SignerInfo, TxBody, TxRaw } from "cosmjs-types/cosmos/tx/v1beta1/tx";
+import type { Any } from "cosmjs-types/google/protobuf/any";
 
 import { QORECHAIN_REST_URL } from "@/lib/qorechain-endpoints";
+import type { QoreXMessage } from "@/lib/qorex-native";
 
 /**
- * Only native AMM messages may pass through Qwakk's broadcast relay. Anything
- * else is refused so the relay cannot be used for unrelated transactions.
+ * Qwakk only ever asks QoreX to sign native AMM messages, plus the disclosed
+ * interface fee transfer next to a swap. Anything else is refused before it
+ * reaches the wallet.
  */
-export const RELAYABLE_MESSAGE_TYPES = new Set([
+export const NATIVE_AMM_MESSAGE_TYPES = new Set([
   "/qorechain.amm.v1.MsgCreatePool",
   "/qorechain.amm.v1.MsgAddLiquidity",
   "/qorechain.amm.v1.MsgRemoveLiquidity",
@@ -18,44 +20,30 @@ export const RELAYABLE_MESSAGE_TYPES = new Set([
   "/qorechain.amm.v1.MsgSwapExactOut",
 ]);
 
-export const SECP256K1_PUBKEY_TYPE = "/cosmos.crypto.secp256k1.PubKey";
+const SWAP_TYPES = new Set(["/qorechain.amm.v1.MsgSwapExactIn", "/qorechain.amm.v1.MsgSwapExactOut"]);
+const SEND_TYPE = "/cosmos.bank.v1beta1.MsgSend";
+
+export type TxResult = { code: number; codespace: string; txhash: string; height: string; rawLog: string };
 
 /**
- * QoreX signs native transactions with a classical Cosmos secp256k1 wallet
- * (SHA-256 sign bytes). Unified eth_secp256k1 accounts use keccak instead.
+ * Reads the account sequence from any auth account shape Diana returns (a base
+ * account, or one nested inside an eth or vesting account). Simulation needs
+ * only the sequence.
  */
-export type WalletKeyType = "secp256k1" | "eth_secp256k1";
-
-export type AccountAuth = { accountNumber: bigint; sequence: bigint };
-export type NativeFee = { amount: Array<{ denom: string; amount: string }>; gas: string };
-
-export type UnsignedNativeTx = {
-  bodyBytes: Uint8Array;
-  authInfoBytes: Uint8Array;
-  accountNumber: bigint;
-};
-
-export type BroadcastResult = { code: number; codespace: string; txhash: string; rawLog: string };
-
-/** Reads account number and sequence from any auth account shape Diana returns. */
-export function findAccountInfo(value: unknown): AccountAuth | null {
+export function findAccountSequence(value: unknown): bigint | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
-  const accountNumber = record.account_number ?? record.accountNumber;
   const sequence = record.sequence;
-  if ((typeof accountNumber === "string" || typeof accountNumber === "number") &&
-      (typeof sequence === "string" || typeof sequence === "number")) {
-    return { accountNumber: BigInt(accountNumber), sequence: BigInt(sequence) };
-  }
+  if (typeof record.address === "string" && (typeof sequence === "string" || typeof sequence === "number")) return BigInt(sequence);
   for (const nested of Object.values(record)) {
-    const found = findAccountInfo(nested);
-    if (found) return found;
+    const found = findAccountSequence(nested);
+    if (found !== null) return found;
   }
   return null;
 }
 
 /** Returns null when the account has never received funds on Diana. */
-export async function readAccountAuth(address: string): Promise<AccountAuth | null> {
+export async function readAccountSequence(address: string): Promise<bigint | null> {
   const response = await fetch(`${QORECHAIN_REST_URL}/cosmos/auth/v1beta1/accounts/${encodeURIComponent(address)}`, {
     cache: "no-store",
     headers: { Accept: "application/json" },
@@ -63,9 +51,29 @@ export async function readAccountAuth(address: string): Promise<AccountAuth | nu
   });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error("Account query failed");
-  const info = findAccountInfo(await response.json());
-  if (!info) throw new Error("Unsupported account response");
-  return info;
+  const sequence = findAccountSequence(await response.json());
+  if (sequence === null) throw new Error("Unsupported account response");
+  return sequence;
+}
+
+/**
+ * Whether QoreChain already holds this account's post-quantum key. When it does
+ * not, QoreX registers it in a separate transaction before the first action.
+ * Returns null when the answer is unknown; it never blocks an action.
+ */
+export async function readPqcKeyRegistered(address: string): Promise<boolean | null> {
+  try {
+    const response = await fetch(`${QORECHAIN_REST_URL}/qorechain/pqc/v1/account/${encodeURIComponent(address)}`, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) return null;
+    const body = await response.json() as { found?: unknown };
+    return typeof body.found === "boolean" ? body.found : null;
+  } catch {
+    return null;
+  }
 }
 
 export function bytesToBase64(bytes: Uint8Array) {
@@ -74,113 +82,49 @@ export function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-export function base64ToBytes(value: string) {
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(value) || value.length % 4 !== 0) throw new Error("Invalid base64 value");
-  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
-}
-
-export function parseCompressedPublicKey(hex: string) {
-  const clean = hex.replace(/^0x/i, "");
-  if (!/^0[23][0-9a-f]{64}$/i.test(clean)) throw new Error("A compressed wallet public key is required");
-  return Uint8Array.from(clean.match(/../g) ?? [], (pair) => parseInt(pair, 16));
-}
-
-/** The address a classical Cosmos secp256k1 key controls: ripemd160(sha256(pubkey)). */
-export function classicalAddressFromPublicKey(publicKey: Uint8Array) {
-  return bytesToBech32(ripemd160(sha256(publicKey)), "qor");
-}
-
-/**
- * Builds the SIGN_MODE_DIRECT body and auth info for a wallet key. The wallet
- * signs these bytes; Qwakk never sees a private key.
- */
-export function buildUnsignedNativeTx(input: {
-  messages: readonly EncodeObject[];
-  publicKey: Uint8Array;
-  keyType: WalletKeyType;
-  account: AccountAuth;
-  fee: NativeFee;
-  memo?: string;
-}): UnsignedNativeTx {
+/** Protobuf-encodes each message with the official QoreChain registry. */
+export function encodeAsAny(messages: readonly EncodeObject[]): Any[] {
   const registry = qorechainRegistry();
-  const bodyBytes = TxBody.encode(TxBody.fromPartial({
-    messages: input.messages.map((message) => registry.encodeAsAny(message)),
-    memo: input.memo ?? "",
-  })).finish();
-
-  const authInfoBytes = AuthInfo.encode(AuthInfo.fromPartial({
-    signerInfos: [SignerInfo.fromPartial({
-      publicKey: {
-        typeUrl: input.keyType === "eth_secp256k1" ? ETHSECP256K1_PUBKEY_TYPE : SECP256K1_PUBKEY_TYPE,
-        value: PubKey.encode(PubKey.fromPartial({ key: input.publicKey })).finish(),
-      },
-      modeInfo: ModeInfo.fromPartial({ single: { mode: SignMode.SIGN_MODE_DIRECT } }),
-      sequence: input.account.sequence,
-    })],
-    fee: Fee.fromPartial({ amount: input.fee.amount, gasLimit: BigInt(input.fee.gas) }),
-  })).finish();
-
-  return { bodyBytes, authInfoBytes, accountNumber: input.account.accountNumber };
+  return messages.map((message) => registry.encodeAsAny(message));
 }
 
-export function messageTypesInBody(bodyBytes: Uint8Array) {
-  return TxBody.decode(bodyBytes).messages.map((message) => message.typeUrl);
+/** The `{ typeUrl, value }` list QoreX `signAndBroadcast` takes, with base64 values. */
+export function toWalletMessages(encoded: readonly Any[]): QoreXMessage[] {
+  return encoded.map((message) => ({ typeUrl: message.typeUrl, value: bytesToBase64(message.value) }));
 }
-
-const SWAP_TYPES = new Set(["/qorechain.amm.v1.MsgSwapExactIn", "/qorechain.amm.v1.MsgSwapExactOut"]);
-const SEND_TYPE = "/cosmos.bank.v1beta1.MsgSend";
 
 /**
- * A body may be relayed when every message is a native AMM message, or when a
- * swap is paired with Qwakk's interface fee: one transfer to the configured
- * treasury. Any other transfer is refused.
+ * A message set may go to the wallet when every message is a native AMM
+ * message, or when a swap is paired with Qwakk's interface fee: one transfer
+ * from the sender to the configured treasury. Any other transfer is refused.
  */
-export function isRelayableBody(bodyBytes: Uint8Array, treasury?: string) {
-  const messages = TxBody.decode(bodyBytes).messages;
+export function isAllowedMessageSet(messages: readonly Any[], sender: string, treasury?: string) {
   if (!messages.length) return false;
   const sends = messages.filter((message) => message.typeUrl === SEND_TYPE);
   const others = messages.filter((message) => message.typeUrl !== SEND_TYPE);
-  if (others.some((message) => !RELAYABLE_MESSAGE_TYPES.has(message.typeUrl))) return false;
+  if (others.some((message) => !NATIVE_AMM_MESSAGE_TYPES.has(message.typeUrl))) return false;
   if (!sends.length) return true;
   if (!treasury || sends.length > 1 || !others.some((message) => SWAP_TYPES.has(message.typeUrl))) return false;
-  return MsgSend.decode(sends[0].value).toAddress === treasury;
+  const send = MsgSend.decode(sends[0].value);
+  return send.toAddress === treasury && send.fromAddress === sender;
 }
 
-export function assembleSignedTx(bodyBytes: Uint8Array, authInfoBytes: Uint8Array, signature: Uint8Array) {
-  if (signature.length !== 64) throw new Error("Unexpected wallet signature length");
-  return TxRaw.encode(TxRaw.fromPartial({ bodyBytes, authInfoBytes, signatures: [signature] })).finish();
-}
+type TxResponseEnvelope = { tx_response?: { code?: number | string; codespace?: string; txhash?: string; height?: string | number; raw_log?: string } };
 
-type TxResponseEnvelope = { tx_response?: { code?: number | string; codespace?: string; txhash?: string; raw_log?: string } };
-
-function toBroadcastResult(envelope: TxResponseEnvelope): BroadcastResult | null {
+function toTxResult(envelope: TxResponseEnvelope): TxResult | null {
   const response = envelope.tx_response;
   if (!response?.txhash) return null;
   return {
     code: Number(response.code ?? 0),
     codespace: response.codespace ?? "",
     txhash: response.txhash,
+    height: String(response.height ?? ""),
     rawLog: response.raw_log ?? "",
   };
 }
 
-/** Sync mode returns after CheckTx, so signature checks are already decided. */
-export async function broadcastTxSync(txBytes: Uint8Array): Promise<BroadcastResult> {
-  const response = await fetch(`${QORECHAIN_REST_URL}/cosmos/tx/v1beta1/txs`, {
-    method: "POST",
-    cache: "no-store",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ tx_bytes: bytesToBase64(txBytes), mode: "BROADCAST_MODE_SYNC" }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error("Broadcast request failed");
-  const result = toBroadcastResult(await response.json() as TxResponseEnvelope);
-  if (!result) throw new Error("Broadcast returned no transaction hash");
-  return result;
-}
-
 /** Returns null while the transaction is not yet included in a block. */
-export async function readTxResult(hash: string): Promise<BroadcastResult | null> {
+export async function readTxResult(hash: string): Promise<TxResult | null> {
   const response = await fetch(`${QORECHAIN_REST_URL}/cosmos/tx/v1beta1/txs/${encodeURIComponent(hash)}`, {
     cache: "no-store",
     headers: { Accept: "application/json" },
@@ -188,21 +132,39 @@ export async function readTxResult(hash: string): Promise<BroadcastResult | null
   });
   if (response.status === 404 || response.status === 400) return null;
   if (!response.ok) throw new Error("Transaction query failed");
-  return toBroadcastResult(await response.json() as TxResponseEnvelope);
+  return toTxResult(await response.json() as TxResponseEnvelope);
 }
 
-/** Diana's node minimum is 0.1 uqor per gas. 0.15 matches QoreX's average step. */
+/**
+ * QoreX prices the fee itself at its average gas price step (0.15 uqor per
+ * gas, QoreX 0.3.5) and the dApp cannot change it. Qwakk mirrors that formula
+ * only to show the expected fee: ceil(gasLimit * 0.15).
+ */
 const GAS_PRICE_NUMERATOR = BigInt(15);
 const GAS_PRICE_DENOMINATOR = BigInt(100);
 /** Simulated gas varies a little between runs, so add a margin. */
 const GAS_MARGIN_PERCENT = BigInt(130);
-/** Room for a post-quantum signature layer (about 7 KB) once wallets attach one. */
-const GAS_HEADROOM = BigInt(80_000);
+/**
+ * Simulation runs a classical-only transaction. The wallet adds the ML-DSA
+ * post-quantum layer (about 5 KB), which Diana measured at about 77k to 91k
+ * extra gas for a MsgSend (89,318 simulated classical vs 166,421 to 180,071
+ * used by QoreX hybrid sends). 100k keeps that covered.
+ */
+export const PQC_GAS_HEADROOM = BigInt(100_000);
+/** QoreX clamps every gas limit to this range. */
+export const QOREX_MIN_GAS = BigInt(100_000);
+export const QOREX_MAX_GAS = BigInt(5_000_000);
 
-export function feeForSimulatedGas(gasUsed: bigint): NativeFee {
-  const gas = (gasUsed * GAS_MARGIN_PERCENT) / BigInt(100) + GAS_HEADROOM;
-  const amount = (gas * GAS_PRICE_NUMERATOR + GAS_PRICE_DENOMINATOR - BigInt(1)) / GAS_PRICE_DENOMINATOR;
-  return { amount: [{ denom: "uqor", amount: amount.toString() }], gas: gas.toString() };
+export function gasLimitForSimulatedGas(gasUsed: bigint) {
+  const gas = (gasUsed * GAS_MARGIN_PERCENT) / BigInt(100) + PQC_GAS_HEADROOM;
+  if (gas < QOREX_MIN_GAS) return QOREX_MIN_GAS;
+  if (gas > QOREX_MAX_GAS) return QOREX_MAX_GAS;
+  return gas;
+}
+
+/** The network fee in uqor QoreX charges for a gas limit, rounded up like the wallet. */
+export function networkFeeForGas(gasLimit: bigint) {
+  return (gasLimit * GAS_PRICE_NUMERATOR + GAS_PRICE_DENOMINATOR - BigInt(1)) / GAS_PRICE_DENOMINATOR;
 }
 
 export type SimulationFailure =
@@ -232,17 +194,33 @@ export function classifySimulationError(message: string): SimulationFailure {
   return "rejected";
 }
 
+/** Draft fee for simulation only. Kept small so a low balance is not refused for a fee it would never pay. */
+const SIMULATION_FEE = { amount: [{ denom: "uqor", amount: "30000" }], gasLimit: BigInt(1_000_000) };
+
 /**
- * Runs the unsigned transaction through the chain without broadcasting it.
- * Simulation skips signature checks, so a blank signature stands in.
+ * An unsigned transaction used only for `/simulate`. Simulation skips
+ * signature checks and, without a public key, the SDK uses its stand-in key, so
+ * no wallet key or signature is needed. This is never broadcast.
  */
-export async function simulateTx(unsigned: UnsignedNativeTx): Promise<SimulationResult> {
-  const txBytes = assembleSignedTx(unsigned.bodyBytes, unsigned.authInfoBytes, new Uint8Array(64));
+export function buildSimulationTx(encoded: readonly Any[], sequence: bigint, memo = "") {
+  const bodyBytes = TxBody.encode(TxBody.fromPartial({ messages: [...encoded], memo })).finish();
+  const authInfoBytes = AuthInfo.encode(AuthInfo.fromPartial({
+    signerInfos: [SignerInfo.fromPartial({
+      modeInfo: ModeInfo.fromPartial({ single: { mode: SignMode.SIGN_MODE_DIRECT } }),
+      sequence,
+    })],
+    fee: Fee.fromPartial(SIMULATION_FEE),
+  })).finish();
+  return TxRaw.encode(TxRaw.fromPartial({ bodyBytes, authInfoBytes, signatures: [new Uint8Array(64)] })).finish();
+}
+
+/** Runs the messages through the chain without broadcasting them. */
+export async function simulateMessages(encoded: readonly Any[], sequence: bigint, memo = ""): Promise<SimulationResult> {
   const response = await fetch(`${QORECHAIN_REST_URL}/cosmos/tx/v1beta1/simulate`, {
     method: "POST",
     cache: "no-store",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ tx_bytes: bytesToBase64(txBytes) }),
+    body: JSON.stringify({ tx_bytes: bytesToBase64(buildSimulationTx(encoded, sequence, memo)) }),
     signal: AbortSignal.timeout(12_000),
   });
   const body = await response.json().catch(() => null) as { gas_info?: { gas_used?: string }; message?: string } | null;
@@ -252,4 +230,46 @@ export async function simulateTx(unsigned: UnsignedNativeTx): Promise<Simulation
     return { ok: false, failure: classifySimulationError(body.message) };
   }
   throw new Error("Simulation request failed");
+}
+
+export type PreparedWalletTx = {
+  chainId: string;
+  messages: QoreXMessage[];
+  memo: string;
+  gasLimit: string;
+  /** Expected network fee in uqor at QoreX's gas price. QoreX shows the final figure. */
+  fee: { amount: string; denom: "uqor" };
+  /** False when QoreX will first register the post-quantum key in its own transaction; null when unknown. */
+  pqcKeyRegistered: boolean | null;
+};
+
+export type PrepareOutcome =
+  | { ok: true; prepared: PreparedWalletTx }
+  | { ok: false; reason: "unfunded" }
+  | { ok: false; reason: "simulation"; failure: SimulationFailure };
+
+/**
+ * Simulates already validated messages against Diana and turns them into a
+ * `signAndBroadcast` request. Nothing is signed or broadcast here.
+ */
+export async function prepareWalletTx(input: { address: string; chainId: string; encoded: readonly Any[]; memo?: string }): Promise<PrepareOutcome> {
+  const memo = input.memo ?? "";
+  const [sequence, pqcKeyRegistered] = await Promise.all([readAccountSequence(input.address), readPqcKeyRegistered(input.address)]);
+  if (sequence === null) return { ok: false, reason: "unfunded" };
+
+  const simulation = await simulateMessages(input.encoded, sequence, memo);
+  if (!simulation.ok) return { ok: false, reason: "simulation", failure: simulation.failure };
+
+  const gasLimit = gasLimitForSimulatedGas(simulation.gasUsed);
+  return {
+    ok: true,
+    prepared: {
+      chainId: input.chainId,
+      messages: toWalletMessages(input.encoded),
+      memo,
+      gasLimit: gasLimit.toString(),
+      fee: { amount: networkFeeForGas(gasLimit).toString(), denom: "uqor" },
+      pqcKeyRegistered,
+    },
+  };
 }

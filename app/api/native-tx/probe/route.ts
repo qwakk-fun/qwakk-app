@@ -1,77 +1,36 @@
-import { amm } from "@qorechain/sdk";
+import { bank } from "@qorechain/sdk";
 
+import { BRAND } from "@/lib/brand";
 import { QORECHAIN_CHAIN_ID } from "@/lib/qorechain-endpoints";
-import {
-  buildUnsignedNativeTx,
-  bytesToBase64,
-  classicalAddressFromPublicKey,
-  parseCompressedPublicKey,
-  readAccountAuth,
-} from "@/lib/qwakk-native-tx";
+import { encodeAsAny, prepareWalletTx } from "@/lib/qwakk-native-tx";
+import { SIMULATION_FAILURE_COPY } from "@/lib/qwakk-tx-copy";
 
-/** A pool ID far beyond anything Diana has created, so the swap cannot execute. */
-const PROBE_POOL_ID = "999999999";
-const PROBE_FEE = { amount: [{ denom: "uqor", amount: "60000" }], gas: "300000" };
-
-type ProbeRequest = { address?: string; publicKey?: string };
+const PROBE_MEMO = `${BRAND.name} signing probe`;
 
 function json(body: unknown, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 }
 
 /**
- * Development-only signing probe. It builds a classical-only native AMM swap
- * against a pool that does not exist. CheckTx then shows whether Diana accepts
- * a QoreX signature without the post-quantum layer, while the swap itself
- * always fails in the block. The only cost is the network fee.
+ * Development-only signing probe. It prepares a 1 uqor transfer from the
+ * connected address to itself, in the same `signAndBroadcast` shape as a real
+ * action. It needs no pool, and it proves both the wallet-built post-quantum
+ * transaction and the bank transfer Qwakk uses for its interface fee. The only
+ * cost is the network fee.
  */
 export async function POST(request: Request) {
   if (process.env.NODE_ENV === "production") return json({ error: "Not found" }, 404);
 
-  const input = await request.json().catch(() => null) as ProbeRequest | null;
-  const address = input?.address?.trim() ?? "";
+  const input = await request.json().catch(() => null) as { address?: unknown } | null;
+  const address = typeof input?.address === "string" ? input.address.trim() : "";
   if (!/^qor1[0-9a-z]{20,}$/i.test(address)) return json({ error: "A valid QoreChain address is required" }, 400);
 
-  let publicKey: Uint8Array;
+  const encoded = encodeAsAny([bank.send({ fromAddress: address, toAddress: address, amount: [{ denom: "uqor", amount: "1" }] })]);
   try {
-    publicKey = parseCompressedPublicKey(input?.publicKey ?? "");
-  } catch {
-    return json({ error: "The wallet did not share a usable public key" }, 400);
-  }
-
-  // QoreX 0.3.4 signs only with its classical signer. A unified eth account's
-  // address does not match that signer, so QoreX fails even after approval.
-  if (classicalAddressFromPublicKey(publicKey) !== address) {
-    return json({ error: "This QoreX account uses the unified key type, which QoreX cannot yet sign app transactions with. Try a standard QoreX account." }, 400);
-  }
-
-  try {
-    const account = await readAccountAuth(address);
-    if (!account) return json({ error: "Fund this wallet with test QOR before running the probe" }, 400);
-
-    const unsigned = buildUnsignedNativeTx({
-      messages: [amm.swapExactIn({
-        sender: address,
-        poolId: PROBE_POOL_ID,
-        tokenIn: { denom: "uqor", amount: "1" },
-        denomOut: "uprobe",
-        minOut: "1",
-      })],
-      publicKey,
-      keyType: "secp256k1",
-      account,
-      fee: PROBE_FEE,
-      memo: "Qwakk signing probe",
-    });
-
-    return json({
-      chainId: QORECHAIN_CHAIN_ID,
-      accountNumber: unsigned.accountNumber.toString(),
-      sequence: account.sequence.toString(),
-      bodyBytes: bytesToBase64(unsigned.bodyBytes),
-      authInfoBytes: bytesToBase64(unsigned.authInfoBytes),
-      fee: PROBE_FEE,
-    });
+    const outcome = await prepareWalletTx({ address, chainId: QORECHAIN_CHAIN_ID, encoded, memo: PROBE_MEMO });
+    if (!outcome.ok && outcome.reason === "unfunded") return json({ error: "Fund this wallet with test QOR before running the probe" }, 400);
+    if (!outcome.ok) return json({ error: SIMULATION_FAILURE_COPY[outcome.failure], failure: outcome.failure }, 422);
+    return json(outcome.prepared);
   } catch {
     return json({ error: "QoreChain Diana could not be reached. Try again shortly." }, 502);
   }

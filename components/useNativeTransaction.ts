@@ -1,40 +1,48 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { QORECHAIN_DIANA } from "../lib/qorex-native";
-import { chainFailureCopy, walletFailureCopy } from "../lib/qwakk-tx-copy";
+import { QORECHAIN_DIANA, qorexSupport, type QoreXMessage } from "../lib/qorex-native";
+import { QOREX_MISSING_COPY, QOREX_OUTDATED_COPY, chainFailureCopy, walletFailureCopy } from "../lib/qwakk-tx-copy";
 import type { NativeAction } from "../lib/qwakk-native-actions";
 
-export type TxPhase = "idle" | "preparing" | "signing" | "submitting" | "confirming" | "success" | "failed";
-export type TxState = { phase: TxPhase; message: string; txhash: string; fee: string };
+export type TxPhase = "idle" | "preparing" | "signing" | "confirming" | "success" | "failed";
+export type TxState = {
+  phase: TxPhase;
+  message: string;
+  txhash: string;
+  /** Expected network fee in uqor at QoreX's gas price. */
+  fee: string;
+  /** True when QoreX will first register the wallet's post-quantum key in its own transaction. */
+  keySetup: boolean;
+  /** The interface fee transfer inside this transaction, in base units. QoreX lists only message types for it. */
+  interfaceFee: { denom: string; amount: string } | null;
+};
 
-type Prepared = { chainId: string; accountNumber: string; bodyBytes: string; authInfoBytes: string; fee: { amount: string } };
-type Broadcast = { txhash?: string; accepted?: boolean; code?: number; codespace?: string; error?: string };
+type Prepared = {
+  chainId: string;
+  messages: QoreXMessage[];
+  memo: string;
+  gasLimit: string;
+  fee: { amount: string };
+  interfaceFee: { denom: string; amount: string } | null;
+  pqcKeyRegistered: boolean | null;
+};
 type Status = { state?: "pending" | "included"; success?: boolean; code?: number; codespace?: string };
 
-const IDLE: TxState = { phase: "idle", message: "", txhash: "", fee: "" };
+const IDLE: TxState = { phase: "idle", message: "", txhash: "", fee: "", keySetup: false, interfaceFee: null };
 const CONFIRM_ATTEMPTS = 30;
-
-function toArray(base64: string) {
-  return Array.from(atob(base64), (character) => character.charCodeAt(0));
-}
-
-function toBase64(bytes: number[] | Record<string, number>) {
-  return btoa(String.fromCharCode(...Object.values(bytes)));
-}
-
-function toHex(bytes: number[]) {
-  return bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
+const SUCCESS_COPY = "Confirmed on QoreChain Diana.";
 
 function wait(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 /**
- * Runs one native action end to end: the server builds and simulates it, QoreX
- * signs it, the server relays it, and the hook follows it into a block. Keys
- * stay in QoreX. Every failure is reported with controlled copy.
+ * Runs one native action end to end: the server builds and simulates the
+ * messages, QoreX asks the user to approve, then builds, signs (with its
+ * post-quantum layer) and broadcasts the transaction itself. The hook follows
+ * the returned hash into a block. Keys stay in QoreX. Every failure is
+ * reported with controlled copy.
  */
 export function useNativeTransaction() {
   const [state, setState] = useState<TxState>(IDLE);
@@ -42,14 +50,16 @@ export function useNativeTransaction() {
 
   const run = useCallback(async (action: NativeAction) => {
     const fail = (message: string, txhash = "") => setState((current) => ({ ...current, phase: "failed", message, txhash }));
-    const wallet = window.qorex?.native;
-    if (!wallet) return fail("Install QoreX to sign QoreChain transactions.");
+    const support = qorexSupport(window.qorex?.native);
+    if (support.state === "missing") return fail(QOREX_MISSING_COPY);
+    if (support.state === "outdated") return fail(QOREX_OUTDATED_COPY);
+    const wallet = support.wallet;
 
     setState({ ...IDLE, phase: "preparing" });
-    let key;
+    let address: string;
     try {
       await wallet.enable(QORECHAIN_DIANA);
-      key = await wallet.getKey(QORECHAIN_DIANA);
+      address = (await wallet.getKey(QORECHAIN_DIANA)).bech32Address;
     } catch (error) {
       return fail(walletFailureCopy(error));
     }
@@ -59,7 +69,7 @@ export function useNativeTransaction() {
       const response = await fetch("/api/native-tx/prepare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address: key.bech32Address, publicKey: key.pubKeyHex ?? toHex(key.pubKey), action }),
+        body: JSON.stringify({ address, action }),
       });
       const data = await response.json() as Prepared & { error?: string };
       if (!response.ok) return fail(data.error ?? "The transaction could not be prepared.");
@@ -68,36 +78,37 @@ export function useNativeTransaction() {
       return fail("The transaction could not be prepared. Try again shortly.");
     }
 
-    setState((current) => ({ ...current, phase: "signing", fee: prepared.fee.amount }));
-    let signed;
+    setState((current) => ({
+      ...current,
+      phase: "signing",
+      fee: prepared.fee.amount,
+      keySetup: prepared.pqcKeyRegistered === false,
+      interfaceFee: prepared.interfaceFee ?? null,
+    }));
+    let result;
     try {
-      signed = await wallet.signDirect(key.bech32Address, {
-        bodyBytes: toArray(prepared.bodyBytes),
-        authInfoBytes: toArray(prepared.authInfoBytes),
+      result = await wallet.signAndBroadcast({
         chainId: prepared.chainId,
-        accountNumber: prepared.accountNumber,
+        messages: prepared.messages,
+        memo: prepared.memo,
+        gasLimit: prepared.gasLimit,
       });
     } catch (error) {
-      console.error("QoreX signDirect failed", error);
+      console.error("QoreX signAndBroadcast failed", error);
       return fail(walletFailureCopy(error));
     }
 
-    setState((current) => ({ ...current, phase: "submitting" }));
-    let broadcast: Broadcast;
-    try {
-      const response = await fetch("/api/native-tx/broadcast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bodyBytes: toBase64(signed.signed.bodyBytes), authInfoBytes: toBase64(signed.signed.authInfoBytes), signature: signed.signature.signature }),
-      });
-      broadcast = await response.json() as Broadcast;
-      if (!response.ok || !broadcast.txhash) return fail(broadcast.error ?? "The signed transaction could not be submitted.");
-    } catch {
-      return fail("The signed transaction could not be submitted. Try again shortly.");
+    const txhash = typeof result?.txHash === "string" && /^[0-9A-F]{64}$/i.test(result.txHash) ? result.txHash : "";
+    if (!txhash) return fail("QoreX did not return a transaction hash. Check your QoreX activity.");
+    // Success only with a real block height. A missing or zero height, or a
+    // "pending" shield, means QoreX stopped waiting before the block.
+    if (result.code === 0 && Number(result.height) > 0 && result.shield !== "pending") {
+      setState((current) => ({ ...current, phase: "success", message: SUCCESS_COPY, txhash }));
+      window.dispatchEvent(new Event("qwakk:tx-confirmed"));
+      return;
     }
-    if (!broadcast.accepted) return fail(chainFailureCopy(broadcast.codespace ?? "", broadcast.code ?? 0), broadcast.txhash);
 
-    const txhash = broadcast.txhash;
+    // QoreX stopped waiting before the block, so follow the hash here.
     setState((current) => ({ ...current, phase: "confirming", txhash }));
     for (let attempt = 0; attempt < CONFIRM_ATTEMPTS; attempt += 1) {
       await wait(2_000);
@@ -106,7 +117,7 @@ export function useNativeTransaction() {
         const status = await response.json() as Status;
         if (status.state !== "included") continue;
         if (!status.success) return fail(chainFailureCopy(status.codespace ?? "", status.code ?? 0), txhash);
-        setState((current) => ({ ...current, phase: "success", message: "Confirmed on QoreChain Diana." }));
+        setState((current) => ({ ...current, phase: "success", message: SUCCESS_COPY }));
         window.dispatchEvent(new Event("qwakk:tx-confirmed"));
         return;
       } catch {

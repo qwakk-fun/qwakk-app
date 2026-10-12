@@ -64,7 +64,8 @@ export default function SwapPage() {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteState, setQuoteState] = useState<QuoteState>("idle");
   const [quoteError, setQuoteError] = useState("");
-  const [feeConfig, setFeeConfig] = useState<FeeConfig>({ enabled: false, feeBps: 10 });
+  // Null until /api/qwakk-fee answers; "unknown" when it could not be read.
+  const [feeConfig, setFeeConfig] = useState<FeeConfig | "unknown" | null>(null);
   const [networkState, setNetworkState] = useState<NetworkState>("checking");
   const [lastUpdated, setLastUpdated] = useState("Checking QoreChain Diana markets");
   const [range, setRange] = useState<MarketRange>("7");
@@ -125,11 +126,13 @@ export default function SwapPage() {
     const timer = window.setTimeout(async () => {
       try {
         const response = await fetch("/api/qwakk-fee", { cache: "no-store" });
-        if (!response.ok) return;
+        if (!response.ok) throw new Error("Fee disclosure unavailable");
         const data = await response.json() as FeeConfig;
         setFeeConfig({ enabled: Boolean(data.enabled), feeBps: Number(data.feeBps) || 0 });
       } catch {
-        // A missing fee disclosure keeps the interface fee visibly disabled.
+        // Never show "None" for a fee that could not be read. The quote carries
+        // the authoritative fee once it loads.
+        setFeeConfig("unknown");
       }
     }, 0);
     return () => window.clearTimeout(timer);
@@ -203,9 +206,9 @@ export default function SwapPage() {
   const output = quote ? formatBaseAmount(quote.amountOut, outputDecimals, 6) : quoteState === "loading" ? "…" : "0.0";
   const outputHint = quoteState === "unavailable" ? quoteError : !selectedPool ? "A quote appears once QoreChain Diana has a pool." : outputDecimals === 0 && denomOut ? `${denomOut} base units` : `Estimated ${shortDenom(denomOut)}`;
   const inputHint = inputDecimals === 0 && denomIn ? `Enter ${denomIn} base units.` : `Enter ${shortDenom(denomIn || "uqor")}. Converted to the on-chain unit for you.`;
-  const feeBps = quote?.interfaceFee.feeBps ?? feeConfig.feeBps;
-  const feeEnabled = quote?.interfaceFee.enabled ?? feeConfig.enabled;
-  const feeLabel = feeEnabled ? `${(feeBps / 100).toFixed(2)}%` : "None";
+  // The quote comes from the same server fee configuration that prepares the transaction.
+  const feeSource = quote?.interfaceFee ?? (feeConfig && feeConfig !== "unknown" ? feeConfig : null);
+  const feeLabel = feeSource ? (feeSource.enabled && feeSource.feeBps > 0 ? `${(feeSource.feeBps / 100).toFixed(2)}%` : "None") : feeConfig === "unknown" ? "Shown with the quote" : "Checking…";
   const readiness = networkState === "checking" ? "Checking QoreChain Diana" : networkState === "unavailable" ? "QoreChain Diana is unavailable" : pools.length ? "Live quotes from the native AMM" : "No QoreChain Diana pool is open yet";
   const change = market.data?.change24h ?? null;
 
@@ -279,7 +282,7 @@ export default function SwapPage() {
                 ? <TxProgress state={tx.state} onDone={() => { tx.reset(); setReviewing(false); }} />
                 : reviewing && quote
                   ? <div className="review">
-                    <p className="review-line">You pay <b>{amount} {shortDenom(denomIn)}</b> and receive at least <b>{formatBaseAmount(quote.minOut, outputDecimals, 6)} {shortDenom(denomOut)}</b>.</p>
+                    <p className="review-line">You pay <b>{amount} {shortDenom(denomIn)}</b> and receive at least <b>{formatBaseAmount(quote.minOut, outputDecimals, 6)} {shortDenom(denomOut)}</b>.{quote.interfaceFee.enabled && quote.interfaceFee.amount !== "0" && <> This includes a <b>{formatBaseAmount(quote.interfaceFee.amount, inputDecimals, 6)} {shortDenom(denomIn)}</b> interface fee.</>}</p>
                     <div className="review-actions">
                       <button type="button" className="btn btn-ghost" onClick={() => setReviewing(false)}>Edit</button>
                       <button type="button" className="btn btn-primary" onClick={confirmSwap}>Confirm in QoreX</button>

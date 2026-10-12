@@ -19,13 +19,16 @@ What works:
   shares in its own store, not as bank tokens.
 - The indexer stores pools, swaps and 1m, 5m, 1h, 6h and 1d candles in
   PostgreSQL. Pool pages chart 1m, 5m, 1h and 1d candles.
-- Unsigned native transactions can be built for a QoreX account and relayed
-  after the user signs them (`/api/native-tx/*`). The relay only accepts native
-  AMM messages, plus the disclosed interface fee transfer on a swap.
+- Native actions are prepared on the server (`/api/native-tx/prepare`): it
+  builds the messages, simulates them against Diana and returns them for QoreX
+  `signAndBroadcast` (QoreX 0.3.5 or newer). QoreX asks the user to approve,
+  adds its post-quantum layer, signs and broadcasts. Qwakk never signs or relays
+  a transaction. The server only prepares native AMM messages, plus the
+  disclosed interface fee transfer on a swap.
 - QOR/USD price, volume and market cap come from CoinGecko and are labeled as
   such wherever they appear.
 
-What is blocking trading (checked on 2026-10-10):
+What is blocking trading (checked on 2026-10-12):
 
 - The native AMM keeper is live on Diana: a simulated `MsgCreatePool` fails on
   balances instead of "not implemented". No pool exists yet.
@@ -33,10 +36,10 @@ What is blocking trading (checked on 2026-10-10):
   token factory, ERC20 registration is permissioned
   (`permissionless_registration: false`), there are no IBC channels and every
   bridge is `pending`. QoreChain has been asked for a test denom.
-- QoreX up to 0.3.5 refuses dApp `signDirect` for `qorechain-diana` ("does not
-  match the active network") and has no public way for a third-party dApp to
-  add the required post-quantum signature. QoreChain is designing a method
-  where QoreX adds that layer after user approval.
+- QoreX 0.3.5 refuses bare classical `signDirect` on QoreChain networks. Qwakk
+  now uses QoreX `signAndBroadcast`, where the wallet adds the post-quantum
+  layer. This path is built but not yet verified end to end on Diana: run the
+  signing probe below.
 
 ### Wallet actions
 
@@ -49,18 +52,31 @@ QWAKK_NATIVE_ACTIONS=enabled
 
 It is read at runtime, so it can be changed in CapRover without a rebuild.
 While it is off, no wallet action is rendered and `/api/native-tx/prepare`
-returns 404. When it is on, every action is built on the server, simulated
-against QoreChain Diana (so a failing transaction is explained before the
-wallet opens, and the fee comes from simulated gas), signed in QoreX, relayed
-and followed into a block. Turn it on only after the signing probe below
+returns 404. When it is on, every action is built on the server, simulated against QoreChain
+Diana (so a failing transaction is explained before the wallet opens, and the
+gas limit comes from simulated gas), then approved, signed and broadcast by
+QoreX and followed into a block. Turn it on only after the signing probe below
 succeeds.
+
+QoreX must be 0.3.5 or newer and set to QoreChain Diana (in QoreX: turn on
+Developer mode, then Switch to testnet (diana)). Otherwise Qwakk shows an update
+or network instruction instead of opening the wallet.
+
+Gas: the prepare route sets `gasLimit = simulated gas x 1.3 + 100000`, clamped to
+QoreX's 100000 to 5000000 range. Simulation runs without the post-quantum layer,
+which costs about 77k to 91k extra gas on Diana, so the 100k headroom covers it.
+QoreX prices the fee itself at 0.15 uqor per gas. If an account has no
+post-quantum key on chain yet, QoreX first registers one in a separate
+transaction with its own fee.
 
 ### Signing probe
 
-`/dev/signing-probe` is available in development only. It asks QoreX to sign a
-native AMM swap against a pool that does not exist and reports whether Diana
-accepts the signature. No tokens move. The network fee is 0.06 QOR. Run it again
-once the blockers above are resolved.
+`/dev/signing-probe` is available in development only and runs only when you
+click "Run probe". It asks QoreX to approve, sign and broadcast a 1 uqor
+transfer from the connected wallet to itself on QoreChain Diana, so no pool is
+needed. It proves the wallet-built post-quantum transaction and the bank
+transfer used for the interface fee. It shows the transaction hash, result
+code, block height and an explorer link. The network fee is about 0.03 QOR.
 
 Never add a mnemonic or private key to the repository, browser, PostgreSQL or
 CapRover. Qwakk only needs public wallet addresses.
