@@ -176,7 +176,7 @@ export function SigningProbe() {
           <div>
             <span className="kicker">Development only</span>
             <h1>Native signing probe</h1>
-            <p>Asks QoreX to approve, sign and broadcast a 0.000001 QOR transfer from your wallet to itself on QoreChain Diana. No pool is needed and no funds leave your wallet except the network fee (about 0.03 QOR). QoreX must be set to QoreChain Diana: turn on Developer mode, then Switch to testnet (diana).</p>
+            <p>Asks QoreX to approve, sign and broadcast a 0.000001 QOR transfer from your wallet to itself on QoreChain Diana. No pool is needed and no funds leave your wallet except the network fee (about 0.03 QOR). QoreX must be set to QoreChain Diana: tap the version number at the bottom of QoreX 7 times to turn on Developer mode, then choose Switch to testnet (diana).</p>
           </div>
           <button type="button" className="btn btn-primary" onClick={() => void runProbe()} disabled={running}>{running ? "Running…" : "Run probe"}</button>
         </section>

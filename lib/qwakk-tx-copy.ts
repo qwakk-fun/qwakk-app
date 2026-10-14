@@ -19,7 +19,7 @@ export type SimulationFailureKey = keyof typeof SIMULATION_FAILURE_COPY;
 
 export const QOREX_MISSING_COPY = "Install QoreX to sign QoreChain transactions.";
 export const QOREX_OUTDATED_COPY = "This QoreX is too old to trade here. Update it to version 0.3.5 or newer, then try again.";
-export const QOREX_NETWORK_COPY = "QoreX is on another network. Open QoreX, turn on Developer mode, then Switch to testnet (diana), and try again.";
+export const QOREX_NETWORK_COPY = "QoreX is on another network. Open QoreX, tap the version number at the bottom 7 times to turn on Developer mode, choose Switch to testnet (diana), then try again.";
 
 export type WalletFailureKind = "declined" | "locked" | "network" | "outdated" | "account" | "chain" | "onchain" | "other";
 export type WalletFailure = { kind: WalletFailureKind; copy: string; code?: number; codespace?: string };
