@@ -12,7 +12,30 @@ export const SIMULATION_FAILURE_COPY = {
   insufficient_liquidity: "The pool does not hold enough liquidity for this amount.",
   below_min_liquidity: "The deposit is below the pool's minimum liquidity.",
   pool_limit: "This wallet has reached the maximum number of pools it can create.",
+  impact_too_high: "This swap would move the pool price more than QoreChain Diana allows in one trade. Try a smaller amount.",
+  network_fee: "This wallet needs a little more QOR to cover the network fee on top of the amounts.",
+  pool_creation_fee: "Creating a pool needs the pool creation fee on top of both deposits and the network fee. Add QOR and try again.",
+  module_disabled: "Trading on QoreChain Diana's native AMM is switched off right now.",
   rejected: "QoreChain Diana would not accept this transaction.",
+} as const;
+
+/** Why a swap quote could not be produced. */
+export const QUOTE_FAILURE_COPY = {
+  pool_not_found: "This pool is not available on QoreChain Diana.",
+  pair: "This pool does not trade that token.",
+  impact_too_high: "This swap is too large for the pool. Try a smaller amount.",
+  insufficient_liquidity: "The pool does not hold enough liquidity for this amount.",
+  pool_paused: "This pool is paused right now.",
+  invalid: "QoreChain Diana could not quote this swap. Check the amount.",
+  unavailable: "The QoreChain Diana quote service is temporarily unavailable.",
+} as const;
+
+/** Why a quote that was produced cannot be signed. */
+export const QUOTE_BLOCK_COPY = {
+  impact: "This swap would move the pool price by more than QoreChain Diana allows in one trade.",
+  paused: "This pool is paused right now, so swaps and liquidity changes are on hold.",
+  disabled: "Trading on QoreChain Diana's native AMM is switched off right now.",
+  too_small: "This amount is too small to swap. Enter a larger amount.",
 } as const;
 
 export type SimulationFailureKey = keyof typeof SIMULATION_FAILURE_COPY;
@@ -80,9 +103,14 @@ export function walletFailureCopy(error: unknown) {
 export function chainFailureCopy(codespace: string, code: number) {
   // QoreX adds the post-quantum layer itself, so a pqc refusal means Diana rejected that layer.
   if (codespace === "pqc") return `QoreChain Diana did not accept QoreX's quantum-safe signature (pqc code ${code}). Update QoreX and try again.`;
-  if (codespace === "amm" && code === 4) return SIMULATION_FAILURE_COPY.price_moved;
+  // x/amm codes from qorechain-core x/amm/types/errors.go.
   if (codespace === "amm" && code === 1) return SIMULATION_FAILURE_COPY.pool_not_found;
+  if (codespace === "amm" && code === 3) return SIMULATION_FAILURE_COPY.insufficient_liquidity;
+  if (codespace === "amm" && code === 4) return SIMULATION_FAILURE_COPY.price_moved;
   if (codespace === "amm" && code === 5) return SIMULATION_FAILURE_COPY.pool_paused;
+  if (codespace === "amm" && code === 7) return SIMULATION_FAILURE_COPY.pool_exists;
+  if (codespace === "amm" && code === 9) return SIMULATION_FAILURE_COPY.below_min_liquidity;
+  if (codespace === "amm" && code === 17) return SIMULATION_FAILURE_COPY.pool_limit;
   if (codespace === "sdk" && code === 5) return SIMULATION_FAILURE_COPY.insufficient_funds;
   if (codespace === "sdk" && code === 13) return "The network fee was too low. Try again.";
   if (codespace === "sdk" && code === 32) return "Another transaction from this wallet is pending. Try again in a moment.";

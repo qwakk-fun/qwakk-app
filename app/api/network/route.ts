@@ -6,6 +6,8 @@ type AmmParams = {
   min_liquidity?: string;
   max_pools_per_creator?: number | string;
   pool_creation_fee?: string;
+  max_swap_impact_bps?: number | string;
+  lp_token_decimals?: number | string;
   enabled?: boolean;
 };
 
@@ -39,6 +41,8 @@ export async function GET() {
           minLiquidity: integerText(params.min_liquidity),
           maxPoolsPerCreator: integerText(params.max_pools_per_creator),
           poolCreationFee: integerText(params.pool_creation_fee),
+          maxSwapImpactBps: integerText(params.max_swap_impact_bps),
+          lpTokenDecimals: integerText(params.lp_token_decimals),
         } : null,
       },
       { headers: { "Cache-Control": "no-store" } },

@@ -8,17 +8,23 @@ import {
   PQC_GAS_HEADROOM,
   QOREX_MAX_GAS,
   QOREX_MIN_GAS,
+  balanceShortfall,
   buildSimulationTx,
   bytesToBase64,
+  classifySimulationError,
   encodeAsAny,
   findAccountSequence,
   gasLimitForSimulatedGas,
   networkFeeForGas,
+  parseCoins,
+  parseSimulationEvents,
   prepareWalletTx,
+  requiredSpend,
+  simulatedOutcome,
   toWalletMessages,
 } from "../lib/qwakk-native-tx";
 import { qorexSupport } from "../lib/qorex-native";
-import { QOREX_NETWORK_COPY, walletFailure } from "../lib/qwakk-tx-copy";
+import { QOREX_NETWORK_COPY, SIMULATION_FAILURE_COPY, QUOTE_BLOCK_COPY, QUOTE_FAILURE_COPY, chainFailureCopy, walletFailure } from "../lib/qwakk-tx-copy";
 
 const sender = "qor1exampleaddress000000000000";
 const fromBase64 = (value: string) => Uint8Array.from(Buffer.from(value, "base64"));
@@ -114,6 +120,7 @@ test("prepares a signAndBroadcast request from simulated gas", async () => {
     gasLimit: "216113",
     fee: { amount: "32417", denom: "uqor" },
     pqcKeyRegistered: false,
+    simulated: {},
   });
   // The simulation uses the account's current sequence.
   const raw = TxRaw.decode(fromBase64(JSON.parse(simulatedBody).tx_bytes));
@@ -178,4 +185,92 @@ test("explains a refused post-quantum layer and on-chain failures without a code
   assert.equal(noCode.code, undefined);
 
   assert.notEqual(walletFailure(new Error("QoreX: keep the wallet unlocked while waiting")).kind, "locked");
+});
+
+/** Shape of a real Diana simulate response (MsgSend, 2026-10-15), trimmed, plus the AMM swap event the keeper emits. */
+const SIMULATE_BODY = {
+  gas_info: { gas_wanted: "18446744073709551615", gas_used: "88516" },
+  result: {
+    events: [
+      { type: "tx", attributes: [{ key: "fee", value: "30000uqor", index: false }] },
+      { type: "message", attributes: [{ key: "action", value: "/cosmos.bank.v1beta1.MsgSend", index: false }, { key: "msg_index", value: "0", index: false }] },
+      { type: "transfer", attributes: [{ key: "recipient", value: "qor1treasury", index: false }, { key: "sender", value: sender, index: false }, { key: "amount", value: "10000uqor", index: false }, { key: "msg_index", value: "0", index: false }] },
+      { type: "amm_swap", attributes: [
+        { key: "pool_id", value: "1" }, { key: "sender", value: sender }, { key: "amount_in", value: "9990000" }, { key: "amount_out", value: "24654515" },
+        { key: "denom_in", value: "uqor" }, { key: "denom_out", value: "utest" }, { key: "fee_bps", value: "30" }, { key: "protocol_fee", value: "9990" },
+        { key: "reserve_a", value: "1009990000" }, { key: "reserve_b", value: "2475345485" }, { key: "msg_index", value: "1" },
+      ] },
+    ],
+  },
+};
+
+test("reads the keeper's swap result from simulation events", () => {
+  const events = parseSimulationEvents(SIMULATE_BODY);
+  assert.equal(events.length, 4);
+  assert.deepEqual(simulatedOutcome(events).swap, { amountIn: "9990000", denomIn: "uqor", amountOut: "24654515", denomOut: "utest" });
+  assert.deepEqual(simulatedOutcome([]), {});
+  assert.deepEqual(parseSimulationEvents(null), []);
+});
+
+test("reads base64 event attributes from older nodes", () => {
+  const b64 = (text: string) => Buffer.from(text).toString("base64");
+  const events = parseSimulationEvents({ result: { events: [{ type: "amm_liquidity_added", attributes: [
+    { key: b64("pool_id"), value: b64("1") }, { key: b64("lp_minted"), value: b64("158113883") }, { key: b64("tokens_in"), value: b64("100000000uqor,250000000utest") }, { key: b64("msg_index"), value: b64("0") },
+  ] }] } });
+  const outcome = simulatedOutcome(events);
+  assert.equal(outcome.lpMinted, "158113883");
+  assert.deepEqual(outcome.tokensIn, [{ amount: "100000000", denom: "uqor" }, { amount: "250000000", denom: "utest" }]);
+  assert.deepEqual(parseCoins("5ibc/ABC, junk ,7uqor"), [{ amount: "5", denom: "ibc/ABC" }, { amount: "7", denom: "uqor" }]);
+});
+
+test("adds up everything a transaction takes from the balance", () => {
+  const swapWithFee = encodeAsAny([
+    bank.send({ fromAddress: sender, toAddress: "qor1treasuryaddress0000000000000", amount: [{ denom: "uqor", amount: "10000" }] }),
+    amm.swapExactIn({ sender, poolId: "1", tokenIn: { denom: "uqor", amount: "9990000" }, denomOut: "utest", minOut: "24531242" }),
+  ]);
+  assert.deepEqual([...requiredSpend(swapWithFee)], [["uqor", BigInt(10_000_000)]]);
+
+  const create = encodeAsAny([amm.createPool({ creator: sender, poolType: "constant_product", initialDepositA: { denom: "uqor", amount: "1000000000" }, initialDepositB: { denom: "utest", amount: "2500000000" }, amplificationCoefficient: 0 })]);
+  assert.deepEqual([...requiredSpend(create, { poolCreationFee: BigInt(100_000_000) })], [["uqor", BigInt(1_100_000_000)], ["utest", BigInt(2_500_000_000)]]);
+
+  const remove = encodeAsAny([amm.removeLiquidity({ sender, poolId: "1", lpAmount: "5", minAmountA: "1", minAmountB: "1" })]);
+  assert.equal(requiredSpend(remove).size, 0);
+});
+
+test("names the exact reason a balance falls short", () => {
+  const spend = new Map([["uqor", BigInt(1_100_000_000)], ["utest", BigInt(2_500_000_000)]]);
+  const fee = BigInt(45_000);
+  const options = { poolCreationFee: BigInt(100_000_000) };
+  assert.equal(balanceShortfall(spend, new Map([["uqor", BigInt(1_100_045_000)], ["utest", BigInt(2_500_000_000)]]), fee, options), null);
+  assert.equal(balanceShortfall(spend, new Map([["uqor", BigInt(1_100_044_999)], ["utest", BigInt(2_500_000_000)]]), fee, options), "network_fee");
+  // Deposits fit, the 100 QOR creation fee does not.
+  assert.equal(balanceShortfall(spend, new Map([["uqor", BigInt(1_050_000_000)], ["utest", BigInt(2_500_000_000)]]), fee, options), "pool_creation_fee");
+  assert.equal(balanceShortfall(spend, new Map([["uqor", BigInt(900_000_000)], ["utest", BigInt(2_500_000_000)]]), fee, options), "insufficient_funds");
+  assert.equal(balanceShortfall(spend, new Map([["uqor", BigInt(2_000_000_000)]]), fee, options), "insufficient_funds");
+});
+
+test("refuses before the wallet opens when the network fee does not fit", async () => {
+  const encoded = encodeAsAny([amm.swapExactIn({ sender, poolId: "1", tokenIn: { denom: "uqor", amount: "1000000" }, denomOut: "utest", minOut: "1" })]);
+  const simulate = () => Response.json(SIMULATE_BODY);
+  // 1,000,000 uqor spend + 32,417 uqor network fee for 88,516 simulated gas.
+  const short = await withFetch(diana({ simulate }), () => prepareWalletTx({ address: sender, chainId: "qorechain-diana", encoded, balanceCheck: { readBalances: async () => new Map([["uqor", BigInt(1_020_000)]]) } }));
+  assert.deepEqual(short, { ok: false, reason: "simulation", failure: "network_fee" });
+  const enough = await withFetch(diana({ simulate }), () => prepareWalletTx({ address: sender, chainId: "qorechain-diana", encoded, balanceCheck: { readBalances: async () => new Map([["uqor", BigInt(1_032_417)]]) } }));
+  assert.ok(enough.ok);
+  assert.equal(enough.prepared.simulated.swap?.amountOut, "24654515");
+});
+
+test("maps keeper errors from x/amm/types/errors.go to fixed reasons and copy", () => {
+  assert.equal(classifySimulationError("failed to execute message; message index: 0: deposit below minimum liquidity"), "below_min_liquidity");
+  assert.equal(classifySimulationError("failed to execute message; message index: 0: pool already exists for this token pair"), "pool_exists");
+  assert.equal(classifySimulationError("failed to execute message; message index: 1: pool creator has reached max pools"), "pool_limit");
+  assert.equal(classifySimulationError("failed to execute message; message index: 1: slippage tolerance exceeded: price impact 612 bps above max 500"), "impact_too_high");
+  assert.equal(classifySimulationError("failed to execute message; message index: 1: slippage tolerance exceeded: got 10 want 11"), "price_moved");
+  assert.equal(chainFailureCopy("amm", 7), SIMULATION_FAILURE_COPY.pool_exists);
+  assert.equal(chainFailureCopy("amm", 9), SIMULATION_FAILURE_COPY.below_min_liquidity);
+  assert.equal(chainFailureCopy("amm", 17), SIMULATION_FAILURE_COPY.pool_limit);
+  assert.equal(chainFailureCopy("amm", 3), SIMULATION_FAILURE_COPY.insufficient_liquidity);
+  for (const copy of [...Object.values(SIMULATION_FAILURE_COPY), ...Object.values(QUOTE_FAILURE_COPY), ...Object.values(QUOTE_BLOCK_COPY)]) {
+    assert.doesNotMatch(copy, /—/);
+  }
 });

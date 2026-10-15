@@ -1,8 +1,11 @@
 /**
  * Liquidity estimates in integer base units. The AMM keeper is not public, so
- * these use the standard constant-product share rules. They only set minimums
- * the user is protected by: if the chain mints differently, the transaction is
- * refused rather than settling worse than shown.
+ * these use the Uniswap V2 share rules the chain names for its constant-product
+ * pools (qorechain-core CHANGELOG v2.23.0): LP minted is the smaller of the two
+ * proportional shares, a withdrawal pays out reserves pro rata, both rounded
+ * down. They only set minimums the user is protected by: if the chain mints
+ * differently, the transaction is refused rather than settling worse than
+ * shown. `scripts/qwakk-verify-amm.ts` compares them with the chain.
  */
 
 const BPS = BigInt(10_000);
@@ -48,4 +51,23 @@ export function expectedWithdrawal(lpAmount: string, reserveA: string, reserveB:
     amountA: ((lp * toBig(reserveA, "Reserve A")) / supply).toString(),
     amountB: ((lp * toBig(reserveB, "Reserve B")) / supply).toString(),
   };
+}
+
+/** The share of the pool, in bps, that newly minted LP shares will hold. */
+export function poolShareBps(lpMinted: string, lpSupply: string) {
+  const minted = toBig(lpMinted, "LP minted");
+  const total = toBig(lpSupply, "LP supply") + minted;
+  if (total === BigInt(0)) return null;
+  return Number((minted * BPS) / total);
+}
+
+/**
+ * Whether `actual` is within `toleranceBps` of `expected`, either way. One base
+ * unit of rounding is always tolerated.
+ */
+export function withinTolerance(actual: string, expected: string, toleranceBps: number) {
+  const a = toBig(actual, "Actual");
+  const e = toBig(expected, "Expected");
+  const diff = a > e ? a - e : e - a;
+  return diff <= BigInt(1) || diff * BPS <= e * BigInt(toleranceBps);
 }

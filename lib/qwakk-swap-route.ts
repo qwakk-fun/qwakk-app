@@ -57,7 +57,8 @@ export function buildQwakkSwapRoute(input: SwapRouteInput): QwakkSwapRoute {
   if (!validateAddress(input.fee.recipient)) throw new Error("A valid Qwakk treasury address is required");
   if (!/^\d+$/.test(input.poolId) || BigInt(input.poolId) <= BigInt(0)) throw new Error("A valid pool ID is required");
   if (!isPositiveInteger(input.amountIn)) throw new Error("Swap amount must be a positive integer");
-  if (!/^\d+$/.test(input.minOut)) throw new Error("Minimum output must be an integer");
+  // The chain accepts 0, which would mean no price protection. Qwakk never sends it.
+  if (!/^\d+$/.test(input.minOut) || BigInt(input.minOut) <= BigInt(0)) throw new Error("A minimum output is required");
   if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_QWAKK_INTERFACE_FEE_BPS) throw new Error(`Interface fee must be between 0 and ${MAX_QWAKK_INTERFACE_FEE_BPS} bps`);
 
   const totalAmount = BigInt(input.amountIn);

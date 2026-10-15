@@ -13,7 +13,8 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
     "indexer": "tsx indexer/server.ts",
-    "pool:testnet": "tsx scripts/qwakk-testnet-pool.ts"
+    "pool:testnet": "tsx scripts/qwakk-testnet-pool.ts",
+    "verify:amm": "tsx scripts/qwakk-verify-amm.ts"
   },
   "dependencies": {
     "@qorechain/sdk": "^0.8.2",

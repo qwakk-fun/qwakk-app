@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink, PauseCircle } from "lucide-react";
 import { LiquidityPanel } from "./LiquidityPanel";
 import { QwakkHeader } from "./QwakkHeader";
 import { SiteFooter } from "./SiteFooter";
@@ -12,6 +12,7 @@ import { PoolChart, type PoolCandle } from "./PoolChart";
 import { formatBaseAmount } from "../lib/qwakk-assets";
 import { BRAND } from "../lib/brand";
 import { CHART_INTERVALS, CHART_INTERVAL_LABELS, type ChartInterval } from "../lib/qwakk-chart";
+import { QUOTE_BLOCK_COPY } from "../lib/qwakk-tx-copy";
 
 type Pool = {
   id: string | number;
@@ -116,6 +117,8 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
   }
 
   const { pool, candles, swaps } = detail;
+  // Same rule as the quote and transaction routes: anything but "active" is paused.
+  const paused = pool.status !== "active";
   return <div className="app-shell">
     <QwakkHeader page="pools" />
     <main className="app-main">
@@ -138,9 +141,9 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
         <div className="pool-layout">
           <div className="pool-main">
             <section className="panel" aria-labelledby="pool-chart-title">
-              <div className="panel-head">
+              <div className="panel-head chart-head">
                 <div><span className="panel-title" id="pool-chart-title">{pool.token_a_symbol} price in {pool.token_b_symbol}</span><span className="cell-sub">{CHART_INTERVAL_LABELS[chartInterval]}</span></div>
-                <div className="segmented" role="group" aria-label="Chart interval">{CHART_INTERVALS.map((option) => <button type="button" key={option} aria-pressed={option === chartInterval} onClick={() => setChartInterval(option)}>{option}</button>)}</div>
+                <div className="segmented interval-tabs" role="group" aria-label="Chart interval">{CHART_INTERVALS.map((option) => <button type="button" key={option} aria-pressed={option === chartInterval} onClick={() => setChartInterval(option)}>{option}</button>)}</div>
               </div>
               <PoolChart candles={candles} />
             </section>
@@ -160,7 +163,9 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
             </section>
           </div>
           <aside className="panel" aria-labelledby="pool-info-title">
-            <div className="pool-trade"><Link className="btn btn-primary btn-block" href={`/swap?pool=${pool.id}`}>{nativeActions ? `Swap ${pool.token_a_symbol} and ${pool.token_b_symbol}` : "Get a live quote"}</Link></div>
+            <div className="pool-trade">{paused
+              ? <p className="pool-paused" role="status"><PauseCircle size={16} aria-hidden="true" /><span>{QUOTE_BLOCK_COPY.paused}</span></p>
+              : <Link className="btn btn-primary btn-block" href={`/swap?pool=${pool.id}`}>{nativeActions ? `Swap ${pool.token_a_symbol} and ${pool.token_b_symbol}` : "Get a live quote"}</Link>}</div>
             <div className="panel-head"><span className="panel-title" id="pool-info-title">Pool details</span></div>
             <div className="info-list">
               <div><span>Status</span><b>{pool.status}</b></div>

@@ -57,7 +57,7 @@ export function messagesForAction(sender: string, action: NativeAction, fee: Ser
       if (fee.enabled) {
         return buildQwakkSwapRoute({ sender, ...action, fee: { recipient: fee.recipient, feeBps: fee.feeBps } }).messages;
       }
-      if (!/^\d+$/.test(action.minOut)) throw new Error("Minimum output must be an integer");
+      if (!/^\d+$/.test(action.minOut) || BigInt(action.minOut) <= BigInt(0)) throw new Error("A minimum output is required");
       if (!/^\d+$/.test(action.amountIn) || BigInt(action.amountIn) <= BigInt(0)) throw new Error("Swap amount must be a positive integer");
       if (!/^\d+$/.test(action.poolId) || BigInt(action.poolId) <= BigInt(0)) throw new Error("A valid pool ID is required");
       if (!action.denomIn || !action.denomOut || action.denomIn === action.denomOut) throw new Error("Use two different native token denoms");

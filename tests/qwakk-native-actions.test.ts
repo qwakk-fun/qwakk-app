@@ -36,6 +36,12 @@ test("builds pool and liquidity messages", () => {
   assert.equal(messagesForAction(sender, remove, noFee)[0].typeUrl, "/qorechain.amm.v1.MsgRemoveLiquidity");
 });
 
+test("never builds a swap without a minimum output", () => {
+  const unprotected = { ...swap, minOut: "0" };
+  assert.throws(() => messagesForAction(sender, unprotected, noFee), /minimum output/);
+  assert.throws(() => messagesForAction(sender, unprotected, withFee), /minimum output/);
+});
+
 test("rejects unknown actions and same-token swaps", () => {
   assert.throws(() => parseNativeAction({ kind: "send" }), /supported action/);
   assert.throws(() => messagesForAction(sender, { ...swap, denomOut: "uqor" } as typeof swap, noFee), /different/);

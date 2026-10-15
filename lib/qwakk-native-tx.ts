@@ -169,24 +169,37 @@ export function networkFeeForGas(gasLimit: bigint) {
 
 export type SimulationFailure =
   | "insufficient_funds"
+  | "network_fee"
+  | "pool_creation_fee"
   | "pool_not_found"
   | "pool_exists"
   | "pool_paused"
   | "price_moved"
+  | "impact_too_high"
   | "insufficient_liquidity"
   | "below_min_liquidity"
   | "pool_limit"
+  | "module_disabled"
   | "rejected";
 
-export type SimulationResult = { ok: true; gasUsed: bigint } | { ok: false; failure: SimulationFailure };
+/** One ABCI event from a simulation, attribute values as plain strings. */
+export type ChainEvent = { type: string; attributes: Array<{ key: string; value: string }> };
 
-/** Maps chain error text to a fixed reason. The raw text never leaves the server. */
+export type SimulationResult = { ok: true; gasUsed: bigint; events: ChainEvent[] } | { ok: false; failure: SimulationFailure };
+
+/**
+ * Maps chain error text to a fixed reason. The raw text never leaves the
+ * server. Texts come from qorechain-core `x/amm/types/errors.go` and the
+ * Cosmos SDK bank keeper. The impact cap check runs before the slippage check,
+ * because the keeper may report the cap through its slippage error.
+ */
 export function classifySimulationError(message: string): SimulationFailure {
   const text = message.toLowerCase();
   if (text.includes("insufficient funds") || text.includes("smaller than")) return "insufficient_funds";
   if (text.includes("pool not found")) return "pool_not_found";
   if (text.includes("pool already exists")) return "pool_exists";
   if (text.includes("pool is paused")) return "pool_paused";
+  if (text.includes("impact")) return "impact_too_high";
   if (text.includes("slippage tolerance exceeded")) return "price_moved";
   if (text.includes("insufficient liquidity")) return "insufficient_liquidity";
   if (text.includes("below minimum liquidity")) return "below_min_liquidity";
@@ -214,6 +227,82 @@ export function buildSimulationTx(encoded: readonly Any[], sequence: bigint, mem
   return TxRaw.encode(TxRaw.fromPartial({ bodyBytes, authInfoBytes, signatures: [new Uint8Array(64)] })).finish();
 }
 
+function decodeAttribute(value: unknown, base64: boolean) {
+  const text = typeof value === "string" ? value : "";
+  if (!base64) return text;
+  try {
+    return Buffer.from(text, "base64").toString("utf8");
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * Reads `result.events` from a `/cosmos/tx/v1beta1/simulate` response. Diana
+ * (Cosmos SDK 0.53) returns plain-text attributes; older nodes returned
+ * base64, which is detected by the always-present `msg_index` key.
+ */
+export function parseSimulationEvents(body: unknown): ChainEvent[] {
+  const events = (body as { result?: { events?: unknown } } | null)?.result?.events;
+  if (!Array.isArray(events)) return [];
+  const raw = events.filter((event): event is { type: string; attributes?: Array<{ key?: unknown; value?: unknown }> } => Boolean(event) && typeof (event as { type?: unknown }).type === "string");
+  // "bXNnX2luZGV4" and "c2VuZGVy" are base64 for "msg_index" and "sender".
+  const base64 = raw.some((event) => (event.attributes ?? []).some((attribute) => attribute.key === "bXNnX2luZGV4" || attribute.key === "c2VuZGVy"));
+  return raw.map((event) => ({
+    type: event.type,
+    attributes: (event.attributes ?? []).map((attribute) => ({ key: decodeAttribute(attribute.key, base64), value: decodeAttribute(attribute.value, base64) })),
+  }));
+}
+
+/** Attributes of the first event of a type, as a key to value map. */
+export function eventAttributes(events: readonly ChainEvent[], type: string): Map<string, string> | null {
+  const event = events.find((candidate) => candidate.type === type);
+  return event ? new Map(event.attributes.map((attribute) => [attribute.key, attribute.value])) : null;
+}
+
+export type Coin = { denom: string; amount: string };
+
+/** Parses a coin list such as "100uqor,5ibc/ABC". Unparseable parts are dropped. */
+export function parseCoins(text: string): Coin[] {
+  return text.split(",").map((part) => /^(\d+)([a-zA-Z][a-zA-Z0-9/:._-]{1,127})$/.exec(part.trim())).filter((match): match is RegExpExecArray => match !== null).map((match) => ({ amount: match[1], denom: match[2] }));
+}
+
+/**
+ * What the chain's own keeper reports it would do, read from the AMM events of
+ * a simulation (`x/amm/types/events.go`). Only fields that parse are set.
+ */
+export type SimulatedOutcome = {
+  swap?: { amountIn: string; denomIn: string; amountOut: string; denomOut: string };
+  lpMinted?: string;
+  lpBurned?: string;
+  tokensIn?: Coin[];
+  tokensOut?: Coin[];
+  poolId?: string;
+};
+
+export function simulatedOutcome(events: readonly ChainEvent[]): SimulatedOutcome {
+  const outcome: SimulatedOutcome = {};
+  const integer = (value: string | undefined) => value !== undefined && /^\d+$/.test(value) ? value : undefined;
+  const swap = eventAttributes(events, "amm_swap");
+  if (swap) {
+    const amountIn = integer(swap.get("amount_in"));
+    const amountOut = integer(swap.get("amount_out"));
+    if (amountIn && amountOut) outcome.swap = { amountIn, denomIn: swap.get("denom_in") ?? "", amountOut, denomOut: swap.get("denom_out") ?? "" };
+  }
+  for (const type of ["amm_pool_created", "amm_liquidity_added", "amm_liquidity_removed"]) {
+    const attributes = eventAttributes(events, type);
+    if (!attributes) continue;
+    outcome.poolId ??= integer(attributes.get("pool_id"));
+    outcome.lpMinted ??= integer(attributes.get("lp_minted"));
+    outcome.lpBurned ??= integer(attributes.get("lp_burned"));
+    const tokensIn = parseCoins(attributes.get("tokens_in") ?? "");
+    const tokensOut = parseCoins(attributes.get("tokens_out") ?? "");
+    if (tokensIn.length && !outcome.tokensIn) outcome.tokensIn = tokensIn;
+    if (tokensOut.length && !outcome.tokensOut) outcome.tokensOut = tokensOut;
+  }
+  return outcome;
+}
+
 /** Runs the messages through the chain without broadcasting them. */
 export async function simulateMessages(encoded: readonly Any[], sequence: bigint, memo = ""): Promise<SimulationResult> {
   const response = await fetch(`${QORECHAIN_REST_URL}/cosmos/tx/v1beta1/simulate`, {
@@ -224,12 +313,67 @@ export async function simulateMessages(encoded: readonly Any[], sequence: bigint
     signal: AbortSignal.timeout(12_000),
   });
   const body = await response.json().catch(() => null) as { gas_info?: { gas_used?: string }; message?: string } | null;
-  if (response.ok && /^\d+$/.test(body?.gas_info?.gas_used ?? "")) return { ok: true, gasUsed: BigInt(body?.gas_info?.gas_used as string) };
+  if (response.ok && /^\d+$/.test(body?.gas_info?.gas_used ?? "")) return { ok: true, gasUsed: BigInt(body?.gas_info?.gas_used as string), events: parseSimulationEvents(body) };
   if (typeof body?.message === "string") {
     console.warn("QoreChain simulation refused a transaction", body.message);
     return { ok: false, failure: classifySimulationError(body.message) };
   }
   throw new Error("Simulation request failed");
+}
+
+/**
+ * Everything the messages take out of the sender's bank balance, per denom:
+ * transfers, swap inputs, deposits and, for a new pool, the pool creation fee
+ * in uqor (charged on top of the deposits, `x/amm/types/params.go`). The
+ * network fee is added separately.
+ */
+export function requiredSpend(encoded: readonly Any[], options: { poolCreationFee?: bigint } = {}) {
+  const registry = qorechainRegistry();
+  const spend = new Map<string, bigint>();
+  const add = (coin: { denom?: string; amount?: string } | undefined) => {
+    if (!coin?.denom || !/^\d+$/.test(coin.amount ?? "")) return;
+    spend.set(coin.denom, (spend.get(coin.denom) ?? BigInt(0)) + BigInt(coin.amount as string));
+  };
+  for (const message of encoded) {
+    const decoded = registry.decode(message) as Record<string, unknown>;
+    switch (message.typeUrl) {
+      case SEND_TYPE:
+        for (const coin of (decoded.amount as Array<{ denom: string; amount: string }>) ?? []) add(coin);
+        break;
+      case "/qorechain.amm.v1.MsgSwapExactIn":
+        add(decoded.tokenIn as { denom: string; amount: string });
+        break;
+      case "/qorechain.amm.v1.MsgSwapExactOut":
+        add({ denom: decoded.denomIn as string, amount: decoded.maxIn as string });
+        break;
+      case "/qorechain.amm.v1.MsgAddLiquidity":
+        add(decoded.amountA as { denom: string; amount: string });
+        add(decoded.amountB as { denom: string; amount: string });
+        break;
+      case "/qorechain.amm.v1.MsgCreatePool":
+        add(decoded.initialDepositA as { denom: string; amount: string });
+        add(decoded.initialDepositB as { denom: string; amount: string });
+        if (options.poolCreationFee && options.poolCreationFee > BigInt(0)) add({ denom: "uqor", amount: options.poolCreationFee.toString() });
+        break;
+    }
+  }
+  return spend;
+}
+
+/**
+ * Compares the spend plus the network fee with the balances. Returns the most
+ * specific reason the transaction cannot be paid for, or null when it fits.
+ */
+export function balanceShortfall(spend: ReadonlyMap<string, bigint>, balances: ReadonlyMap<string, bigint>, networkFee: bigint, options: { poolCreationFee?: bigint } = {}): SimulationFailure | null {
+  for (const [denom, amount] of spend) {
+    const held = balances.get(denom) ?? BigInt(0);
+    if (held >= amount) continue;
+    const creationFee = options.poolCreationFee ?? BigInt(0);
+    if (denom === "uqor" && creationFee > BigInt(0) && held >= amount - creationFee) return "pool_creation_fee";
+    return "insufficient_funds";
+  }
+  const uqor = (spend.get("uqor") ?? BigInt(0)) + networkFee;
+  return (balances.get("uqor") ?? BigInt(0)) >= uqor ? null : "network_fee";
 }
 
 export type PreparedWalletTx = {
@@ -241,6 +385,8 @@ export type PreparedWalletTx = {
   fee: { amount: string; denom: "uqor" };
   /** False when QoreX will first register the post-quantum key in its own transaction; null when unknown. */
   pqcKeyRegistered: boolean | null;
+  /** What QoreChain's keeper reported in the simulation, such as the exact swap output. */
+  simulated: SimulatedOutcome;
 };
 
 export type PrepareOutcome =
@@ -252,15 +398,37 @@ export type PrepareOutcome =
  * Simulates already validated messages against Diana and turns them into a
  * `signAndBroadcast` request. Nothing is signed or broadcast here.
  */
-export async function prepareWalletTx(input: { address: string; chainId: string; encoded: readonly Any[]; memo?: string }): Promise<PrepareOutcome> {
+export async function prepareWalletTx(input: {
+  address: string;
+  chainId: string;
+  encoded: readonly Any[];
+  memo?: string;
+  /** When set, the bank balance must cover every amount, this pool creation fee and the network fee. */
+  balanceCheck?: { poolCreationFee?: bigint; readBalances: (address: string) => Promise<ReadonlyMap<string, bigint>> };
+}): Promise<PrepareOutcome> {
   const memo = input.memo ?? "";
   const [sequence, pqcKeyRegistered] = await Promise.all([readAccountSequence(input.address), readPqcKeyRegistered(input.address)]);
   if (sequence === null) return { ok: false, reason: "unfunded" };
 
-  const simulation = await simulateMessages(input.encoded, sequence, memo);
-  if (!simulation.ok) return { ok: false, reason: "simulation", failure: simulation.failure };
+  const [simulation, balances] = await Promise.all([
+    simulateMessages(input.encoded, sequence, memo),
+    input.balanceCheck ? input.balanceCheck.readBalances(input.address) : Promise.resolve(null),
+  ]);
+  if (!simulation.ok) {
+    // The chain's bank error does not say whether the creation fee is the gap.
+    if (simulation.failure === "insufficient_funds" && balances && input.balanceCheck) {
+      const shortfall = balanceShortfall(requiredSpend(input.encoded, input.balanceCheck), balances, BigInt(0), input.balanceCheck);
+      if (shortfall === "pool_creation_fee") return { ok: false, reason: "simulation", failure: shortfall };
+    }
+    return { ok: false, reason: "simulation", failure: simulation.failure };
+  }
 
   const gasLimit = gasLimitForSimulatedGas(simulation.gasUsed);
+  if (balances && input.balanceCheck) {
+    // Simulation pays a small draft fee, so check the real network fee here.
+    const shortfall = balanceShortfall(requiredSpend(input.encoded, input.balanceCheck), balances, networkFeeForGas(gasLimit), input.balanceCheck);
+    if (shortfall) return { ok: false, reason: "simulation", failure: shortfall };
+  }
   return {
     ok: true,
     prepared: {
@@ -270,6 +438,7 @@ export async function prepareWalletTx(input: { address: string; chainId: string;
       gasLimit: gasLimit.toString(),
       fee: { amount: networkFeeForGas(gasLimit).toString(), denom: "uqor" },
       pqcKeyRegistered,
+      simulated: simulatedOutcome(simulation.events),
     },
   };
 }

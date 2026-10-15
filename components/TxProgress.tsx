@@ -29,6 +29,7 @@ export function TxProgress({ state, onDone }: { state: TxState; onDone: () => vo
     </ol>}
     {state.phase === "signing" && <p className="subtle">After you approve, QoreX signs and sends the transaction, then waits for a block.</p>}
     {state.phase === "signing" && state.keySetup && <p className="subtle">First time on QoreChain Diana: QoreX also registers your quantum-safe key in a separate transaction with its own network fee.</p>}
+    {state.phase === "signing" && state.simulated?.swap && <p className="subtle">Simulated on QoreChain Diana just now: {formatBaseAmount(state.simulated.swap.amountOut, assetForDenom(state.simulated.swap.denomOut)?.decimals ?? 0, 6)} {displaySymbol(state.simulated.swap.denomOut)} out. Your minimum still applies when the swap lands.</p>}
     {state.phase === "signing" && state.interfaceFee && <p className="subtle">This transaction includes the {formatBaseAmount(state.interfaceFee.amount, assetForDenom(state.interfaceFee.denom)?.decimals ?? 0, 6)} {displaySymbol(state.interfaceFee.denom)} interface fee. In QoreX it appears as a MsgSend to the {BRAND.name} treasury.</p>}
     {state.phase === "signing" && state.fee && <p className="subtle">Estimated network fee {formatBaseAmount(state.fee, 6, 6)} QOR. QoreX shows the final fee.</p>}
     <div className="tx-actions">

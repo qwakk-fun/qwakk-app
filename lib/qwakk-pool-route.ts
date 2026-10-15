@@ -13,6 +13,9 @@ export type CreatePoolInput = {
 export type CreatePoolPlan = {
   message: EncodeObject;
   poolType: CreatePoolInput["poolType"];
+  /** The deposits in the order the chain stores them: denomA < denomB. */
+  depositA: { denom: string; amount: string };
+  depositB: { denom: string; amount: string };
 };
 
 function isQoreAddress(value: string) {
@@ -28,8 +31,32 @@ function isPositiveInteger(value: string) {
 }
 
 /**
+ * Orders two deposits the way x/amm stores a pool: lexicographically by denom,
+ * token_a < token_b (`x/amm/types/pool.go` SortedDenomTuple, byte order). Each
+ * amount stays with its own denom.
+ */
+export function sortDeposits(a: { denom: string; amount: string }, b: { denom: string; amount: string }) {
+  return a.denom < b.denom ? [a, b] as const : [b, a] as const;
+}
+
+/**
+ * Pre-checks a new pool against live AMM params so the trader sees the reason
+ * before the wallet opens. Simulated on Diana (2026-10-15): `min_liquidity`
+ * applies to each deposit on its own, inclusive (1000/1000 passes the check,
+ * 1000/999 and 999/1000000 fail with "deposit below minimum liquidity").
+ */
+export function createPoolPrecheck(input: { amountA: string; amountB: string }, params: { minLiquidity: string; enabled: boolean }): "below_min_liquidity" | "module_disabled" | null {
+  if (!params.enabled) return "module_disabled";
+  const min = BigInt(params.minLiquidity);
+  if (BigInt(input.amountA) < min || BigInt(input.amountB) < min) return "below_min_liquidity";
+  return null;
+}
+
+/**
  * Builds the native x/amm create-pool message without signing or broadcasting.
  * The connected wallet remains the only actor able to approve the transaction.
+ * Deposits are sent in the chain's sorted order, so the message reads the same
+ * as the pool it creates.
  */
 export function buildCreatePoolPlan(input: CreatePoolInput): CreatePoolPlan {
   if (!isQoreAddress(input.creator)) throw new Error("A valid QoreChain creator address is required");
@@ -48,13 +75,16 @@ export function buildCreatePoolPlan(input: CreatePoolInput): CreatePoolPlan {
     throw new Error("Stable pools need an amplification setting");
   }
 
+  const [depositA, depositB] = sortDeposits({ denom: input.denomA, amount: input.amountA }, { denom: input.denomB, amount: input.amountB });
   return {
     poolType: input.poolType,
+    depositA,
+    depositB,
     message: amm.createPool({
       creator: input.creator,
       poolType: input.poolType,
-      initialDepositA: { denom: input.denomA, amount: input.amountA },
-      initialDepositB: { denom: input.denomB, amount: input.amountB },
+      initialDepositA: depositA,
+      initialDepositB: depositB,
       amplificationCoefficient,
     }),
   };
