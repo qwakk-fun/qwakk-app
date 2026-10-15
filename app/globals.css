@@ -515,7 +515,14 @@ a.table-row:hover, button.table-row:hover { background: rgba(255, 255, 255, 0.03
 .quote-meta { display: grid; gap: 10px; margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); }
 .quote-meta-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-2); font-size: 13px; }
 .quote-meta-row b { color: var(--text); font-weight: 600; }
-.quote-meta-row select { padding: 3px 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--raised); }
+.quote-meta-row select { height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--raised); }
+.quote-meta-input { width: 76px; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; outline: 0; background: var(--raised); color: var(--text); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; transition: border-color 0.15s; }
+.quote-meta-input:focus { border-color: var(--accent-line); }
+.quote-meta-input::placeholder { color: var(--text-3); font-weight: 500; }
+.quote-alert { display: grid; gap: 10px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--down-wash); border-radius: var(--radius); background: var(--down-wash); }
+.quote-alert-text { display: flex; align-items: flex-start; gap: 8px; color: var(--text); font-size: 12px; line-height: 1.5; }
+.quote-alert-text svg { flex: none; margin-top: 2px; color: var(--down); }
+.quote-alert .btn { justify-self: start; }
 .quote-status { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 10px 12px; border-radius: var(--radius); background: var(--raised); color: var(--text-2); font-size: 12px; }
 
 .pool-pick { grid-template-columns: minmax(0, 1fr) auto; width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; }
@@ -548,6 +555,10 @@ a.table-row:hover, button.table-row:hover { background: rgba(255, 255, 255, 0.03
 .info-list b { color: var(--text); font-weight: 600; text-align: right; overflow-wrap: anywhere; text-transform: capitalize; }
 .info-list b.mono { text-transform: none; }
 .pool-trade { padding: 16px; border-bottom: 1px solid var(--line); }
+.pool-paused { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--raised); color: var(--text-2); font-size: 13px; }
+.pool-paused svg { flex: none; margin-top: 1px; color: var(--beak); }
+.chart-head { flex-wrap: wrap; }
+.interval-tabs button { justify-content: center; min-width: 40px; padding: 0 10px; font-variant-numeric: tabular-nums; }
 .swaps-table .table-row { grid-template-columns: 1fr 1.2fr 1.2fr 1fr 40px; }
 
 /* Fees */
@@ -645,10 +656,117 @@ a.table-row:hover, button.table-row:hover { background: rgba(255, 255, 255, 0.03
 .chip-row { display: flex; gap: 8px; }
 .panel-head-split { border-top: 1px solid var(--line); }
 .form-grid .segmented { justify-self: start; }
+.form-grid .quote-meta-row b { text-align: right; overflow-wrap: anywhere; }
+.start-price { align-items: flex-start; }
+.start-price > span:first-child { flex: none; }
+.start-price-values { display: grid; justify-items: end; gap: 2px; min-width: 0; text-align: right; }
+.start-price-values small { color: var(--text-3); font-size: 12px; overflow-wrap: anywhere; }
+.chip-row { flex-wrap: wrap; }
+
+/* Points (the pages exist only while QWAKK_POINTS_ENABLED is on) */
+.points-head { padding-bottom: 14px; }
+.points-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 10px; color: var(--text-3); font-size: 13px; }
+.points-meta i { font-style: normal; }
+.points-disclaimer { display: flex; align-items: flex-start; gap: 10px; color: var(--text-2); font-size: 14px; line-height: 1.55; }
+.points-disclaimer svg { flex: none; margin-top: 3px; color: var(--accent); }
+.points-disclaimer.is-banner { margin-bottom: 12px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); }
+.has-hint { text-decoration: underline dotted var(--line-strong); text-underline-offset: 3px; cursor: help; }
+.you-badge { flex: none; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.you-badge.is-large { padding: 6px 12px; font-size: 12px; }
+
+.points-connect { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; padding: 16px; background: linear-gradient(135deg, var(--accent-wash), var(--panel) 60%); }
+.points-connect .empty-icon { flex: none; margin: 0; }
+.points-connect > div { flex: 1; min-width: 0; }
+.points-connect h2 { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.points-connect p { margin-top: 2px; color: var(--text-2); }
+
+.points-board-head { padding: 12px 16px; }
+.points-lookup { display: grid; gap: 6px; width: min(520px, 100%); }
+.points-lookup-label { color: var(--text-3); font-size: 12px; font-weight: 500; }
+.points-lookup-row { display: flex; gap: 8px; }
+.points-lookup .search { flex: 1; width: auto; }
+.points-lookup .search input { font-family: var(--font-mono); font-size: 13px; }
+.points-loading { padding: 4px 4px 12px; }
+.points-loading p { padding: 12px 12px 4px; }
+
+.points-table { transition: opacity 0.2s; }
+.points-table.is-dimmed { opacity: 0.55; }
+.points-table .table-row { grid-template-columns: 52px minmax(0, 2fr) minmax(0, 1fr) repeat(4, minmax(0, 1fr)) minmax(0, 0.8fr); }
+.points-rank { color: var(--text-3); font-weight: 600; }
+.points-rank.is-top { color: var(--accent); }
+.points-wallet { gap: 10px; }
+.points-address { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.points-table .points-row.is-you { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
+.points-table a.points-row.is-you:hover { background: rgba(255, 212, 59, 0.12); }
+.points-table .points-pinned { position: sticky; bottom: 0; z-index: 2; grid-template-columns: 52px minmax(0, 1fr) auto; border-top: 1px solid var(--accent-line); border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--raised); box-shadow: inset 2px 0 0 var(--accent), 0 -12px 24px rgba(0, 0, 0, 0.45); }
+.points-table a.points-pinned:hover { background: var(--hover); }
+.points-pinned-label { color: var(--accent); font-size: 12px; font-weight: 600; line-height: 1.2; }
+.points-pinned-rank { display: grid; justify-items: end; gap: 2px; text-align: right; }
+.points-pinned-link { display: inline-flex; align-items: center; gap: 2px; color: var(--text-2); font-size: 12px; }
+.points-pinned:hover .points-pinned-link { color: var(--accent); }
+.points-pages { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); }
+
+.points-rules, .points-faq { margin-top: 36px; }
+.points-section-head { margin-bottom: 14px; }
+.points-section-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.points-section-head p { max-width: 620px; margin-top: 4px; color: var(--text-2); }
+.points-rule-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.points-rule h3 { color: var(--text); font-size: 16px; font-weight: 700; }
+.points-rule ul { display: grid; gap: 8px; color: var(--text-2); font-size: 13px; }
+.points-rule li { position: relative; padding-left: 14px; }
+.points-rule li::before { content: ""; position: absolute; top: 0.6em; left: 0; width: 5px; height: 5px; border-radius: 50%; background: var(--beak); }
+.points-rule .points-example { margin-top: 4px; padding: 10px 12px; border-radius: var(--radius); background: var(--raised); }
+.points-fine { display: grid; gap: 6px; margin: 16px 0; padding-left: 18px; color: var(--text-2); font-size: 13px; list-style: disc; }
+.points-fine li::marker { color: var(--text-3); }
+.points-faq-list details { border-bottom: 1px solid var(--line); }
+.points-faq-list details:last-child { border-bottom: 0; }
+.points-faq-list summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; font-weight: 600; list-style: none; cursor: pointer; }
+.points-faq-list summary::-webkit-details-marker { display: none; }
+.points-faq-list summary:hover { color: var(--accent); }
+.points-faq-list summary svg { flex: none; color: var(--text-3); transition: transform 0.15s; }
+.points-faq-list details[open] summary svg { transform: rotate(90deg); }
+.points-faq-list details p { max-width: 760px; padding: 0 16px 16px; color: var(--text-2); }
+
+.points-state-title { color: var(--text); font-size: 15px; font-weight: 600; }
+.points-wallet-head { align-items: flex-start; }
+.points-wallet-id { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
+.points-wallet-id > div { min-width: 0; }
+.points-wallet-id .identicon { margin-top: 4px; }
+.page-head .points-wallet-id h1 { font-size: 24px; letter-spacing: -0.02em; }
+.points-wallet-id .address-value { display: block; margin-top: 4px; }
+.points-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.points-summary .stat-card:first-child { background: linear-gradient(135deg, var(--accent-wash), var(--panel) 60%); }
+.points-wallet-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+.points-breakdown li, .points-pools li { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.points-breakdown li:last-child, .points-pools li:last-child { border-bottom: 0; }
+.points-breakdown li { display: grid; gap: 6px; }
+.points-breakdown-top { display: flex; justify-content: space-between; gap: 12px; }
+.points-breakdown-top b { font-weight: 600; }
+.points-breakdown small, .points-pools small { font-size: 12px; }
+.points-bar { display: block; height: 6px; overflow: hidden; border-radius: 999px; background: var(--raised); }
+.points-bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.points-pools li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }
+.points-pools small { grid-column: 1 / -1; }
+.points-pool-link { font-weight: 600; }
+.points-pool-link:hover { color: var(--accent); }
+.points-status { padding: 3px 9px; border-radius: 999px; background: var(--hover); color: var(--text-2); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.points-status.is-unlocked { background: var(--accent-wash); color: var(--accent); }
+.points-status.is-limit { background: rgba(255, 138, 61, 0.15); color: var(--beak); }
+.points-stats-panel { margin-top: 12px; overflow: hidden; }
+.points-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); }
+.points-stats > div { display: grid; align-content: start; gap: 4px; padding: 14px 16px; background: var(--panel); }
+.points-stats dt { color: var(--text-3); font-size: 12px; font-weight: 500; }
+.points-stats dd { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.points-stats small { font-size: 12px; }
+.points-days { margin-top: 12px; }
+.points-days .panel-head { flex-wrap: wrap; }
+.points-days .table-row { grid-template-columns: minmax(0, 1.2fr) repeat(5, minmax(0, 1fr)); }
+.points-active { color: var(--accent); font-weight: 600; }
 
 /* Motion */
 @media (prefers-reduced-motion: reduce) {
   .spin, .live-dot, .row-skeleton { animation: none; }
+  .points-faq-list summary svg, .points-table { transition: none; }
   .ticker-track { animation: none; }
   .ticker { overflow-x: auto; mask-image: none; }
   .quote-switch, .rail-brand, .rail-label { transition: none; }
@@ -665,6 +783,11 @@ a.table-row:hover, button.table-row:hover { background: rgba(255, 255, 255, 0.03
   .legal-nav { position: static; display: flex; overflow-x: auto; }
   .legal-nav a { flex: none; }
   .network-pill { display: none; }
+  .points-table .hide-md { display: none; }
+  .points-table .table-row { grid-template-columns: 52px minmax(0, 2fr) minmax(0, 1fr) minmax(0, 0.8fr); }
+  .points-table .points-pinned { grid-template-columns: 52px minmax(0, 1fr) auto; }
+  .points-rule-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .points-wallet-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 760px) {
   :root { --topbar: 52px; }
@@ -719,4 +842,18 @@ a.table-row:hover, button.table-row:hover { background: rgba(255, 255, 255, 0.03
   .toast { right: 16px; bottom: 80px; left: 16px; max-width: none; }
   .quote-field-top { flex-wrap: wrap; }
   .site-footer { padding: 14px 16px; }
+  .start-price { flex-direction: column; gap: 4px; }
+  .start-price-values { justify-items: start; text-align: left; }
+
+  .points-connect { flex-direction: column; align-items: stretch; }
+  .points-table .hide-sm, .points-days .hide-sm { display: none; }
+  .points-table .table-row { grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; padding-inline: 12px; }
+  .points-table .points-pinned { bottom: 64px; grid-template-columns: minmax(0, 1fr) auto; border-radius: 0; }
+  .points-pinned-label { display: none; }
+  .points-pages { padding-inline: 12px; }
+  .points-rule-grid, .points-summary { grid-template-columns: minmax(0, 1fr); }
+  .points-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .points-stats dd { font-size: 16px; }
+  .points-days .table-row { grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 10px; padding-inline: 12px; }
+  .points-wallet-head .page-head-actions { width: auto; }
 }

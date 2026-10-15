@@ -107,3 +107,53 @@ for (const [path, heading] of [["/terms", "Terms of Use"], ["/privacy", "Privacy
     assert.doesNotMatch(html, /\u2014/);
   });
 }
+
+test("keeps the points pages and nav item hidden while points are off", async () => {
+  const previous = process.env.QWAKK_POINTS_ENABLED;
+  delete process.env.QWAKK_POINTS_ENABLED;
+  try {
+    assert.equal((await render("/points")).status, 404);
+    assert.equal((await render(`/points/qor1${"a".repeat(38)}`)).status, 404);
+    // The nav item waits for /api/features, so it is never in the server HTML.
+    assert.doesNotMatch(await (await render()).text(), /href="\/points"/);
+  } finally {
+    if (previous === undefined) delete process.env.QWAKK_POINTS_ENABLED;
+    else process.env.QWAKK_POINTS_ENABLED = previous;
+  }
+});
+
+test("server-renders the points pages when points are on", async () => {
+  const previous = process.env.QWAKK_POINTS_ENABLED;
+  process.env.QWAKK_POINTS_ENABLED = "enabled";
+  try {
+    const board = await render("/points");
+    assert.equal(board.status, 200);
+    const html = await board.text();
+    assert.match(html, /<title>Points \| [^<]+<\/title>/);
+    assert.match(html, /Leaderboard/);
+    assert.match(html, /Bragging rights only/);
+    assert.match(html, /Points have no monetary value, are not a token/);
+    assert.match(html, /How points work/);
+    assert.match(html, /Are points worth anything\?/);
+    assert.match(html, /Counting points/);
+    assert.match(html, /Look up a wallet/);
+    // No trade button before the features check confirms trading is on.
+    assert.doesNotMatch(html, /Start trading/);
+    assert.doesNotMatch(html, /—/);
+
+    const address = `qor1${"a".repeat(38)}`;
+    const wallet = await render(`/points/${address}`);
+    assert.equal(wallet.status, 200);
+    const walletHtml = await wallet.text();
+    assert.match(walletHtml, /<title>Points for qor1aaaaa…aaaaaa \| [^<]+<\/title>/);
+    assert.match(walletHtml, /Counting this wallet/);
+    assert.match(walletHtml, /Back to leaderboard/);
+
+    const invalid = await (await render("/points/not-an-address")).text();
+    assert.match(invalid, /That is not a QoreChain address/);
+    assert.doesNotMatch(invalid, /—/);
+  } finally {
+    if (previous === undefined) delete process.env.QWAKK_POINTS_ENABLED;
+    else process.env.QWAKK_POINTS_ENABLED = previous;
+  }
+});

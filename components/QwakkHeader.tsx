@@ -3,22 +3,25 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeftRight, BookOpen, Compass, House, Layers, Plus, Search, Wallet } from "lucide-react";
+import { ArrowLeftRight, BookOpen, Compass, House, Layers, Plus, Search, Trophy, Wallet } from "lucide-react";
 import { BRAND } from "../lib/brand";
 import { CONSENT_EVENT, hasConsent } from "../lib/legal";
 import { quack } from "../lib/quack";
 import { QORECHAIN_DIANA } from "../lib/qorex-native";
+import { POINTS_NAV_LABEL } from "../lib/qwakk-points-copy";
 import { QOREX_NETWORK_COPY } from "../lib/qwakk-tx-copy";
 import { BrandMark } from "./BrandMark";
 import { LiveTicker } from "./LiveTicker";
 import { useFeatures } from "./useFeatures";
 
-type Page = "home" | "swap" | "pools" | "profile" | "fees" | "legal";
+type Page = "home" | "swap" | "pools" | "points" | "profile" | "fees" | "legal";
 
 const NAV_ITEMS = [
   { page: "home", href: "/", label: "Board", icon: House },
   { page: "swap", href: "/swap", label: "Trade", icon: ArrowLeftRight },
   { page: "pools", href: "/pools", label: "Pools", icon: Layers },
+  // Shown only while the points program is switched on.
+  { page: "points", href: "/points", label: POINTS_NAV_LABEL, icon: Trophy },
   { page: "profile", href: "/profile", label: "Portfolio", icon: Wallet },
 ] as const;
 
@@ -48,7 +51,7 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
   const [isConnecting, setIsConnecting] = useState(false);
   const [notice, setNotice] = useState("");
   const [needsQoreX, setNeedsQoreX] = useState(false);
-  const { nativeActions } = useFeatures();
+  const { nativeActions, points } = useFeatures();
   const [quacking, setQuacking] = useState(false);
 
   // Easter egg: the duck says "wak wak" and shakes its head.
@@ -142,7 +145,7 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
     <nav className="rail" aria-label="Primary navigation">
       <Link className={`rail-brand ${quacking ? "is-quacking" : ""}`} href="/" aria-label={`${BRAND.name} home`} onClick={quackLogo}><BrandMark size={32} /></Link>
       <div className="rail-links">
-        {NAV_ITEMS.map(({ page: itemPage, href, label, icon: Icon }) => <Link key={itemPage} className={`rail-link ${page === itemPage ? "is-active" : ""}`} href={href} aria-current={page === itemPage ? "page" : undefined}>
+        {NAV_ITEMS.filter((item) => item.page !== "points" || points).map(({ page: itemPage, href, label, icon: Icon }) => <Link key={itemPage} className={`rail-link ${page === itemPage ? "is-active" : ""}`} href={href} aria-current={page === itemPage ? "page" : undefined}>
           <Icon size={20} strokeWidth={2} aria-hidden="true" />
           <span className="rail-label">{label}</span>
         </Link>)}
