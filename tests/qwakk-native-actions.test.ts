@@ -92,14 +92,15 @@ test("never builds a fee above the 30 bps cap", () => {
   assert.equal(MsgSend.decode(base64ToBytes(atCap[0].value)).amount[0].amount, "3000");
 });
 
-test("reads the fee from server configuration and falls back when it is above the cap", () => {
+test("reads the fee from server configuration and switches it off when the setting is invalid", () => {
   const saved = { bps: process.env.QWAKK_SWAP_FEE_BPS, treasury: process.env.QWAKK_TREASURY_ADDRESS };
+  const validTreasury = "qor1zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg34kqp8d";
   try {
-    process.env.QWAKK_TREASURY_ADDRESS = treasury;
+    process.env.QWAKK_TREASURY_ADDRESS = validTreasury;
     process.env.QWAKK_SWAP_FEE_BPS = "50";
-    assert.deepEqual(getServerQwakkFeeConfig(), { enabled: true, recipient: treasury, feeBps: 10 });
+    assert.equal(getServerQwakkFeeConfig().enabled, false);
     process.env.QWAKK_SWAP_FEE_BPS = "30";
-    assert.deepEqual(getServerQwakkFeeConfig(), { enabled: true, recipient: treasury, feeBps: 30 });
+    assert.deepEqual(getServerQwakkFeeConfig(), { enabled: true, recipient: validTreasury, feeBps: 30 });
     process.env.QWAKK_TREASURY_ADDRESS = "0xnotaqoraddress";
     assert.equal(getServerQwakkFeeConfig().enabled, false);
   } finally {

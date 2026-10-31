@@ -8,12 +8,16 @@ import {
   type EthBroadcaster,
 } from "@qorechain/sdk";
 
+import { getQwakkNetwork } from "../lib/qwakk-network";
 import { buildCreatePoolPlan } from "../lib/qwakk-pool-route";
 
-const CHAIN_ID = "qorechain-diana";
-const REST_URL = (process.env.QORECHAIN_REST_URL ?? "https://api-testnet.qore.host").replace(/\/$/, "");
-const RPC_URL = (process.env.QORECHAIN_RPC_URL ?? "https://rpc-testnet.qore.host").replace(/\/$/, "");
-const EVM_RPC_URL = (process.env.QORECHAIN_EVM_RPC_URL ?? "https://evm-testnet.qore.host").replace(/\/$/, "");
+// Endpoints follow QWAKK_NETWORK and the QORECHAIN_* overrides (lib/qwakk-network.ts).
+// This operator script signs with a testnet mnemonic, so it refuses any other network.
+const NETWORK = getQwakkNetwork();
+const CHAIN_ID = NETWORK.chainId;
+const REST_URL = NETWORK.restUrl;
+const RPC_URL = NETWORK.rpcUrl;
+const EVM_RPC_URL = NETWORK.evmRpcUrl;
 const TX_FEE = { amount: [{ denom: "uqor", amount: "100000" }], gas: "1000000" };
 
 type AccountInfo = { accountNumber: bigint; sequence: bigint };
@@ -115,6 +119,7 @@ const broadcaster: EthBroadcaster = {
 };
 
 async function main() {
+  if (NETWORK.id !== "testnet") throw new Error("qwakk-testnet-pool only runs on the testnet. Unset QWAKK_NETWORK or set it to testnet.");
   const mnemonic = required("QWAKK_TESTNET_MNEMONIC");
   const denomA = argument("--denom-a") ?? process.env.QWAKK_POOL_DENOM_A?.trim() ?? "uqor";
   const amountA = positiveInteger("--amount-a or QWAKK_POOL_AMOUNT_A", argument("--amount-a") ?? process.env.QWAKK_POOL_AMOUNT_A?.trim());

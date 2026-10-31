@@ -241,3 +241,15 @@ test("keeps QOR aside for the network fee when checking a balance", () => {
   assert.equal(coversSpend({ balances: rich, spend: [{ denom: "uqor", amount: "49000000" }, { denom: "utest", amount: "1000000" }], extraUqor: BigInt(100_000_000) }), true);
   assert.equal(coversSpend({ balances: rich, spend: [{ denom: "uqor", amount: "50000000" }, { denom: "utest", amount: "1000000" }], extraUqor: BigInt(100_000_000) }), false);
 });
+
+test("never falls back to the local estimate when a chain quote is required (mainnet)", () => {
+  const request = buildExactInQuoteRequest({ poolId: "1", denomIn: "uqor", amountIn: "10000000", fee: { enabled: false, feeBps: 0 } });
+  for (const failure of ["unavailable", "impact_too_high"] as const) {
+    assert.throws(
+      () => buildSwapQuote({ request, pool, params, chain: { ok: false, failure }, allowEstimate: false }),
+      (error: unknown) => error instanceof QuoteError && error.failure === failure,
+    );
+  }
+  const chain = chainLike(request.swapAmountIn, pool.reserveA, pool.reserveB);
+  assert.equal(buildSwapQuote({ request, pool, params, chain, allowEstimate: false }).source, "chain");
+});

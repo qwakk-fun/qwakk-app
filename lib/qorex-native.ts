@@ -1,4 +1,8 @@
-export const QORECHAIN_DIANA = "qorechain-diana";
+/**
+ * QoreX native provider types. The chain id passed to `enable`, `getKey` and
+ * `signAndBroadcast` comes from the deployment's network (`/api/features`,
+ * lib/qwakk-network.ts), never from a constant here.
+ */
 
 /** The QoreX capability Qwakk needs for every native action (QoreX 0.3.5 or newer). */
 export const QOREX_SIGN_AND_BROADCAST = "signAndBroadcast";
@@ -43,7 +47,37 @@ export type QoreXNativeProvider = {
   enable: (chainId: string) => Promise<void>;
   getKey: (chainId: string) => Promise<{ bech32Address: string; pubKey: number[]; pubKeyHex?: string }>;
   signAndBroadcast?: (request: QoreXSignAndBroadcastRequest) => Promise<QoreXSignAndBroadcastResult>;
+  /**
+   * Every account in the wallet ("read only. The site must be connected.",
+   * `@qorechain/qorex-types` 0.1.0 `QorexNativeProvider.listAccounts`).
+   *
+   * Not silent. QoreX 0.3.9 handles `native:listAccounts` as
+   * `ensureConnected(origin)` first and the lock check second, and while
+   * locked it reads the connected-sites list under the pre-wallet storage key
+   * (`wk()` has no `activeWalletId` until unlock), so a connected site can
+   * look unconnected. The result is a connect window that opens on QoreX's
+   * unlock screen. Qwakk does not call it; it stays typed only for reference.
+   */
+  listAccounts?: () => Promise<{ accounts: Array<{ index: number; label: string; address: string }>; activeIndex: number }>;
 };
+
+/**
+ * The active QoreX account for one wallet action, in a single provider call.
+ *
+ * `getKey` "connects the site first if needed" (`@qorechain/qorex-types`
+ * 0.1.0), so a separate `enable` adds a round trip and nothing else. In QoreX
+ * 0.3.9 `getKey` checks the lock before anything else and rejects with
+ * "QoreX: wallet is locked" without opening a window; once unlocked it opens
+ * a window only for a site QoreX has not approved yet. An already approved
+ * site gets the address with no prompt, so a normal action shows exactly one
+ * QoreX window: the `signAndBroadcast` approval.
+ */
+export async function readQoreXSigner(wallet: Pick<QoreXNativeProvider, "getKey">, chainId: string): Promise<string> {
+  const key = await wallet.getKey(chainId);
+  const address = typeof key?.bech32Address === "string" ? key.bech32Address.trim() : "";
+  if (!/^qor1[0-9a-z]{20,}$/.test(address)) throw new Error("QoreX: no account address");
+  return address;
+}
 
 declare global {
   interface Window {

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatBaseAmount } from "../lib/qwakk-assets";
+import { formatTokenAmount, resolveUsableAsset } from "../lib/qwakk-asset-resolve";
+import { displaySymbol, formatBaseAmount, withAssetOverrides } from "../lib/qwakk-assets";
 
 export type Trade = {
   tx_hash: string;
@@ -22,7 +23,7 @@ export type Trade = {
 
 export type ActivityState = { trades: Trade[]; state: "loading" | "ready" | "unavailable" };
 
-/** Recent swaps across QoreChain Diana pools, refreshed on an interval and after confirmed actions. */
+/** Recent swaps across the network's pools, refreshed on an interval and after confirmed actions. */
 export function useActivity(refreshMs = 12_000): ActivityState {
   const [result, setResult] = useState<ActivityState>({ trades: [], state: "loading" });
 
@@ -33,7 +34,8 @@ export function useActivity(refreshMs = 12_000): ActivityState {
         const response = await fetch("/api/activity", { cache: "no-store" });
         if (!response.ok) throw new Error("Activity unavailable");
         const data = await response.json() as { swaps?: Trade[] };
-        if (active) setResult({ trades: Array.isArray(data.swaps) ? data.swaps : [], state: "ready" });
+        // Curated symbols and decimals win over the indexed token record.
+        if (active) setResult({ trades: Array.isArray(data.swaps) ? data.swaps.map(withAssetOverrides) : [], state: "ready" });
       } catch {
         if (active) setResult((current) => current.state === "ready" ? current : { trades: [], state: "unavailable" });
       }
@@ -48,24 +50,36 @@ export function useActivity(refreshMs = 12_000): ActivityState {
   return result;
 }
 
+/** Display decimals, or null when unknown (shown as labeled base units, never at a guessed scale). */
 function decimalsFor(trade: Trade, denom: string) {
-  return denom === trade.token_a ? trade.token_a_decimals : denom === trade.token_b ? trade.token_b_decimals : 0;
+  const decimals = denom === trade.token_a ? trade.token_a_decimals : denom === trade.token_b ? trade.token_b_decimals : undefined;
+  return resolveUsableAsset(denom, undefined, { decimals }).displayDecimals;
 }
 
 function symbolFor(trade: Trade, denom: string) {
-  return denom === trade.token_a ? trade.token_a_symbol : denom === trade.token_b ? trade.token_b_symbol : denom.replace(/^u/, "").toUpperCase();
+  return denom === trade.token_a ? trade.token_a_symbol : denom === trade.token_b ? trade.token_b_symbol : displaySymbol(denom);
 }
 
-/** A swap read from the pool's base token: receiving token A is a buy, paying it is a sell. */
-export function describeTrade(trade: Trade) {
-  const side: "buy" | "sell" = trade.denom_out === trade.token_a ? "buy" : "sell";
+/**
+ * A swap read from the pool's base token: receiving the base is a buy, paying
+ * it is a sell. `quoteSide` comes from the market row (`quote_side`); without
+ * it token B is the quote, as the indexer does for unranked pairs.
+ */
+export function describeTrade(trade: Trade, quoteSide: "a" | "b" | null = null) {
+  const baseDenom = quoteSide === "a" ? trade.token_b : trade.token_a;
+  const side: "buy" | "sell" = trade.denom_out === baseDenom ? "buy" : "sell";
   const base = side === "buy" ? { denom: trade.denom_out, amount: trade.amount_out } : { denom: trade.denom_in, amount: trade.amount_in };
+  const baseSymbol = symbolFor(trade, base.denom);
+  const quote = side === "buy" ? trade.denom_in : trade.denom_out;
   return {
     side,
-    baseAmount: formatBaseAmount(base.amount, decimalsFor(trade, base.denom), 4),
-    baseSymbol: symbolFor(trade, base.denom),
-    paid: `${formatBaseAmount(trade.amount_in, decimalsFor(trade, trade.denom_in), 4)} ${symbolFor(trade, trade.denom_in)}`,
-    received: `${formatBaseAmount(trade.amount_out, decimalsFor(trade, trade.denom_out), 4)} ${symbolFor(trade, trade.denom_out)}`,
+    /** The token the base was priced in, e.g. "QOR". */
+    quoteSymbol: symbolFor(trade, quote),
+    /** The traded base amount with its symbol, e.g. "1.5 fETH". */
+    base: formatTokenAmount(base.amount, decimalsFor(trade, base.denom), baseSymbol, 4),
+    baseSymbol,
+    paid: formatTokenAmount(trade.amount_in, decimalsFor(trade, trade.denom_in), symbolFor(trade, trade.denom_in), 4),
+    received: formatTokenAmount(trade.amount_out, decimalsFor(trade, trade.denom_out), symbolFor(trade, trade.denom_out), 4),
   };
 }
 

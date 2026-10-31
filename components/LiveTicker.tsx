@@ -4,7 +4,8 @@ import Link from "next/link";
 import { Identicon } from "./Identicon";
 import { TokenIcon } from "./TokenIcon";
 import { describeTrade, shortWallet, useActivity } from "./useActivity";
-import { formatDecimal, formatPercentChange, marketChange, useMarkets } from "./useMarkets";
+import { formatPercentChange, marketChange, useMarkets } from "./useMarkets";
+import { formatQuotePrice, isLowLiquidity, marketPrice, marketSides, pairLabel } from "../lib/qwakk-market-view";
 import { useQorMarket } from "./useQorMarket";
 import { formatChange, formatUsdPrice } from "../lib/qor-price";
 
@@ -22,13 +23,14 @@ export function LiveTicker() {
   const { markets } = useMarkets(30_000);
   const { trades } = useActivity(20_000);
 
+  const quoteSides = new Map(markets.map((market) => [String(market.id), market.quote_side ?? null]));
   const items: React.ReactNode[] = [];
   for (const trade of trades.slice(0, TRADE_LIMIT)) {
-    const { side, baseAmount, baseSymbol } = describeTrade(trade);
+    const { side, base } = describeTrade(trade, quoteSides.get(String(trade.pool_id)) ?? null);
     items.push(<Link className="ticker-item" href={`/pools/${trade.pool_id}`} key={`trade-${trade.tx_hash}-${trade.executed_at}`}>
       <Identicon address={trade.sender} size={18} />
       <b>{shortWallet(trade.sender)}</b>
-      <span className={side === "buy" ? "up" : "down"}>{side === "buy" ? "bought" : "sold"} {baseAmount} {baseSymbol}</span>
+      <span className={side === "buy" ? "up" : "down"}>{side === "buy" ? "bought" : "sold"} {base}</span>
     </Link>);
   }
   if (qor.data) {
@@ -39,12 +41,15 @@ export function LiveTicker() {
       <span className={change !== null && change < 0 ? "down" : "up"}>{formatChange(change)}</span>
     </span>);
   }
-  for (const market of markets) {
+  // Low-liquidity pools have no reliable price, so they stay off the strip.
+  for (const market of markets.filter((entry) => !isLowLiquidity(entry))) {
     const change = marketChange(market);
+    const price = marketPrice(market);
+    const { base, quote } = marketSides(market);
     items.push(<Link className="ticker-item" href={`/pools/${market.id}`} key={`pool-${market.id}`}>
-      <span className="pair-icons"><TokenIcon denom={market.token_a} size="small" /><TokenIcon denom={market.token_b} size="small" /></span>
-      <b>{market.token_a_symbol}/{market.token_b_symbol}</b>
-      <span className="num">{market.price_b_per_a === null ? "No trades yet" : formatDecimal(market.price_b_per_a, 4)}</span>
+      <span className="pair-icons"><TokenIcon denom={base.denom} size="small" /><TokenIcon denom={quote.denom} size="small" /></span>
+      <b>{pairLabel(market)}</b>
+      <span className="num">{price === null ? "No trades yet" : `${formatQuotePrice(price)} ${quote.symbol}`}</span>
       {change !== null && <span className={change >= 0 ? "up" : "down"}>{formatPercentChange(change)}</span>}
     </Link>);
   }

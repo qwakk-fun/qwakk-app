@@ -7,7 +7,9 @@ import { Identicon } from "./Identicon";
 import { PriceChart } from "./PriceChart";
 import { TokenIcon } from "./TokenIcon";
 import { describeTrade, shortWallet, timeAgo, tradeQorVolume, useActivity, type Trade } from "./useActivity";
-import { formatDecimal, formatPercentChange, marketChange, useMarkets, type Market } from "./useMarkets";
+import { formatDecimal, formatPercentChange, marketChange, useMarkets, type Market, type MarketsState } from "./useMarkets";
+import { useNetworkCopy } from "./NetworkContext";
+import { formatQuotePrice, isLowLiquidity, marketPrice, marketSides, marketVolume, pairLabel } from "../lib/qwakk-market-view";
 import { formatBlockHeight, useNetwork } from "./useNetwork";
 import { useQorMarket } from "./useQorMarket";
 import { BRAND } from "../lib/brand";
@@ -71,8 +73,12 @@ function sortTrending(markets: Market[], sort: TrendSort) {
   return sorted.sort((a, b) => (Number(b.transactions_24h) || 0) - (Number(a.transactions_24h) || 0));
 }
 
-function TrendingColumn({ active }: { active: boolean }) {
-  const { markets, state } = useMarkets();
+function TrendingColumn({ active, marketsState }: { active: boolean; marketsState: MarketsState }) {
+  const { state } = marketsState;
+  const { copy } = useNetworkCopy();
+  // Low-liquidity pools have no reliable price; the pools page lists them behind a toggle.
+  const markets = useMemo(() => marketsState.markets.filter((market) => !isLowLiquidity(market)), [marketsState.markets]);
+  const hiddenCount = marketsState.markets.length - markets.length;
   const [sort, setSort] = useState<TrendSort>("hot");
   const rows = useMemo(() => sortTrending(markets, sort), [markets, sort]);
   const hot = useMemo(() => new Set(sortTrending(markets, "hot").filter((market) => Number(market.transactions_24h) > 0).slice(0, HOT_COUNT).map((market) => String(market.id))), [markets]);
@@ -83,19 +89,24 @@ function TrendingColumn({ active }: { active: boolean }) {
     </div>
     {state === "loading" ? <SkeletonRows />
       : state === "unavailable" ? <ColumnNote title="Pool data is temporarily unavailable">This column retries on its own.</ColumnNote>
-      : !rows.length ? <ColumnNote icon={<Layers size={18} />} title="No pools are open yet">The first native AMM pool on QoreChain Diana will appear here.</ColumnNote>
+      : !rows.length ? (hiddenCount > 0
+        ? <ColumnNote icon={<Layers size={18} />} title="No pools with real liquidity yet">{hiddenCount === 1 ? "One pool is open but holds too little to price." : `${hiddenCount} pools are open but hold too little to price.`} <Link href="/pools">See all pools</Link></ColumnNote>
+        : <ColumnNote icon={<Layers size={18} />} title="No pools are open yet">{copy("The first native AMM pool on QoreChain Diana will appear here.")}</ColumnNote>)
       : <ol className="coin-list">{rows.map((market) => {
         const change = marketChange(market);
         const swaps = Number(market.transactions_24h) || 0;
+        const price = marketPrice(market);
+        const { base, quote } = marketSides(market);
+        const volume = marketVolume(market);
         return <li key={market.id}>
           <Link className="coin-row" href={`/pools/${market.id}`}>
-            <span className="coin-avatar"><TokenIcon denom={market.token_a} size="avatar" /><span className="coin-badge"><TokenIcon denom={market.token_b} size="small" /></span></span>
+            <span className="coin-avatar"><TokenIcon denom={base.denom} size="avatar" /><span className="coin-badge"><TokenIcon denom={quote.denom} size="small" /></span></span>
             <span className="coin-main">
-              <span className="coin-name"><b>{market.token_a_symbol}/{market.token_b_symbol}</b>{hot.has(String(market.id)) && <span className="hot-tag">Hot</span>}</span>
-              <span className="coin-sub num">{market.price_b_per_a === null ? "No trades yet" : `${formatDecimal(market.price_b_per_a, 6)} ${market.token_b_symbol}`}</span>
+              <span className="coin-name"><b>{pairLabel(market)}</b>{hot.has(String(market.id)) && <span className="hot-tag">Hot</span>}</span>
+              <span className="coin-sub num">{price === null ? "No trades yet" : `${formatQuotePrice(price)} ${quote.symbol}`}</span>
             </span>
             <span className="coin-side">
-              <b className="num">{market.volume_qor_24h !== null && Number(market.volume_qor_24h) > 0 ? `${formatDecimal(market.volume_qor_24h, 2)} QOR` : `${formatDecimal(swaps, 0)} ${swaps === 1 ? "swap" : "swaps"}`}</b>
+              <b className="num">{volume.value !== null && volume.value > 0 ? `${formatDecimal(volume.value, 2)} ${volume.symbol}` : `${formatDecimal(swaps, 0)} ${swaps === 1 ? "swap" : "swaps"}`}</b>
               <span className={`num ${change === null ? "subtle" : change >= 0 ? "up" : "down"}`}>{change === null ? "No 24h change" : formatPercentChange(change)}</span>
             </span>
           </Link>
@@ -105,9 +116,9 @@ function TrendingColumn({ active }: { active: boolean }) {
   </Column>;
 }
 
-function TradeCard({ trade, now }: { trade: Trade; now: number }) {
-  const { side, baseSymbol, paid, received } = describeTrade(trade);
-  const quoteSymbol = side === "buy" ? (trade.denom_in === trade.token_b ? trade.token_b_symbol : trade.token_a_symbol) : (trade.denom_out === trade.token_b ? trade.token_b_symbol : trade.token_a_symbol);
+function TradeCard({ trade, now, quoteSide }: { trade: Trade; now: number; quoteSide: "a" | "b" | null }) {
+  const { side, baseSymbol, quoteSymbol, paid, received } = describeTrade(trade, quoteSide);
+  const pairIcons = quoteSide === "a" ? [trade.token_b, trade.token_a] : [trade.token_a, trade.token_b];
   return <article className="feed-item">
     <Identicon address={trade.sender} size={36} />
     <div className="feed-body">
@@ -118,8 +129,8 @@ function TradeCard({ trade, now }: { trade: Trade; now: number }) {
       </div>
       <p className="feed-text"><span className={side === "buy" ? "side-buy" : "side-sell"}>{side === "buy" ? "Bought" : "Sold"}</span> {baseSymbol} {side === "buy" ? "with" : "for"} {quoteSymbol}</p>
       <Link className="feed-card" href={`/pools/${trade.pool_id}`}>
-        <span className="pair-icons"><TokenIcon denom={trade.token_a} size="regular" /><TokenIcon denom={trade.token_b} size="regular" /></span>
-        <span className="feed-card-name"><b>{trade.token_a_symbol}/{trade.token_b_symbol}</b><small>Pool #{trade.pool_id}</small></span>
+        <span className="pair-icons"><TokenIcon denom={pairIcons[0]} size="regular" /><TokenIcon denom={pairIcons[1]} size="regular" /></span>
+        <span className="feed-card-name"><b>{baseSymbol}/{quoteSymbol}</b><small>Pool #{trade.pool_id}</small></span>
         <span className="feed-figs">
           <span><small>Paid</small><b className="num">{paid}</b></span>
           <span><small>Received</small><b className={`num ${side === "buy" ? "up" : "down"}`}>{received}</b></span>
@@ -129,13 +140,14 @@ function TradeCard({ trade, now }: { trade: Trade; now: number }) {
   </article>;
 }
 
-function TradesColumn({ active, activity, now }: { active: boolean; activity: ReturnType<typeof useActivity>; now: number }) {
+function TradesColumn({ active, activity, now, quoteSides }: { active: boolean; activity: ReturnType<typeof useActivity>; now: number; quoteSides: ReadonlyMap<string, "a" | "b" | null> }) {
   const { trades, state } = activity;
+  const { copy } = useNetworkCopy();
   return <Column id="trades" icon={<Activity size={16} />} title="Live trades" meta={<span className="col-live"><i className={`live-dot ${state === "ready" ? "" : "is-idle"}`} aria-hidden="true" />Live</span>} active={active}>
     {state === "loading" ? <SkeletonRows count={4} tall />
       : state === "unavailable" ? <ColumnNote title="Trades are temporarily unavailable">The market indexer could not be reached. This feed retries on its own.</ColumnNote>
-      : !trades.length ? <ColumnNote icon={<Activity size={18} />} title="No swaps yet">Every swap on a QoreChain Diana pool shows up here within seconds.</ColumnNote>
-      : <div className="feed">{trades.map((trade) => <TradeCard trade={trade} now={now} key={`${trade.tx_hash}-${trade.executed_at}-${trade.pool_id}`} />)}</div>}
+      : !trades.length ? <ColumnNote icon={<Activity size={18} />} title="No swaps yet">{copy("Every swap on a QoreChain Diana pool shows up here within seconds.")}</ColumnNote>
+      : <div className="feed">{trades.map((trade) => <TradeCard trade={trade} now={now} quoteSide={quoteSides.get(String(trade.pool_id)) ?? null} key={`${trade.tx_hash}-${trade.executed_at}-${trade.pool_id}`} />)}</div>}
   </Column>;
 }
 
@@ -143,6 +155,7 @@ type TraderSort = "volume" | "swaps";
 
 function TradersColumn({ active, activity }: { active: boolean; activity: ReturnType<typeof useActivity> }) {
   const { trades, state } = activity;
+  const { copy } = useNetworkCopy();
   const [sort, setSort] = useState<TraderSort>("volume");
   const traders = useMemo(() => {
     const totals = new Map<string, { address: string; swaps: number; volume: number }>();
@@ -162,7 +175,7 @@ function TradersColumn({ active, activity }: { active: boolean; activity: Return
     </div>
     {state === "loading" ? <SkeletonRows />
       : state === "unavailable" ? <ColumnNote title="Rankings are temporarily unavailable">This column retries on its own.</ColumnNote>
-      : !traders.length ? <ColumnNote icon={<Trophy size={18} />} title="No traders ranked yet">Wallets appear here as soon as they swap on QoreChain Diana.</ColumnNote>
+      : !traders.length ? <ColumnNote icon={<Trophy size={18} />} title="No traders ranked yet">{copy("Wallets appear here as soon as they swap on QoreChain Diana.")}</ColumnNote>
       : <>
         <ol className="rank-list">{traders.map((trader, index) => <li className="rank-row" key={trader.address}>
           <span className="rank-num num">{index + 1}</span>
@@ -202,7 +215,7 @@ function QorColumn({ active }: { active: boolean }) {
       <dl className="qor-stats">
         <div><dt>24h volume</dt><dd className="num">{formatUsdCompact(data?.volume24h ?? null)}</dd></div>
         <div><dt>Market cap</dt><dd className="num">{formatUsdCompact(data?.marketCap ?? null)}</dd></div>
-        <div><dt>Diana block</dt><dd className="num">{network ? formatBlockHeight(network.height) : "…"}</dd></div>
+        <div><dt>Latest block</dt><dd className="num">{network ? formatBlockHeight(network.height) : "…"}</dd></div>
         <div><dt>Native pools</dt><dd className="num">{network ? network.pools : "…"}</dd></div>
       </dl>
     </div>
@@ -223,6 +236,8 @@ function QorColumn({ active }: { active: boolean }) {
 export function Board() {
   const [active, setActive] = useState<ColumnId>("trending");
   const activity = useActivity();
+  const marketsState = useMarkets();
+  const quoteSides = useMemo(() => new Map(marketsState.markets.map((market) => [String(market.id), market.quote_side ?? null])), [marketsState.markets]);
   const now = useNow();
 
   return <>
@@ -231,8 +246,8 @@ export function Board() {
       {COLUMNS.map((column) => <button type="button" key={column.id} aria-pressed={active === column.id} onClick={() => setActive(column.id)}>{column.label}</button>)}
     </div>
     <div className="board">
-      <TrendingColumn active={active === "trending"} />
-      <TradesColumn active={active === "trades"} activity={activity} now={now} />
+      <TrendingColumn active={active === "trending"} marketsState={marketsState} />
+      <TradesColumn active={active === "trades"} activity={activity} now={now} quoteSides={quoteSides} />
       <TradersColumn active={active === "traders"} activity={activity} />
       <QorColumn active={active === "qor"} />
     </div>

@@ -1,4 +1,5 @@
 import { readAmmParams, readAmmPool, readAmmPoolByDenoms, readLpBalance, type AmmPool } from "@/lib/qwakk-amm-chain";
+import { getQwakkNetwork } from "@/lib/qwakk-network";
 
 function json(body: unknown, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -7,7 +8,7 @@ function json(body: unknown, status = 200) {
 const DENOM = /^[a-zA-Z][a-zA-Z0-9/:._-]{1,127}$/;
 
 /**
- * Live pool state straight from QoreChain Diana's AMM store, for the moment a
+ * Live pool state straight from the configured network's AMM store, for the moment a
  * trader is about to deposit or withdraw (the indexer can lag a few seconds).
  *
  * `?id=<pool id>[&address=qor1…]` returns the pool, the AMM params the forms
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
       byId ? readAmmPool(id) : readAmmPoolByDenoms(denomA, denomB),
       readAmmParams(),
     ]);
-    if (byId && !pool) return json({ error: "This pool is not available on QoreChain Diana." }, 404);
+    if (byId && !pool) return json({ error: `This pool is not available on ${getQwakkNetwork().label}.` }, 404);
     const lpBalance = pool && address ? await readLpBalance(pool.id, address) : null;
     return json({
       pool: pool as AmmPool | null,

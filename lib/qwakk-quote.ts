@@ -141,9 +141,14 @@ export class QuoteError extends Error {
  * quote service answers. A swap above the chain's `max_swap_impact_bps`, into
  * a paused pool or while the module is switched off is blocked here, before
  * the wallet opens.
+ *
+ * `allowEstimate: false` (mainnet, see `requiresChainQuote` in
+ * lib/qwakk-network.ts) turns off the local x*y=k fallback: without
+ * QoreChain's own QuoteExactIn answer there is no quote to sign against.
  */
-export function buildSwapQuote(input: { request: ExactInQuoteRequest; pool: AmmPool; params: AmmParams; chain: ChainQuote }): SwapQuote {
+export function buildSwapQuote(input: { request: ExactInQuoteRequest; pool: AmmPool; params: AmmParams; chain: ChainQuote; allowEstimate?: boolean }): SwapQuote {
   const { request, pool, params, chain } = input;
+  const allowEstimate = input.allowEstimate ?? true;
   const forward = request.denomIn === pool.tokenA;
   if (!forward && request.denomIn !== pool.tokenB) throw new QuoteError("pair");
   const denomOut = forward ? pool.tokenB : pool.tokenA;
@@ -158,7 +163,7 @@ export function buildSwapQuote(input: { request: ExactInQuoteRequest; pool: AmmP
   if (chain.ok) {
     amountOut = chain.amountOut;
     fee = chain.fee;
-  } else if (constantProduct && (chain.failure === "unavailable" || chain.failure === "impact_too_high")) {
+  } else if (allowEstimate && constantProduct && (chain.failure === "unavailable" || chain.failure === "impact_too_high")) {
     const estimate = constantProductOut(request.swapAmountIn, reserveIn, reserveOut, params.swapFeeBps);
     amountOut = estimate.amountOut;
     fee = estimate.fee;

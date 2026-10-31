@@ -1,7 +1,9 @@
 import { readAmmParams, readAmmPool, readQuoteExactIn } from "@/lib/qwakk-amm-chain";
 import { getServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
+import { isBlocked, nativeBlocklist } from "@/lib/qwakk-native-guards";
+import { getQwakkNetwork, requiresChainQuote } from "@/lib/qwakk-network";
 import { QuoteError, buildExactInQuoteRequest, buildSwapQuote } from "@/lib/qwakk-quote";
-import { QUOTE_FAILURE_COPY } from "@/lib/qwakk-tx-copy";
+import { PREPARE_GUARD_COPY, QUOTE_FAILURE_COPY, networkCopy } from "@/lib/qwakk-tx-copy";
 
 function json(body: unknown, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -32,6 +34,8 @@ const SAFE_INPUT_ERRORS = new Set([
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const network = getQwakkNetwork();
+  const blocklist = nativeBlocklist();
 
   let quoteRequest;
   try {
@@ -53,14 +57,17 @@ export async function GET(request: Request) {
       readAmmParams(),
       readQuoteExactIn(quoteRequest.poolId, quoteRequest.denomIn, quoteRequest.swapAmountIn),
     ]);
-    if (!pool) return json({ error: QUOTE_FAILURE_COPY.pool_not_found, failure: "pool_not_found" }, 404);
-    const quote = buildSwapQuote({ request: quoteRequest, pool, params, chain });
-    return json({ network: "qorechain-diana", ...quote });
+    if (!pool) return json({ error: networkCopy(QUOTE_FAILURE_COPY.pool_not_found, network), failure: "pool_not_found" }, 404);
+    if (isBlocked(blocklist, { poolId: quoteRequest.poolId, denoms: [pool.tokenA, pool.tokenB] })) {
+      return json({ error: PREPARE_GUARD_COPY.blocked, failure: "blocked" }, 403);
+    }
+    const quote = buildSwapQuote({ request: quoteRequest, pool, params, chain, allowEstimate: !requiresChainQuote(network) });
+    return json({ network: network.chainId, ...quote });
   } catch (error) {
     if (error instanceof QuoteError) {
       const status = error.failure === "pool_not_found" ? 404 : error.failure === "unavailable" ? 502 : 422;
-      return json({ error: QUOTE_FAILURE_COPY[error.failure], failure: error.failure }, status);
+      return json({ error: networkCopy(QUOTE_FAILURE_COPY[error.failure], network), failure: error.failure }, status);
     }
-    return json({ error: QUOTE_FAILURE_COPY.unavailable, failure: "unavailable" }, 502);
+    return json({ error: networkCopy(QUOTE_FAILURE_COPY.unavailable, network), failure: "unavailable" }, 502);
   }
 }

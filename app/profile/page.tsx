@@ -2,17 +2,26 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, ExternalLink, Wallet } from "lucide-react";
+import { FaucetHint } from "../../components/FaucetHint";
 import { QwakkHeader } from "../../components/QwakkHeader";
 import { SiteFooter } from "../../components/SiteFooter";
 import { TokenIcon } from "../../components/TokenIcon";
+import { useAssets } from "../../components/useAssets";
 import { useQorMarket } from "../../components/useQorMarket";
-import { assetForDenom, displaySymbol, formatBaseAmount } from "../../lib/qwakk-assets";
+import { formatBaseAmount, type ResolvedAsset } from "../../lib/qwakk-assets";
 import { formatUsdCompact } from "../../lib/qor-price";
 
 type Balance = { denom: string; amount: string };
 type Activity = { hash: string; timestamp: string; status: "success" | "failed"; label: string; direction: "in" | "out" | "action"; amount: string; denom: string };
 
-function formatBalance(amount: string, denom: string) { return formatBaseAmount(amount, assetForDenom(denom)?.decimals ?? 0); }
+/** Fixed copy for failed reads: route, proxy or parser text never reaches the page. */
+const BALANCES_ERROR_COPY = "This is usually temporary. Try again in a moment.";
+const ACTIVITY_ERROR_COPY = "Recent activity could not be loaded right now. Try again in a moment.";
+
+/** Display only. A token with unknown decimals shows its raw base units, labeled as such. */
+function formatBalance(amount: string, asset: ResolvedAsset) {
+  return asset.decimals === null ? `${amount} base units` : formatBaseAmount(amount, asset.decimals);
+}
 
 export default function Profile() {
   const [address, setAddress] = useState("");
@@ -35,11 +44,11 @@ export default function Profile() {
     setError("");
     try {
       const response = await fetch(`/api/account?address=${encodeURIComponent(walletAddress)}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("unavailable");
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? "Could not load balances");
       setBalances(Array.isArray(data?.balances) ? data.balances : []);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not load balances");
+    } catch {
+      setError(BALANCES_ERROR_COPY);
     } finally {
       setLoading(false);
     }
@@ -51,11 +60,11 @@ export default function Profile() {
     setTransactionsError("");
     try {
       const response = await fetch(`/api/transactions?address=${encodeURIComponent(walletAddress)}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("unavailable");
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? "Could not load recent activity");
       setTransactions(Array.isArray(data?.transactions) ? data.transactions : []);
-    } catch (reason) {
-      setTransactionsError(reason instanceof Error ? reason.message : "Could not load recent activity");
+    } catch {
+      setTransactionsError(ACTIVITY_ERROR_COPY);
     } finally {
       setTransactionsLoading(false);
     }
@@ -89,12 +98,32 @@ export default function Profile() {
       void loadPositions(current);
       void loadTransactions(current);
     };
+    // A disconnect or a QoreX account switch replaces the stored address.
+    const reloadForWallet = () => {
+      const current = window.localStorage.getItem("qwakk-wallet-address") ?? "";
+      setAddress(current);
+      // Never show the previous wallet's data under the new address.
+      setBalances([]);
+      setTransactions([]);
+      setPositions(null);
+      void loadBalances(current);
+      void loadTransactions(current);
+      void loadPositions(current);
+    };
     window.addEventListener("qwakk:tx-confirmed", refreshAfterTx);
-    return () => { window.clearTimeout(timer); window.removeEventListener("qwakk:tx-confirmed", refreshAfterTx); };
+    window.addEventListener("qwakk:wallet-change", reloadForWallet);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("qwakk:tx-confirmed", refreshAfterTx);
+      window.removeEventListener("qwakk:wallet-change", reloadForWallet);
+    };
   }, [loadBalances, loadTransactions, loadPositions]);
 
+  const resolveAsset = useAssets([...balances.map((balance) => balance.denom), ...transactions.map((transaction) => transaction.denom)]);
   const qorBalance = balances.find((balance) => balance.denom === "uqor");
   const market = useQorMarket("1");
+  // Under 1 QOR: a tester likely needs the faucet before trading.
+  const lowOnQor = BigInt(qorBalance && /^\d+$/.test(qorBalance.amount) ? qorBalance.amount : "0") < BigInt(1_000_000);
   // Display only: a float is precise enough to show a dollar estimate.
   const qorUsd = qorBalance && market.data ? Number(formatBaseAmount(qorBalance.amount, 6, 6)) * market.data.price : null;
   const positionsNote = positionsLoading
@@ -130,9 +159,11 @@ export default function Profile() {
         </section> : <>
           <section className="overview-grid" aria-label="Wallet overview">
             <div className="stat-card stat"><span className="stat-label">Connected wallet</span><span className="stat-value">{shortAddress}</span><span className="address-value">{address}</span></div>
-            <div className="stat-card stat"><span className="stat-label">QOR balance</span><span className="stat-value num">{qorBalance ? formatBalance(qorBalance.amount, qorBalance.denom) : "0"}</span><span className="subtle">{qorUsd === null ? "USD value not available" : `About ${formatUsdCompact(qorUsd)} at the CoinGecko price`}</span></div>
+            <div className="stat-card stat"><span className="stat-label">QOR balance</span><span className="stat-value num">{qorBalance ? formatBalance(qorBalance.amount, resolveAsset(qorBalance.denom)) : "0"}</span><span className="subtle">{qorUsd === null ? "USD value not available" : `About ${formatUsdCompact(qorUsd)} at the CoinGecko price`}</span></div>
             <div className="stat-card stat" id="positions"><span className="stat-label">Pool positions</span><span className="stat-value num">{positions ?? "Not available"}</span><span className="subtle">{positionsNote}</span></div>
           </section>
+
+          {!loading && !error && lowOnQor && <FaucetHint lead="This wallet is low on QOR, and every swap or pool action pays its network fee in QOR." className="faucet-hint-panel" />}
 
           <div className="portfolio-sections">
             <section className="panel assets-table" aria-labelledby="assets-title">
@@ -140,8 +171,8 @@ export default function Profile() {
               {error ? <div className="empty"><h3>Balances could not be loaded</h3><p>{error}</p><button type="button" className="btn btn-ghost btn-sm" onClick={() => void loadBalances(address)}>Try again</button></div>
                 : loading ? <div className="empty"><p>Reading your balances…</p></div>
                 : balances.length ? <div className="table">{balances.map((balance) => <div className="table-row" key={balance.denom}>
-                  <span className="cell-main"><TokenIcon denom={balance.denom} size="regular" /><span><b>{displaySymbol(balance.denom)}</b><small>{balance.denom}</small></span></span>
-                  <b className="num">{formatBalance(balance.amount, balance.denom)}</b>
+                  <span className="cell-main"><TokenIcon denom={balance.denom} size="regular" /><span><b>{resolveAsset(balance.denom).symbol}</b>{resolveAsset(balance.denom).name !== resolveAsset(balance.denom).symbol && <small>{resolveAsset(balance.denom).name}</small>}</span></span>
+                  <b className="num">{formatBalance(balance.amount, resolveAsset(balance.denom))}</b>
                 </div>)}</div>
                 : <div className="empty"><h3>No tokens yet</h3><p>Assets sent to this wallet will appear here.</p></div>}
             </section>
@@ -153,7 +184,7 @@ export default function Profile() {
                 : transactions.length ? <div className="table">{transactions.map((transaction) => <a className="table-row" href={`https://explore.qore.network/tx/${transaction.hash}`} target="_blank" rel="noreferrer" key={transaction.hash}>
                   <span className={`activity-icon ${transaction.direction}`}>{transaction.direction === "in" ? <ArrowDownLeft size={15} /> : <ArrowUpRight size={15} />}</span>
                   <span className="cell-main"><span><b>{transaction.label}</b><small>{transaction.timestamp ? new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(transaction.timestamp)) : "Confirmed"} · {transaction.hash.slice(0, 10)}…</small></span></span>
-                  <span className="num">{transaction.amount ? `${formatBalance(transaction.amount, transaction.denom)} ${displaySymbol(transaction.denom)}` : <ExternalLink size={14} className="subtle" />}</span>
+                  <span className="num">{transaction.amount ? `${formatBalance(transaction.amount, resolveAsset(transaction.denom))} ${resolveAsset(transaction.denom).symbol}` : <ExternalLink size={14} className="subtle" />}</span>
                 </a>)}</div>
                 : <div className="empty"><p>No recent transactions for this wallet.</p></div>}
             </section>

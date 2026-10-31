@@ -1,12 +1,17 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FaucetHint } from "./FaucetHint";
 import { TxProgress } from "./TxProgress";
 import { useNativeTransaction } from "./useNativeTransaction";
+import { useAssets } from "./useAssets";
+import { useFeatures } from "./useFeatures";
 import { useWalletBalances } from "./useWalletBalances";
-import { formatBaseAmount, toBaseAmount } from "../lib/qwakk-assets";
+import { formatTokenAmount } from "../lib/qwakk-asset-resolve";
+import { formatBaseAmount, formatVisibleAmount, toBaseAmount } from "../lib/qwakk-assets";
 import { applySlippage, expectedLpForDeposit, expectedWithdrawal, matchingDeposit, poolShareBps, withinTolerance } from "../lib/qwakk-liquidity-math";
 import { coversSpend } from "../lib/qwakk-quote";
+import { assetDecimalsUnknownCopy } from "../lib/qwakk-tx-copy";
 
 /** QoreChain AMM params report lp_token_decimals = 6 on Diana and mainnet. */
 const LP_DECIMALS = 6;
@@ -18,14 +23,14 @@ export type LiquidityPool = {
   token_b: string;
   token_a_symbol: string;
   token_b_symbol: string;
-  token_a_decimals: string | number;
-  token_b_decimals: string | number;
+  token_a_decimals: string | number | null;
+  token_b_decimals: string | number | null;
   reserve_a: string;
   reserve_b: string;
   lp_supply?: string | null;
 };
 
-/** The pool exactly as QoreChain Diana's AMM store holds it right now. */
+/** The pool exactly as the chain's AMM store holds it right now. */
 type LivePool = { reserveA: string; reserveB: string; lpSupply: string; status: string; tokenA: string; tokenB: string; lpBalance: string; enabled: boolean };
 
 function safe<T>(compute: () => T, fallback: T) {
@@ -48,11 +53,19 @@ async function readLivePool(poolId: string, address: string): Promise<LivePool |
   }
 }
 
-/** Add or withdraw liquidity with minimums derived from the pool's live reserves. */
-export function LiquidityPanel({ pool, walletAddress }: { pool: LiquidityPool; walletAddress: string }) {
+/**
+ * Add or withdraw liquidity with minimums derived from the pool's live
+ * reserves. Each part renders only while its switch is on, so a remove-only
+ * deployment shows the withdraw form alone.
+ */
+export function LiquidityPanel({ pool, walletAddress, allowAdd = true, allowRemove = true }: { pool: LiquidityPool; walletAddress: string; allowAdd?: boolean; allowRemove?: boolean }) {
   const tx = useNativeTransaction();
   const balances = useWalletBalances(walletAddress);
-  const [mode, setMode] = useState<"add" | "remove">("add");
+  // Write paths wait for /api/features: until then the asset registry is the default (testnet) one.
+  const networkReady = useFeatures().network !== null;
+  const [chosenMode, setMode] = useState<"add" | "remove">(allowAdd ? "add" : "remove");
+  // A switch can turn off while the page is open; never show a part that is off.
+  const mode: "add" | "remove" = chosenMode === "add" && !allowAdd ? "remove" : chosenMode === "remove" && !allowRemove ? "add" : chosenMode;
   const [amountA, setAmountA] = useState("");
   const [amountB, setAmountB] = useState("");
   const [lpInput, setLpInput] = useState("");
@@ -61,8 +74,18 @@ export function LiquidityPanel({ pool, walletAddress }: { pool: LiquidityPool; w
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
 
-  const decimalsA = Number(pool.token_a_decimals) || 0;
-  const decimalsB = Number(pool.token_b_decimals) || 0;
+  // Typed amounts use only curated or freshly read bank-metadata decimals. The
+  // indexed value labels balances and previews but never converts a deposit,
+  // so a pool side with unknown decimals keeps deposits on hold.
+  const resolve = useAssets([pool.token_a, pool.token_b]);
+  const assetA = resolve(pool.token_a, { symbol: pool.token_a_symbol, decimals: pool.token_a_decimals });
+  const assetB = resolve(pool.token_b, { symbol: pool.token_b_symbol, decimals: pool.token_b_decimals });
+  const symbolA = assetA.symbol;
+  const symbolB = assetB.symbol;
+  const decimalsUnknown = assetA.decimals === null ? assetA.symbol : assetB.decimals === null ? assetB.symbol : "";
+  // Zero only while deposits are blocked by decimalsUnknown; never sent with a guess.
+  const decimalsA = assetA.decimals ?? 0;
+  const decimalsB = assetB.decimals ?? 0;
   const poolId = String(pool.id);
 
   const refresh = useCallback(async () => {
@@ -100,8 +123,8 @@ export function LiquidityPanel({ pool, walletAddress }: { pool: LiquidityPool; w
     setAmountA(matched ? formatBaseAmount(matched, decimalsA, decimalsA) : "");
   }
 
-  const baseA = safe(() => toBaseAmount(amountA, decimalsA), "");
-  const baseB = safe(() => toBaseAmount(amountB, decimalsB), "");
+  const baseA = decimalsUnknown ? "" : safe(() => toBaseAmount(amountA, decimalsA), "");
+  const baseB = decimalsUnknown ? "" : safe(() => toBaseAmount(amountB, decimalsB), "");
   const expectedLp = baseA && baseB ? safe(() => expectedLpForDeposit(baseA, baseB, reserveA, reserveB, supply), null) : null;
   const share = expectedLp ? safe(() => poolShareBps(expectedLp, supply), null) : null;
   const baseLp = safe(() => toBaseAmount(lpInput, LP_DECIMALS), "");
@@ -119,7 +142,10 @@ export function LiquidityPanel({ pool, walletAddress }: { pool: LiquidityPool; w
     event.preventDefault();
     if (checking || tx.busy) return;
     setError("");
+    if ((mode === "add" && !allowAdd) || (mode === "remove" && !allowRemove) || !networkReady) return;
     if (paused) return setError("This pool is paused right now, so liquidity changes are on hold.");
+    // Withdrawals use LP shares and base-unit minimums, so only deposits need the decimals.
+    if (mode === "add" && decimalsUnknown) return setError(assetDecimalsUnknownCopy(decimalsUnknown));
     if (mode === "add") {
       if (!baseA || !baseB) return setError("Enter both amounts.");
       if (depositFits === false) return setError("This wallet does not hold enough for both amounts plus the network fee.");
@@ -175,26 +201,28 @@ export function LiquidityPanel({ pool, walletAddress }: { pool: LiquidityPool; w
   if (tx.state.phase !== "idle") return <div className="panel-body"><TxProgress state={tx.state} onDone={() => { tx.reset(); setAmountA(""); setAmountB(""); setLpInput(""); }} /></div>;
 
   const busy = checking || tx.busy;
-  const ready = Boolean(live) && !paused;
+  const ready = Boolean(live) && !paused && networkReady;
 
   return <form className="panel-body form-grid" onSubmit={submit}>
-    <div className="segmented" role="group" aria-label="Liquidity action">
+    {allowAdd && allowRemove && <div className="segmented" role="group" aria-label="Liquidity action">
       <button type="button" aria-pressed={mode === "add"} onClick={() => { setMode("add"); setError(""); }}>Add</button>
       <button type="button" aria-pressed={mode === "remove"} onClick={() => { setMode("remove"); setError(""); }}>Remove</button>
-    </div>
+    </div>}
     {paused && <p className="form-error" role="alert">This pool is paused right now, so liquidity changes are on hold.</p>}
+    {mode === "add" && decimalsUnknown && <p className="form-error" role="alert">{assetDecimalsUnknownCopy(decimalsUnknown)}</p>}
     {mode === "add" ? <>
-      <label className="field"><span>{pool.token_a_symbol}</span><input inputMode="decimal" value={amountA} disabled={busy} onChange={(event) => changeAmountA(event.target.value)} placeholder="0.0" />{balances && <small className="subtle">Balance {formatBaseAmount((balances.get(pool.token_a) ?? BigInt(0)).toString(), decimalsA, 6)}</small>}</label>
-      <label className="field"><span>{pool.token_b_symbol}</span><input inputMode="decimal" value={amountB} disabled={busy} onChange={(event) => changeAmountB(event.target.value)} placeholder="0.0" /><small className="subtle">{balances ? `Balance ${formatBaseAmount((balances.get(pool.token_b) ?? BigInt(0)).toString(), decimalsB, 6)}. ` : ""}Both amounts follow the pool&apos;s current ratio.</small></label>
-      <p className="quote-meta-row"><span>Pool share you receive</span><b className="num">{expectedLp ? `${formatBaseAmount(expectedLp, LP_DECIMALS, 6)}${share !== null ? ` (${(share / 100).toFixed(2)}% of the pool)` : ""}` : "Not available"}</b></p>
-      {depositFits === false && <p className="form-error">This wallet does not hold enough for both amounts plus the network fee.</p>}
+      <label className="field"><span>{symbolA}</span><input inputMode="decimal" value={amountA} disabled={busy || Boolean(decimalsUnknown)} onChange={(event) => changeAmountA(event.target.value)} placeholder="0.0" />{balances && <small className="subtle">Balance {formatTokenAmount((balances.get(pool.token_a) ?? BigInt(0)).toString(), assetA.displayDecimals, symbolA)}</small>}</label>
+      <label className="field"><span>{symbolB}</span><input inputMode="decimal" value={amountB} disabled={busy || Boolean(decimalsUnknown)} onChange={(event) => changeAmountB(event.target.value)} placeholder="0.0" /><small className="subtle">{balances ? `Balance ${formatTokenAmount((balances.get(pool.token_b) ?? BigInt(0)).toString(), assetB.displayDecimals, symbolB)}. ` : ""}Both amounts follow the pool&apos;s current ratio.</small></label>
+      <p className="quote-meta-row"><span>Pool share you receive</span><b className="num">{expectedLp ? `${formatVisibleAmount(expectedLp, LP_DECIMALS, 6)}${share !== null ? ` (${(share / 100).toFixed(2)}% of the pool)` : ""}` : "Not available"}</b></p>
+      {depositFits === false && <><p className="form-error">This wallet does not hold enough for both amounts plus the network fee.</p><FaucetHint /></>}
     </> : <>
-      <label className="field"><span>Share to withdraw</span><input inputMode="decimal" value={lpInput} disabled={busy} onChange={(event) => { setLpInput(event.target.value); setError(""); }} placeholder="0.0" /><small className="subtle">You hold {formatBaseAmount(lpBalance, LP_DECIMALS, 6)}</small></label>
+      <label className="field"><span>Share to withdraw</span><input inputMode="decimal" value={lpInput} disabled={busy} onChange={(event) => { setLpInput(event.target.value); setError(""); }} placeholder="0.0" /><small className="subtle">You hold {formatVisibleAmount(lpBalance, LP_DECIMALS, 6)}</small></label>
       <div className="chip-row">{[25, 50, 75, 100].map((percent) => <button type="button" className="btn btn-ghost btn-sm" key={percent} disabled={lpBalance === "0" || busy} onClick={() => fillPercent(percent)}>{percent}%</button>)}</div>
-      <p className="quote-meta-row"><span>You receive about</span><b className="num">{withdrawal ? `${formatBaseAmount(withdrawal.amountA, decimalsA, 6)} ${pool.token_a_symbol} + ${formatBaseAmount(withdrawal.amountB, decimalsB, 6)} ${pool.token_b_symbol}` : "Not available"}</b></p>
+      <p className="quote-meta-row"><span>You receive about</span><b className="num">{withdrawal ? `${formatTokenAmount(withdrawal.amountA, assetA.displayDecimals, symbolA)} + ${formatTokenAmount(withdrawal.amountB, assetB.displayDecimals, symbolB)}` : "Not available"}</b></p>
     </>}
     <label className="quote-meta-row"><span>Price protection</span><select value={slippageBps} disabled={busy} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={10}>0.10%</option><option value={50}>0.50%</option><option value={100}>1.00%</option></select></label>
     {error && <p className="form-error" role="alert">{error}</p>}
-    <button type="submit" className="btn btn-primary" disabled={!ready || busy}>{checking ? "Checking the pool…" : !live ? "Reading the pool…" : mode === "add" ? "Add liquidity" : "Withdraw"}</button>
+    {mode === "remove" && feeFits === false && <FaucetHint lead="This wallet needs a little QOR for the network fee." />}
+    <button type="submit" className="btn btn-primary" disabled={!ready || busy || (mode === "add" && Boolean(decimalsUnknown))}>{checking ? "Checking the pool…" : !live ? "Reading the pool…" : mode === "add" ? "Add liquidity" : "Withdraw"}</button>
   </form>;
 }

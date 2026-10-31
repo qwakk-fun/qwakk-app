@@ -2,19 +2,22 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, PauseCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ExternalLink, PauseCircle } from "lucide-react";
 import { LiquidityPanel } from "./LiquidityPanel";
 import { QwakkHeader } from "./QwakkHeader";
 import { SiteFooter } from "./SiteFooter";
 import { TokenIcon } from "./TokenIcon";
 import { useFeatures } from "./useFeatures";
+import { useNetworkCopy } from "./NetworkContext";
 import { PoolChart, type PoolCandle } from "./PoolChart";
-import { formatBaseAmount } from "../lib/qwakk-assets";
+import { formatTokenAmount, resolveUsableAsset } from "../lib/qwakk-asset-resolve";
+import { displaySymbol, formatBaseAmount, withAssetOverrides } from "../lib/qwakk-assets";
 import { BRAND } from "../lib/brand";
 import { CHART_INTERVALS, CHART_INTERVAL_LABELS, type ChartInterval } from "../lib/qwakk-chart";
 import { QUOTE_BLOCK_COPY } from "../lib/qwakk-tx-copy";
+import { formatQuotePrice, isLowLiquidity, lowLiquidityCopy, marketPrice, marketReserves, marketSides, marketVolume, pairLabel, priceUnit, type QuoteMarket } from "../lib/qwakk-market-view";
 
-type Pool = {
+type Pool = QuoteMarket & {
   id: string | number;
   pool_type: string;
   status: string;
@@ -24,11 +27,10 @@ type Pool = {
   token_b_symbol: string;
   token_a_name: string | null;
   token_b_name: string | null;
-  token_a_decimals: string | number;
-  token_b_decimals: string | number;
+  token_a_decimals: string | number | null;
+  token_b_decimals: string | number | null;
   reserve_a: string;
   reserve_b: string;
-  weighted_avg_price: string | number | null;
   lp_supply?: string | null;
   creator?: string | null;
   created_height?: string | number | null;
@@ -48,7 +50,8 @@ type Swap = {
   price_b_per_a: string | number | null;
 };
 
-type Detail = { pool: Pool; candles: PoolCandle[]; swaps: Swap[] };
+/** `quote_candles` are already in quote per base; the raw `candles` are not used. */
+type Detail = { pool: Pool; quote_candles?: PoolCandle[]; swaps: Swap[] };
 
 function shortAddress(value: string | null) {
   if (!value) return "Unknown wallet";
@@ -62,25 +65,26 @@ function dateTime(value: string) {
 }
 
 function symbolForDenom(pool: Pool, denom: string) {
-  return denom === pool.token_a ? pool.token_a_symbol : denom === pool.token_b ? pool.token_b_symbol : denom.replace(/^u/, "").toUpperCase();
+  return denom === pool.token_a ? pool.token_a_symbol : denom === pool.token_b ? pool.token_b_symbol : displaySymbol(denom);
 }
 
-function amountForDenom(pool: Pool, denom: string, amount: string) {
-  const decimals = denom === pool.token_a ? pool.token_a_decimals : denom === pool.token_b ? pool.token_b_decimals : 0;
-  return formatBaseAmount(amount, Number(decimals), 6);
-}
-
-function price(value: string | number | null, symbol: string) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "No swaps yet";
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 8 }).format(number)} ${symbol}`;
+/** Display only: an amount with its symbol, labeled as base units when the decimals are unknown. */
+function amountLabel(pool: Pool, denom: string, amount: string) {
+  const decimals = denom === pool.token_a ? pool.token_a_decimals : denom === pool.token_b ? pool.token_b_decimals : undefined;
+  const asset = resolveUsableAsset(denom, undefined, { symbol: symbolForDenom(pool, denom), decimals });
+  return formatTokenAmount(amount, asset.displayDecimals, symbolForDenom(pool, denom));
 }
 
 export function PoolDetailView({ poolId }: { poolId: string }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "missing" | "unavailable">("loading");
   const [chartInterval, setChartInterval] = useState<ChartInterval>("1m");
-  const { nativeActions } = useFeatures();
+  // Each wallet action has its own switch (QWAKK_NATIVE_ACTIONS). The liquidity
+  // panel shows only the parts whose switch is on (remove-only is a valid mode).
+  const { actions } = useFeatures();
+  const { copy } = useNetworkCopy();
+  const nativeActions = actions.swap;
+  const liquidityActions = actions.add_liquidity || actions.remove_liquidity;
   const [walletAddress, setWalletAddress] = useState("");
 
   useEffect(() => {
@@ -98,7 +102,8 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
         if (response.status === 404) throw new Error("missing");
         if (!response.ok) throw new Error("unavailable");
         const data = await response.json() as Detail;
-        if (active) { setDetail(data); setState("ready"); }
+        // Curated symbols and decimals win over the indexed token record.
+        if (active) { setDetail({ ...data, pool: withAssetOverrides(data.pool) }); setState("ready"); }
       } catch (error) {
         if (active) setState(error instanceof Error && error.message === "missing" ? "missing" : "unavailable");
       }
@@ -112,13 +117,21 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
   }, [poolId, chartInterval]);
 
   if (state !== "ready" || !detail) {
-    const message = state === "loading" ? "Reading current pool data…" : state === "missing" ? "This pool does not exist on QoreChain Diana." : "Pool data is temporarily unavailable. This page retries on its own.";
+    const message = state === "loading" ? "Reading current pool data…" : state === "missing" ? copy("This pool does not exist on QoreChain Diana.") : "Pool data is temporarily unavailable. This page retries on its own.";
     return <div className="app-shell"><QwakkHeader page="pools" /><main className="app-main"><div className="container"><Link className="back-link" href="/pools"><ArrowLeft size={15} />All pools</Link><div className="panel empty"><p>{message}</p></div></div></main><SiteFooter /></div>;
   }
 
-  const { pool, candles, swaps } = detail;
+  const { pool, swaps } = detail;
+  const candles = detail.quote_candles ?? [];
+  const { base, quote } = marketSides(pool);
+  const reserves = marketReserves(pool, 6);
+  const volume = marketVolume(pool);
   // Same rule as the quote and transaction routes: anything but "active" is paused.
   const paused = pool.status !== "active";
+  // A low-liquidity pool's price is not meaningful, so it is never the headline.
+  const lowLiquidity = isLowLiquidity(pool);
+  const tooThinToTrade = lowLiquidity && (pool.low_liquidity_reason === "dust_reserve" || pool.low_liquidity_reason === "empty");
+  const latest = lowLiquidity ? null : marketPrice(pool);
   return <div className="app-shell">
     <QwakkHeader page="pools" />
     <main className="app-main">
@@ -126,26 +139,36 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
         <Link className="back-link" href="/pools"><ArrowLeft size={15} />All pools</Link>
         <section className="pool-head">
           <div className="cell-main">
-            <span className="coin-avatar is-large"><TokenIcon denom={pool.token_a} size="avatar" /><span className="coin-badge"><TokenIcon denom={pool.token_b} size="small" /></span></span>
-            <div><span className="kicker">Pool #{pool.id}</span><h1>{pool.token_a_symbol} / {pool.token_b_symbol}</h1></div>
+            <span className="coin-avatar is-large"><TokenIcon denom={base.denom} size="avatar" /><span className="coin-badge"><TokenIcon denom={quote.denom} size="small" /></span></span>
+            <div><span className="kicker">Pool #{pool.id}</span><h1>{pairLabel(pool, " / ")}</h1></div>
           </div>
-          <div className="pool-head-price"><span className="stat-label">Latest price</span><strong>{price(candles.at(-1)?.close ?? pool.weighted_avg_price, pool.token_b_symbol)}</strong><span className="subtle">per {pool.token_a_symbol}</span></div>
+          {lowLiquidity
+            ? <div className="pool-head-price"><span className="stat-label">Latest price</span><strong className="is-muted">Not shown</strong><span className="subtle">Too little liquidity</span></div>
+            : <div className="pool-head-price"><span className="stat-label">Latest price</span><strong>{latest === null ? "No swaps yet" : `${formatQuotePrice(latest)} ${quote.symbol}`}</strong><span className="subtle">{priceUnit(pool)}</span></div>}
         </section>
 
+        {lowLiquidity && <div className="pool-warning" role="note">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <div><b>{tooThinToTrade ? "This pool is too thin to trade" : "Low-liquidity pool"}</b><p>{lowLiquidityCopy(pool.low_liquidity_reason)} Its price is left out of the pool lists until it holds real liquidity.</p></div>
+        </div>}
+
         <section className="stat-row" aria-label="Pool summary">
-          <div className="stat-card stat"><span className="stat-label">{pool.token_a_symbol} reserve</span><span className="stat-value num">{formatBaseAmount(pool.reserve_a ?? "0", Number(pool.token_a_decimals), 6)}</span></div>
-          <div className="stat-card stat"><span className="stat-label">{pool.token_b_symbol} reserve</span><span className="stat-value num">{formatBaseAmount(pool.reserve_b ?? "0", Number(pool.token_b_decimals), 6)}</span></div>
-          <div className="stat-card stat"><span className="stat-label">Recent swaps</span><span className="stat-value num">{swaps.length}</span></div>
+          <div className="stat-card stat"><span className="stat-label">{base.symbol} reserve</span><span className="stat-value num">{reserves.base}</span></div>
+          <div className="stat-card stat"><span className="stat-label">{quote.symbol} reserve</span><span className="stat-value num">{reserves.quote}</span></div>
+          <div className="stat-card stat"><span className="stat-label">24h volume</span><span className="stat-value num">{volume.value === null ? "None yet" : `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(volume.value)} ${volume.symbol}`}</span></div>
         </section>
 
         <div className="pool-layout">
           <div className="pool-main">
             <section className="panel" aria-labelledby="pool-chart-title">
               <div className="panel-head chart-head">
-                <div><span className="panel-title" id="pool-chart-title">{pool.token_a_symbol} price in {pool.token_b_symbol}</span><span className="cell-sub">{CHART_INTERVAL_LABELS[chartInterval]}</span></div>
-                <div className="segmented interval-tabs" role="group" aria-label="Chart interval">{CHART_INTERVALS.map((option) => <button type="button" key={option} aria-pressed={option === chartInterval} onClick={() => setChartInterval(option)}>{option}</button>)}</div>
+                <div><span className="panel-title" id="pool-chart-title">{base.symbol} price in {quote.symbol}</span><span className="cell-sub">{CHART_INTERVAL_LABELS[chartInterval]}</span></div>
+                {!lowLiquidity && <div className="segmented interval-tabs" role="group" aria-label="Chart interval">{CHART_INTERVALS.map((option) => <button type="button" key={option} aria-pressed={option === chartInterval} onClick={() => setChartInterval(option)}>{option}</button>)}</div>}
               </div>
-              <PoolChart candles={candles} />
+              {/* Same rule as the swap page: a low-liquidity pool's price is not meaningful, so it is not charted. */}
+              {lowLiquidity
+                ? <div className="chart-empty pool-chart">No chart for this pool: it holds too little to give a meaningful price.</div>
+                : <PoolChart candles={candles} unit={priceUnit(pool)} />}
             </section>
             <section className="panel swaps-table" aria-labelledby="swaps-title">
               <div className="panel-head"><span className="panel-title" id="swaps-title">Recent swaps</span><span className="subtle">{swaps.length} indexed</span></div>
@@ -154,8 +177,8 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
                 {swaps.length === 0 && <div className="empty"><p>No swaps have been indexed for this pool yet.</p></div>}
                 {swaps.map((swap) => <div className="table-row" key={`${swap.tx_hash}-${swap.executed_at}`}>
                   <span className="subtle">{dateTime(swap.executed_at)}</span>
-                  <span className="num">{amountForDenom(pool, swap.denom_in, swap.amount_in)} {symbolForDenom(pool, swap.denom_in)}</span>
-                  <span className="num">{amountForDenom(pool, swap.denom_out, swap.amount_out)} {symbolForDenom(pool, swap.denom_out)}</span>
+                  <span className="num">{amountLabel(pool, swap.denom_in, swap.amount_in)}</span>
+                  <span className="num">{amountLabel(pool, swap.denom_out, swap.amount_out)}</span>
                   <span className="mono subtle hide-sm">{shortAddress(swap.sender)}</span>
                   <a className="end subtle" href={`https://explore.qore.network/tx/${swap.tx_hash}`} target="_blank" rel="noreferrer" aria-label="Open transaction in the QoreChain explorer"><ExternalLink size={15} /></a>
                 </div>)}
@@ -164,8 +187,10 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
           </div>
           <aside className="panel" aria-labelledby="pool-info-title">
             <div className="pool-trade">{paused
-              ? <p className="pool-paused" role="status"><PauseCircle size={16} aria-hidden="true" /><span>{QUOTE_BLOCK_COPY.paused}</span></p>
-              : <Link className="btn btn-primary btn-block" href={`/swap?pool=${pool.id}`}>{nativeActions ? `Swap ${pool.token_a_symbol} and ${pool.token_b_symbol}` : "Get a live quote"}</Link>}</div>
+              ? <p className="pool-paused" role="status"><PauseCircle size={16} aria-hidden="true" /><span>{copy(QUOTE_BLOCK_COPY.paused)}</span></p>
+              : tooThinToTrade
+                ? <p className="pool-paused" role="status"><AlertTriangle size={16} aria-hidden="true" /><span>Swaps are not offered here: this pool holds too little to trade at a fair price.</span></p>
+              : <Link className="btn btn-primary btn-block" href={`/swap?pool=${pool.id}`}>{nativeActions ? `Swap ${base.symbol} and ${quote.symbol}` : "Get a live quote"}</Link>}</div>
             <div className="panel-head"><span className="panel-title" id="pool-info-title">Pool details</span></div>
             <div className="info-list">
               <div><span>Status</span><b>{pool.status}</b></div>
@@ -175,10 +200,10 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
               <div><span>Creator</span><b className="mono">{shortAddress(pool.creator ?? null)}</b></div>
             </div>
             <p className="panel-note">Liquidity is held by the pool on QoreChain. {BRAND.name} never holds assets.</p>
-            {nativeActions && <>
-              <div className="panel-head panel-head-split"><span className="panel-title">Liquidity</span></div>
+            {liquidityActions && <>
+              <div className="panel-head panel-head-split"><span className="panel-title">{actions.add_liquidity ? "Liquidity" : "Withdraw liquidity"}</span></div>
               {walletAddress
-                ? <LiquidityPanel pool={pool} walletAddress={walletAddress} />
+                ? <LiquidityPanel pool={pool} walletAddress={walletAddress} allowAdd={actions.add_liquidity} allowRemove={actions.remove_liquidity} />
                 : <div className="panel-body"><button type="button" className="btn btn-primary btn-block" onClick={() => window.dispatchEvent(new Event("qwakk:request-connect"))}>Connect wallet</button></div>}
             </>}
           </aside>

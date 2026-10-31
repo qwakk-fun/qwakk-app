@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { BRAND } from "../lib/brand";
 import { ConsentGate } from "../components/ConsentGate";
+import { NetworkProvider } from "../components/NetworkContext";
+import { getQwakkNetwork, publicNetwork } from "../lib/qwakk-network";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -50,8 +52,11 @@ export default function RootLayout({
     // Font variables sit on <html> so the :root tokens in globals.css can read them.
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="antialiased">
-        {children}
-        <ConsentGate />
+        {/* QWAKK_NETWORK is read per request on the server, so the first render names the right network. */}
+        <NetworkProvider network={publicNetwork(getQwakkNetwork())}>
+          {children}
+          <ConsentGate />
+        </NetworkProvider>
       </body>
     </html>
   );

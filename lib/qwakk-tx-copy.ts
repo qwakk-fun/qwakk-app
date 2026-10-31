@@ -40,19 +40,109 @@ export const QUOTE_BLOCK_COPY = {
 
 export type SimulationFailureKey = keyof typeof SIMULATION_FAILURE_COPY;
 
+/**
+ * Shown when Qwakk cannot confirm a token's decimals. Amounts for it are never
+ * guessed, so entering or sending them stays blocked.
+ */
+export function assetDecimalsUnknownCopy(symbol: string) {
+  return `Qwakk cannot confirm how many decimals ${symbol} uses yet, so amounts for it are on hold.`;
+}
+
 export const QOREX_MISSING_COPY = "Install QoreX to sign QoreChain transactions.";
 export const QOREX_OUTDATED_COPY = "This QoreX is too old to trade here. Update it to version 0.3.5 or newer, then try again.";
 export const QOREX_NETWORK_COPY = "QoreX is on another network. Open QoreX, tap the version number at the bottom 7 times to turn on Developer mode, choose Switch to testnet (diana), then try again.";
+/** docs.qorechain.io/qorex/troubleshooting: "Settings → Use testnet (developers) ... Turn it off to return to mainnet." */
+export const QOREX_MAINNET_NETWORK_COPY = "QoreX is on the testnet. Open QoreX Settings, turn off Use testnet (developers), then try again.";
 
-export type WalletFailureKind = "declined" | "locked" | "network" | "outdated" | "account" | "chain" | "onchain" | "other";
+/** The network as copy needs it. Matches `PublicQwakkNetwork` in lib/qwakk-network.ts. */
+export type CopyNetwork = { id: "testnet" | "mainnet"; label: string };
+
+/** The testnet label the copy constants in this file are written with. */
+const TESTNET_LABEL = "QoreChain Diana";
+
+/**
+ * Puts the deployment's network name into a controlled line. The constants in
+ * this file name the testnet ("QoreChain Diana"); on mainnet that becomes the
+ * mainnet label. Only fixed copy goes through here, never wallet or chain text.
+ */
+export function networkCopy(copy: string, network?: Pick<CopyNetwork, "label"> | null) {
+  if (!network || network.label === TESTNET_LABEL) return copy;
+  return copy.split(TESTNET_LABEL).join(network.label);
+}
+
+/** How to put QoreX on the network this deployment trades on. */
+export function qorexNetworkCopy(network?: Pick<CopyNetwork, "id"> | null) {
+  return network?.id === "mainnet" ? QOREX_MAINNET_NETWORK_COPY : QOREX_NETWORK_COPY;
+}
+
+/**
+ * Shown while QoreX is open for a transaction that carries the interface fee.
+ * QoreX lists the fee as its own transfer, so this names it in plain words.
+ */
+export function interfaceFeeTransferCopy(amount: string, brandName: string) {
+  return `This transaction includes an interface fee of ${amount}. In QoreX it shows up as a transfer to the ${brandName} treasury.`;
+}
+
+/** A quote whose minimum is 0 base units: signing it could return nothing. */
+export const QUOTE_ZERO_OUT_COPY = "This amount is too small to get anything back from this pool. Enter a larger amount.";
+
+/** QoreX's active account is not the one Qwakk was showing. */
+export const WALLET_ACCOUNT_SWITCHED_COPY = "QoreX switched to another account. Qwakk now shows that account, so check the details and try again.";
+/** `/api/features` could not be read, so Qwakk does not know which network to ask QoreX for. */
+export const NETWORK_UNKNOWN_COPY = "Qwakk could not confirm the network right now. Try again shortly.";
+
+/**
+ * Why `/api/native-tx/prepare` stopped before simulation for an operator
+ * reason rather than a chain one.
+ */
+export const PREPARE_GUARD_COPY = {
+  action_disabled: "This action is switched off on Qwakk right now.",
+  blocked: "Qwakk has paused this pool or token for now.",
+  quote_unavailable: "QoreChain Diana's quote service is not answering, so this swap is on hold. Try again shortly.",
+  wrong_network: "Qwakk is connected to the wrong QoreChain network, so wallet actions are paused. Try again later.",
+  unreachable: "QoreChain Diana could not be reached. Try again shortly.",
+} as const;
+
+export type PrepareGuardKey = keyof typeof PREPARE_GUARD_COPY;
+
+export type WalletFailureKind = "declined" | "locked" | "pending" | "network" | "outdated" | "account" | "chain" | "onchain" | "other";
 export type WalletFailure = { kind: WalletFailureKind; copy: string; code?: number; codespace?: string };
 
 /**
- * Classifies a QoreX error (QoreX 0.3.5 `enable`, `getKey` and
+ * QoreX is locked. QoreX 0.3.9 `getKey`, `enable` and `signAndBroadcast`
+ * check the lock first and reject with "QoreX: wallet is locked" without
+ * opening a window, so the user unlocks from the toolbar. Nothing was sent.
+ */
+export const QOREX_LOCKED_COPY = "QoreX is locked. Open QoreX from your browser toolbar, unlock it, then try again. Nothing was sent.";
+/** The user closed or declined the QoreX window ("QoreX: signature rejected", "QoreX: connection rejected"). */
+export const QOREX_DECLINED_COPY = "You declined the request in QoreX. Nothing was sent.";
+/**
+ * QoreX holds one request per site and three in total ("QoreX: a request from
+ * this site is already waiting for your answer.", "too many requests are waiting").
+ */
+export const QOREX_PENDING_COPY = "QoreX already has a request open. Answer or close it in QoreX, then try again.";
+/** QoreX 0.3.9: "the wallet or account changed while this request was waiting. Nothing was signed." */
+export const QOREX_ACCOUNT_CHANGED_COPY = "QoreX switched wallet or account while the request was open, so nothing was signed. Check the account and try again.";
+
+/**
+ * Wallet stops the user caused or can clear in QoreX in a moment. Nothing was
+ * sent, so they are shown as a calm notice rather than a failed transaction.
+ */
+export function isQuietWalletStop(kind: WalletFailureKind) {
+  return kind === "declined" || kind === "locked" || kind === "pending" || kind === "account";
+}
+
+/**
+ * Classifies a QoreX error (QoreX 0.3.5 or newer `enable`, `getKey` and
  * `signAndBroadcast`). Only fixed copy and numeric chain codes come out; the
  * wallet's own text is never shown.
  */
-export function walletFailure(error: unknown): WalletFailure {
+export function walletFailure(error: unknown, network?: CopyNetwork | null): WalletFailure {
+  const failure = classifyWalletFailure(error, network ?? null);
+  return { ...failure, copy: networkCopy(failure.copy, network) };
+}
+
+function classifyWalletFailure(error: unknown, network: CopyNetwork | null): WalletFailure {
   const raw = error instanceof Error ? error.message : String(error);
   const message = raw.toLowerCase();
 
@@ -76,11 +166,11 @@ export function walletFailure(error: unknown): WalletFailure {
         : "QoreChain Diana included the transaction but it failed. Only the network fee was spent. Check your QoreX activity for the details.",
     };
   }
-  if (message.includes("rejected")) {
-    return { kind: "declined", copy: "The request was declined in QoreX." };
-  }
-  if (/(?<!un)locked/.test(message)) return { kind: "locked", copy: "QoreX is locked. Unlock it and try again." };
-  if (message.includes("active network") || message.includes("unsupported chain")) return { kind: "network", copy: QOREX_NETWORK_COPY };
+  if (message.includes("rejected")) return { kind: "declined", copy: QOREX_DECLINED_COPY };
+  if (/(?<!un)locked/.test(message)) return { kind: "locked", copy: QOREX_LOCKED_COPY };
+  if (message.includes("already waiting for your answer") || message.includes("requests are waiting")) return { kind: "pending", copy: QOREX_PENDING_COPY };
+  if (message.includes("changed while this request was waiting")) return { kind: "account", copy: QOREX_ACCOUNT_CHANGED_COPY };
+  if (message.includes("active network") || message.includes("unsupported chain")) return { kind: "network", copy: qorexNetworkCopy(network) };
   if (message.includes("requires an updated wallet")) return { kind: "outdated", copy: "QoreChain Diana needs a newer QoreX. Update it and try again." };
   if (message.includes("refusing to sign") || message.includes("unknown signer")) {
     return { kind: "account", copy: "QoreX is using a different account than the one connected here. Reconnect your wallet and try again." };
@@ -95,8 +185,8 @@ export function walletFailure(error: unknown): WalletFailure {
 }
 
 /** Maps a QoreX error to controlled copy. */
-export function walletFailureCopy(error: unknown) {
-  return walletFailure(error).copy;
+export function walletFailureCopy(error: unknown, network?: CopyNetwork | null) {
+  return walletFailure(error, network).copy;
 }
 
 /** Maps a chain result code to controlled copy, before or after inclusion in a block. */

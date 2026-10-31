@@ -47,6 +47,31 @@ export default defineConfig(async () => {
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
+    // Workaround for client navigation in production builds (vinext
+    // 1.0.0-beta.2, Vite 8.0.13, rolldown 1.0.1). The Link shim loads the
+    // router with `await import("./navigation.js")`. By default rolldown merges
+    // navigation.js into the client entry chunk and turns that dynamic import
+    // into a bare import of the entry chunk, as if the entry chunk were
+    // navigation's namespace. It is not: the entry chunk never exports
+    // `navigateClientSide` or the prefetch helpers. They come back undefined,
+    // so every Link click calls preventDefault and then throws, the page never
+    // changes, and prefetch logs "RSC prefetch setup error: f is not a
+    // function". Giving navigation.js its own chunk makes rolldown emit a
+    // proper namespace import (`import(chunk).then((m) => m.ns)`). Remove once
+    // a vinext or Vite upgrade no longer emits the bare entry chunk import.
+    environments: {
+      client: {
+        build: {
+          rolldownOptions: {
+            output: {
+              codeSplitting: {
+                groups: [{ name: "vinext-navigation", test: /[\\/]vinext[\\/]dist[\\/]shims[\\/]navigation\.js$/, priority: 100 }],
+              },
+            },
+          },
+        },
+      },
+    },
     plugins: [
       vinext(),
       sites(),

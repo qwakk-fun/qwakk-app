@@ -123,7 +123,7 @@ test("orders new-pool deposits the way the chain stores them", () => {
   assert.deepEqual({ denom: decoded.initialDepositA.denom, amount: decoded.initialDepositA.amount }, { denom: "uqor", amount: "1000000000" });
   assert.deepEqual({ denom: decoded.initialDepositB.denom, amount: decoded.initialDepositB.amount }, { denom: "uzzz", amount: "2500000000" });
   assert.equal(decoded.amplificationCoefficient, 0);
-  const stable = decode(buildCreatePoolPlan({ creator: sender, poolType: "stable_swap", denomA: "uusdc", amountA: "1000000", denomB: "uusdt", amountB: "1000000", amplificationCoefficient: 200 }).message);
+  const stable = decode(buildCreatePoolPlan({ creator: sender, poolType: "stable_swap", denomA: "erc20:0x97143B771D34ddb9130b807b135Ae675A5a963CA", amountA: "1000000", denomB: "uqor", amountB: "1000000", amplificationCoefficient: 200 }).message);
   assert.equal(stable.amplificationCoefficient, 200);
 });
 

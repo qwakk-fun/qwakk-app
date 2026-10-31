@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { QwakkHeader } from "./QwakkHeader";
-import { QORECHAIN_DIANA, qorexSupport, type QoreXMessage } from "../lib/qorex-native";
+import { qorexSupport, readQoreXSigner, type QoreXMessage } from "../lib/qorex-native";
+import { explorerTxUrl } from "../lib/qwakk-network";
+import { loadFeatures, useFeatures } from "./useFeatures";
 import { BRAND } from "../lib/brand";
 import { formatBaseAmount } from "../lib/qwakk-assets";
-import { QOREX_MISSING_COPY, QOREX_OUTDATED_COPY, walletFailure } from "../lib/qwakk-tx-copy";
+import { NETWORK_UNKNOWN_COPY, QOREX_MISSING_COPY, QOREX_OUTDATED_COPY, walletFailure } from "../lib/qwakk-tx-copy";
 
 type Step = { label: string; state: "done" | "failed" };
 type Verdict = { title: string; detail: string };
@@ -51,6 +53,7 @@ export function SigningProbe() {
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [running, setRunning] = useState(false);
+  const pageNetwork = useFeatures().network;
 
   function record(label: string, state: Step["state"]) {
     setSteps((current) => [...current, { label, state }]);
@@ -68,15 +71,21 @@ export function SigningProbe() {
     }
     const wallet = support.wallet;
     record("QoreX supports signAndBroadcast", "done");
+    // The probe signs on the server's configured network, never a constant.
+    const network = (await loadFeatures())?.network;
+    if (!network) {
+      record(NETWORK_UNKNOWN_COPY, "failed");
+      return;
+    }
+    record(`Probing ${network.label} (${network.chainId})`, "done");
 
     setRunning(true);
     try {
       let address: string;
       try {
-        await wallet.enable(QORECHAIN_DIANA);
-        address = (await wallet.getKey(QORECHAIN_DIANA)).bech32Address;
+        address = await readQoreXSigner(wallet, network.chainId);
       } catch (error) {
-        record(walletFailure(error).copy, "failed");
+        record(walletFailure(error, network).copy, "failed");
         return;
       }
       record(`Wallet ${short(address)} connected`, "done");
@@ -91,7 +100,7 @@ export function SigningProbe() {
         record(probe.error ?? "The probe transaction could not be prepared", "failed");
         return;
       }
-      record(`0.000001 QOR self-transfer simulated on QoreChain Diana. Gas limit ${probe.gasLimit}, expected network fee ${formatBaseAmount(probe.fee.amount, 6, 6)} QOR`, "done");
+      record(`0.000001 QOR self-transfer simulated on ${network.label}. Gas limit ${probe.gasLimit}, expected network fee ${formatBaseAmount(probe.fee.amount, 6, 6)} QOR`, "done");
       if (probe.pqcKeyRegistered === false) record("This wallet has no post-quantum key on chain yet. QoreX will register it first in its own transaction", "done");
 
       let result;
@@ -99,17 +108,17 @@ export function SigningProbe() {
         result = await wallet.signAndBroadcast({ chainId: probe.chainId, messages: probe.messages, memo: probe.memo, gasLimit: probe.gasLimit });
       } catch (error) {
         console.error("QoreX signAndBroadcast failed", error);
-        const failure = walletFailure(error);
+        const failure = walletFailure(error, network);
         record(failure.copy, "failed");
         if (failure.kind === "chain") {
           setVerdict({
-            title: "Diana refused the wallet-built transaction",
+            title: `${network.label} refused the wallet-built transaction`,
             detail: `CheckTx returned ${failure.codespace || "an unknown codespace"} code ${failure.code}. Nothing was included in a block.`,
           });
         } else if (failure.kind === "onchain") {
           setVerdict({
             title: "The transaction reached a block but failed",
-            detail: `${failure.code !== undefined ? `QoreX reported block result code ${failure.code}. ` : ""}The transaction passed CheckTx, so Diana took it in, but it did not succeed. QoreX did not return the hash, so check its activity list.`,
+            detail: `${failure.code !== undefined ? `QoreX reported block result code ${failure.code}. ` : ""}The transaction passed CheckTx, so ${network.label} took it in, but it did not succeed. QoreX did not return the hash, so check its activity list.`,
           });
         }
         return;
@@ -129,7 +138,7 @@ export function SigningProbe() {
       let height = Number(result.height) > 0 && shield !== "pending" ? String(result.height) : "";
       let success = result.code === 0 && height !== "";
       setOutcome({ txhash, code: height ? code : "", height, shield });
-      if (!height) setVerdict({ title: "Broadcast, waiting for a block", detail: "QoreX broadcast the transaction. Checking QoreChain Diana for the block result." });
+      if (!height) setVerdict({ title: "Broadcast, waiting for a block", detail: `QoreX broadcast the transaction. Checking ${network.label} for the block result.` });
       for (let attempt = 0; attempt < 15 && !height; attempt += 1) {
         await wait(2_000);
         try {
@@ -147,7 +156,7 @@ export function SigningProbe() {
 
       if (success) {
         setVerdict({
-          title: "Diana accepted the QoreX post-quantum transaction",
+          title: `${network.label} accepted the QoreX post-quantum transaction`,
           detail: `QoreX built, signed and broadcast a 0.000001 QOR transfer to your own address, and it landed in a block with code 0. The wallet path works, and so does the bank transfer ${BRAND.name} uses for its interface fee. Only the network fee was spent.`,
         });
       } else if (height) {
@@ -162,7 +171,7 @@ export function SigningProbe() {
         });
       }
     } catch {
-      record("The probe stopped unexpectedly. Make sure QoreX is unlocked and set to QoreChain Diana.", "failed");
+      record(`The probe stopped unexpectedly. Make sure QoreX is unlocked and set to ${network.label}.`, "failed");
     } finally {
       setRunning(false);
     }
@@ -176,7 +185,7 @@ export function SigningProbe() {
           <div>
             <span className="kicker">Development only</span>
             <h1>Native signing probe</h1>
-            <p>Asks QoreX to approve, sign and broadcast a 0.000001 QOR transfer from your wallet to itself on QoreChain Diana. No pool is needed and no funds leave your wallet except the network fee (about 0.03 QOR). QoreX must be set to QoreChain Diana: tap the version number at the bottom of QoreX 7 times to turn on Developer mode, then choose Switch to testnet (diana).</p>
+            <p>Asks QoreX to approve, sign and broadcast a 0.000001 QOR transfer from your wallet to itself on {pageNetwork?.label ?? "the configured network"}. No pool is needed and no funds leave your wallet except the network fee (about 0.03 QOR). {pageNetwork?.id === "mainnet" ? "This spends real QOR. QoreX must be on mainnet: in QoreX Settings, Use testnet (developers) must be off." : "QoreX must be set to QoreChain Diana: tap the version number at the bottom of QoreX 7 times to turn on Developer mode, then choose Switch to testnet (diana)."}</p>
           </div>
           <button type="button" className="btn btn-primary" onClick={() => void runProbe()} disabled={running}>{running ? "Running…" : "Run probe"}</button>
         </section>
@@ -196,7 +205,7 @@ export function SigningProbe() {
               <div><span>Block height</span><b>{outcome.height || "Not yet included"}</b></div>
               {SHIELD_COPY[outcome.shield] && <div><span>Post-quantum layer</span><b>{SHIELD_COPY[outcome.shield]}</b></div>}
             </div>}
-            {outcome && <a className="btn btn-ghost btn-sm" style={{ justifySelf: "start" }} href={`https://explore.qore.network/tx/${outcome.txhash}`} target="_blank" rel="noreferrer">Open in explorer</a>}
+            {outcome && <a className="btn btn-ghost btn-sm" style={{ justifySelf: "start" }} href={explorerTxUrl(outcome.txhash)} target="_blank" rel="noreferrer">Open in explorer</a>}
           </div>
         </section>}
       </div>

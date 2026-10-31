@@ -1,35 +1,29 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { withAssetOverrides } from "../lib/qwakk-assets";
+import type { QuoteMarket } from "../lib/qwakk-market-view";
 
-export type Market = {
+export type Market = QuoteMarket & {
   id: string | number;
   pool_type: string;
   status: string;
-  token_a: string;
-  token_b: string;
   token_a_symbol: string;
   token_b_symbol: string;
-  token_a_decimals: string | number;
-  token_b_decimals: string | number;
+  /** Null when the indexer does not know the token's decimals. */
+  token_a_decimals: string | number | null;
+  token_b_decimals: string | number | null;
   reserve_a: string;
   reserve_b: string;
   transactions_24h: string | number;
   volume_qor_24h: string | number | null;
-  price_b_per_a: string | number | null;
-  price_24h_ago: string | number | null;
+  decimals_known?: boolean | null;
 };
 
 export type MarketsState = { markets: Market[]; state: "loading" | "ready" | "unavailable" };
 
-/** 24h price change in percent, or null when either price is missing. */
-export function marketChange(market: Market) {
-  const current = Number(market.price_b_per_a);
-  const previous = Number(market.price_24h_ago);
-  if (market.price_b_per_a === null || market.price_24h_ago === null) return null;
-  if (!Number.isFinite(current) || !Number.isFinite(previous) || previous === 0) return null;
-  return ((current - previous) / previous) * 100;
-}
+/** Prices, change and volume are read in quote per base (lib/qwakk-market-view.ts). */
+export { marketChange } from "../lib/qwakk-market-view";
 
 export function formatDecimal(value: string | number | null | undefined, digits = 6) {
   const number = Number(value);
@@ -42,7 +36,7 @@ export function formatPercentChange(value: number | null) {
   return `${value >= 0 ? "▲" : "▼"} ${formatDecimal(Math.abs(value), 2)}%`;
 }
 
-/** Indexed native AMM pools on QoreChain Diana, refreshed on an interval and after confirmed actions. */
+/** Indexed native AMM pools on the configured network, refreshed on an interval and after confirmed actions. */
 export function useMarkets(refreshMs = 15_000): MarketsState {
   const [result, setResult] = useState<MarketsState>({ markets: [], state: "loading" });
 
@@ -53,7 +47,8 @@ export function useMarkets(refreshMs = 15_000): MarketsState {
         const response = await fetch("/api/markets", { cache: "no-store" });
         if (!response.ok) throw new Error("Market data unavailable");
         const data = await response.json() as { markets?: Market[] };
-        if (active) setResult({ markets: Array.isArray(data.markets) ? data.markets : [], state: "ready" });
+        // Curated symbols and decimals win over the indexed token record.
+        if (active) setResult({ markets: Array.isArray(data.markets) ? data.markets.map(withAssetOverrides) : [], state: "ready" });
       } catch {
         if (active) setResult((current) => current.state === "ready" ? current : { markets: [], state: "unavailable" });
       }

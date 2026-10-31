@@ -3,16 +3,18 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeftRight, BookOpen, Compass, House, Layers, Plus, Search, Trophy, Wallet } from "lucide-react";
+import { ArrowLeftRight, BookOpen, Compass, House, Layers, LogOut, Plus, Search, Trophy, Wallet } from "lucide-react";
 import { BRAND } from "../lib/brand";
 import { CONSENT_EVENT, hasConsent } from "../lib/legal";
 import { quack } from "../lib/quack";
-import { QORECHAIN_DIANA } from "../lib/qorex-native";
 import { POINTS_NAV_LABEL } from "../lib/qwakk-points-copy";
-import { QOREX_NETWORK_COPY } from "../lib/qwakk-tx-copy";
+import { readQoreXSigner } from "../lib/qorex-native";
+import { NETWORK_UNKNOWN_COPY, QOREX_PENDING_COPY, qorexNetworkCopy, type CopyNetwork } from "../lib/qwakk-tx-copy";
+import { storeWalletAddress } from "../lib/qwakk-wallet-session";
 import { BrandMark } from "./BrandMark";
 import { LiveTicker } from "./LiveTicker";
-import { useFeatures } from "./useFeatures";
+import { loadFeatures, useFeatures } from "./useFeatures";
+import { useWalletSession } from "./useWalletSession";
 
 type Page = "home" | "swap" | "pools" | "points" | "profile" | "fees" | "legal";
 
@@ -32,26 +34,27 @@ export const SEARCH_EVENT = "qwakk:search";
 /** Opens the pool creation form when the pools page is already showing. */
 export const CREATE_EVENT = "qwakk:request-create";
 
-function walletConnectionMessage(error: unknown) {
+function walletConnectionMessage(error: unknown, network: CopyNetwork) {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
   if (message.includes("lock") || message.includes("unlock") || message.includes("vault")) {
     return "QoreX is locked. Open the QoreX extension from your browser toolbar, unlock it, then try again.";
   }
-  if (message.includes("active network") || message.includes("unsupported chain")) return QOREX_NETWORK_COPY;
+  if (message.includes("active network") || message.includes("unsupported chain")) return qorexNetworkCopy(network);
   if (message.includes("reject") || message.includes("denied")) {
     return "Wallet connection was not approved. Try again whenever you are ready.";
   }
+  if (message.includes("already waiting") || message.includes("requests are waiting")) return QOREX_PENDING_COPY;
   return "QoreX could not complete the connection. Make sure it is unlocked, then try again.";
 }
 
 export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (address: string) => void; page?: Page }) {
   const router = useRouter();
   const searchInput = useRef<HTMLInputElement>(null);
-  const [walletAddress, setWalletAddress] = useState("");
+  const { address: walletAddress, disconnect } = useWalletSession();
   const [isConnecting, setIsConnecting] = useState(false);
   const [notice, setNotice] = useState("");
   const [needsQoreX, setNeedsQoreX] = useState(false);
-  const { nativeActions, points } = useFeatures();
+  const { actions, points, network } = useFeatures();
   const [quacking, setQuacking] = useState(false);
 
   // Easter egg: the duck says "wak wak" and shakes its head.
@@ -60,13 +63,6 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
     setQuacking(true);
     window.setTimeout(() => setQuacking(false), 520);
   }
-
-  useEffect(() => {
-    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qwakk-wallet-address") ?? "");
-    restoreWallet();
-    window.addEventListener("qwakk:wallet-change", restoreWallet);
-    return () => window.removeEventListener("qwakk:wallet-change", restoreWallet);
-  }, []);
 
   // Other components ask the header to connect, so there is one connect flow.
   useEffect(() => {
@@ -108,18 +104,30 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
     setIsConnecting(true);
     setNeedsQoreX(false);
     try {
-      await nativeWallet.enable(QORECHAIN_DIANA);
-      const key = await nativeWallet.getKey(QORECHAIN_DIANA);
-      window.localStorage.setItem("qwakk-wallet-address", key.bech32Address);
-      window.dispatchEvent(new Event("qwakk:wallet-change"));
-      setWalletAddress(key.bech32Address);
-      onConnected?.(key.bech32Address);
-      setNotice("Wallet connected. Your portfolio is ready.");
-    } catch (error) {
-      setNotice(walletConnectionMessage(error));
+      // QoreX is asked for the server's configured network, never a constant.
+      const target = (await loadFeatures())?.network;
+      if (!target) {
+        setNotice(NETWORK_UNKNOWN_COPY);
+        return;
+      }
+      try {
+        // One call: getKey connects the site if needed and never opens a window while QoreX is locked.
+        const address = await readQoreXSigner(nativeWallet, target.chainId);
+        storeWalletAddress(address);
+        onConnected?.(address);
+        setNotice("Wallet connected. Your portfolio is ready.");
+      } catch (error) {
+        setNotice(walletConnectionMessage(error, target));
+      }
     } finally {
       setIsConnecting(false);
     }
+  }
+
+  function disconnectWallet() {
+    disconnect();
+    setNeedsQoreX(false);
+    setNotice("Wallet disconnected. QoreX still lists this site until you remove it there.");
   }
 
   function openCreate(event: React.MouseEvent) {
@@ -149,7 +157,7 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
           <Icon size={20} strokeWidth={2} aria-hidden="true" />
           <span className="rail-label">{label}</span>
         </Link>)}
-        {nativeActions && <Link className="rail-create" href="/pools?create=1" aria-label="Create a pool" onClick={openCreate}><Plus size={20} strokeWidth={2.4} aria-hidden="true" /><span className="rail-label">New pool</span></Link>}
+        {actions.create_pool && <Link className="rail-create" href="/pools?create=1" aria-label="Create a pool" onClick={openCreate}><Plus size={20} strokeWidth={2.4} aria-hidden="true" /><span className="rail-label">New pool</span></Link>}
       </div>
       <div className="rail-foot">
         <a className="rail-link" href="https://docs.qorechain.io/" target="_blank" rel="noreferrer"><BookOpen size={18} aria-hidden="true" /><span className="rail-label">Docs</span></a>
@@ -165,9 +173,10 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
           <kbd>⌘K</kbd>
         </form>
         <div className="topbar-actions">
-          <span className="network-pill"><i className="live-dot" aria-hidden="true" /><span>QoreChain Diana</span></span>
-          {nativeActions && <Link className="icon-btn" href="/pools?create=1" aria-label="Create a pool" onClick={openCreate}><Plus size={18} /></Link>}
+          {network && <span className="network-pill"><i className="live-dot" aria-hidden="true" /><span>{network.label}</span></span>}
+          {actions.create_pool && <Link className="icon-btn" href="/pools?create=1" aria-label="Create a pool" onClick={openCreate}><Plus size={18} /></Link>}
           <button type="button" className={`btn ${walletAddress ? "btn-ghost" : "btn-primary"}`} onClick={() => void connectWallet()} disabled={isConnecting}>{walletAddress && <Wallet size={15} />}{walletLabel}</button>
+          {walletAddress && <button type="button" className="icon-btn icon-btn-keep" onClick={disconnectWallet} aria-label="Disconnect wallet" title="Disconnect wallet"><LogOut size={16} /></button>}
         </div>
       </div>
       <LiveTicker />

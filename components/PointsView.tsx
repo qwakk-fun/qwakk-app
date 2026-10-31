@@ -123,7 +123,8 @@ function Faq() {
 /** The testnet points leaderboard, with the rules and FAQ under it. */
 export function PointsView() {
   const wallet = useConnectedWallet();
-  const { nativeActions } = useFeatures();
+  // The empty state points people to a swap, so it follows the swap switch.
+  const nativeActions = useFeatures().actions.swap;
   const now = usePointsClock();
   const [page, setPage] = useState(1);
   const [board, setBoard] = useState<Board>({ status: "loading", data: null });

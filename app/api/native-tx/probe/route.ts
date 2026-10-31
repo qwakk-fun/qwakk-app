@@ -1,9 +1,10 @@
 import { bank } from "@qorechain/sdk";
 
 import { BRAND } from "@/lib/brand";
-import { QORECHAIN_CHAIN_ID } from "@/lib/qorechain-endpoints";
+import { checkChainId } from "@/lib/qwakk-chain-guard";
 import { encodeAsAny, prepareWalletTx } from "@/lib/qwakk-native-tx";
-import { SIMULATION_FAILURE_COPY } from "@/lib/qwakk-tx-copy";
+import { getQwakkNetwork } from "@/lib/qwakk-network";
+import { PREPARE_GUARD_COPY, SIMULATION_FAILURE_COPY, networkCopy } from "@/lib/qwakk-tx-copy";
 
 const PROBE_MEMO = `${BRAND.name} signing probe`;
 
@@ -25,13 +26,18 @@ export async function POST(request: Request) {
   const address = typeof input?.address === "string" ? input.address.trim() : "";
   if (!/^qor1[0-9a-z]{20,}$/i.test(address)) return json({ error: "A valid QoreChain address is required" }, 400);
 
+  const network = getQwakkNetwork();
+  const chain = await checkChainId();
+  if (chain.state === "mismatch") return json({ error: networkCopy(PREPARE_GUARD_COPY.wrong_network, network), failure: "wrong_network" }, 503);
+  if (chain.state === "unreachable") return json({ error: networkCopy(PREPARE_GUARD_COPY.unreachable, network), failure: "unreachable" }, 502);
+
   const encoded = encodeAsAny([bank.send({ fromAddress: address, toAddress: address, amount: [{ denom: "uqor", amount: "1" }] })]);
   try {
-    const outcome = await prepareWalletTx({ address, chainId: QORECHAIN_CHAIN_ID, encoded, memo: PROBE_MEMO });
-    if (!outcome.ok && outcome.reason === "unfunded") return json({ error: "Fund this wallet with test QOR before running the probe" }, 400);
-    if (!outcome.ok) return json({ error: SIMULATION_FAILURE_COPY[outcome.failure], failure: outcome.failure }, 422);
+    const outcome = await prepareWalletTx({ address, chainId: network.chainId, encoded, memo: PROBE_MEMO });
+    if (!outcome.ok && outcome.reason === "unfunded") return json({ error: network.id === "mainnet" ? "Fund this wallet with QOR before running the probe" : "Fund this wallet with test QOR before running the probe" }, 400);
+    if (!outcome.ok) return json({ error: networkCopy(SIMULATION_FAILURE_COPY[outcome.failure], network), failure: outcome.failure }, 422);
     return json(outcome.prepared);
   } catch {
-    return json({ error: "QoreChain Diana could not be reached. Try again shortly." }, 502);
+    return json({ error: networkCopy(PREPARE_GUARD_COPY.unreachable, network), failure: "unreachable" }, 502);
   }
 }
