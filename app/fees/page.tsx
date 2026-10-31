@@ -4,7 +4,7 @@ import { SiteFooter } from "../../components/SiteFooter";
 import { BRAND } from "../../lib/brand";
 import { getServerQwakkFeeConfig } from "../../lib/qwakk-fee-config";
 import { MAX_QWAKK_INTERFACE_FEE_BPS } from "../../lib/qwakk-swap-route";
-import { QORECHAIN_REST_URL } from "../../lib/qorechain-endpoints";
+import { QORECHAIN_NETWORK, QORECHAIN_REST_URL } from "../../lib/qorechain-endpoints";
 
 export const metadata = {
   title: `Fees | ${BRAND.name}`,
@@ -15,16 +15,23 @@ function percent(bps: number) {
   return `${(bps / 100).toFixed(2)}%`;
 }
 
-/** The native AMM's swap fee, read live from QoreChain. Null when the chain cannot be reached. */
-async function poolFeeBps() {
+/**
+ * The native AMM's swap fee (bps) and pool creation fee (uqor), read live from
+ * QoreChain. Each is null when the chain cannot be reached or the value is not
+ * a whole number.
+ */
+async function ammFees(): Promise<{ swapFeeBps: number | null; poolCreationFeeUqor: number | null }> {
+  const wholeOrNull = (raw: unknown) => {
+    const value = Number(raw);
+    return typeof raw !== "boolean" && raw !== null && raw !== "" && Number.isInteger(value) && value >= 0 ? value : null;
+  };
   try {
     const response = await fetch(`${QORECHAIN_REST_URL}/qorechain/amm/v1/params`, { cache: "no-store", signal: AbortSignal.timeout(4_000) });
-    if (!response.ok) return null;
-    const data = await response.json() as { params?: { swap_fee_bps?: number | string } };
-    const value = Number(data.params?.swap_fee_bps);
-    return Number.isInteger(value) && value >= 0 ? value : null;
+    if (!response.ok) return { swapFeeBps: null, poolCreationFeeUqor: null };
+    const data = await response.json() as { params?: { swap_fee_bps?: number | string; pool_creation_fee?: number | string } };
+    return { swapFeeBps: wholeOrNull(data.params?.swap_fee_bps), poolCreationFeeUqor: wholeOrNull(data.params?.pool_creation_fee) };
   } catch {
-    return null;
+    return { swapFeeBps: null, poolCreationFeeUqor: null };
   }
 }
 
@@ -32,7 +39,8 @@ const EXAMPLE_QOR = 1_000;
 
 export default async function FeesPage() {
   const fee = getServerQwakkFeeConfig();
-  const poolBps = await poolFeeBps();
+  const { swapFeeBps: poolBps, poolCreationFeeUqor } = await ammFees();
+  const testnet = QORECHAIN_NETWORK.id === "testnet";
   const cap = percent(MAX_QWAKK_INTERFACE_FEE_BPS);
   const interfacePct = percent(fee.feeBps);
   const exampleInterface = fee.enabled ? (EXAMPLE_QOR * fee.feeBps) / 10_000 : 0;
@@ -47,7 +55,7 @@ export default async function FeesPage() {
           <div>
             <span className="kicker">Pricing</span>
             <h1>Fees</h1>
-            <p>Every swap shows its full cost before you approve it in QoreX. No hidden spread, no surprises.</p>
+            <p>{BRAND.name} shows the full cost of every swap before you approve it in QoreX. No hidden spread, no surprises.</p>
           </div>
         </section>
 
@@ -65,7 +73,7 @@ export default async function FeesPage() {
             <h3>Interface fee</h3>
             <strong className="num">{fee.enabled ? interfacePct : "None today"}</strong>
             <p>{fee.enabled
-              ? `Taken from the amount you pay and sent to the public ${BRAND.name} treasury in the same transaction. Listed on every quote before you sign.`
+              ? `Taken from the amount you pay and sent to the public ${BRAND.name} treasury as a separate transfer inside your swap transaction. Listed on every quote before you sign. QoreX may show the transfer without the amount.`
               : `${BRAND.name} charges no interface fee right now. Once it is switched on it will be ${interfacePct} of the amount you pay, listed on every quote before you sign.`}</p>
             {fee.enabled && <p className="fee-address"><span>Treasury</span><code>{fee.recipient}</code></p>}
           </article>
@@ -80,6 +88,9 @@ export default async function FeesPage() {
             <h3>Network fee</h3>
             <strong>Paid in QOR</strong>
             <p>A small QoreChain transaction fee that goes to the network. QoreX shows the exact amount before you approve.</p>
+            <p>{poolCreationFeeUqor === null
+              ? `Creating a pool also costs a one-time pool creation fee, set by QoreChain and never paid to ${BRAND.name}. The amount is shown before you sign.`
+              : `Creating a pool also costs a one-time ${qor(poolCreationFeeUqor / 1_000_000)} pool creation fee, set by QoreChain and never paid to ${BRAND.name}.`}</p>
           </article>
         </section>
 
@@ -91,7 +102,7 @@ export default async function FeesPage() {
               <div><span>Pool fee</span><b className="num">{examplePool === null ? "Shown on the quote" : `About ${qor(examplePool)}`}</b></div>
               <div><span>Network fee</span><b>Shown in QoreX</b></div>
             </div>
-            <p className="panel-note">The pool fee applies to the amount that reaches the pool, after the interface fee.</p>
+            <p className="panel-note">The pool fee applies to the amount that reaches the pool, after the interface fee.{testnet && ` On ${QORECHAIN_NETWORK.label}, every fee is paid in test tokens with no value.`}</p>
           </section>
           <section className="panel fee-note" aria-labelledby="protection-title">
             <div className="panel-head"><span className="panel-title" id="protection-title"><Gauge size={16} />Price protection is not a fee</span></div>

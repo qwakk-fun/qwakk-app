@@ -2,8 +2,8 @@
  * Version of the Terms, Privacy Policy and Risk Disclosure. Bump it whenever
  * any of them changes materially: every visitor is asked to accept again.
  */
-export const LEGAL_VERSION = "2026-10-10";
-export const LEGAL_UPDATED = "October 10, 2026";
+export const LEGAL_VERSION = "2026-10-31";
+export const LEGAL_UPDATED = "October 31, 2026";
 
 export const CONSENT_KEY = "qwakk-legal-consent";
 /** Asks the consent dialog to open, for example before a wallet connects. */

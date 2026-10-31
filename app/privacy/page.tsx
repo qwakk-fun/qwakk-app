@@ -26,11 +26,11 @@ export default function PrivacyPage() {
     </section>
     <section>
       <h2>What our servers see</h2>
-      <p>When the app loads balances, positions or activity, it sends your public wallet address to our server, which reads the matching public data from QoreChain. Our hosting may also keep standard server logs, such as IP address, time and the page requested, for security and troubleshooting, for a limited period.</p>
+      <p>When the app loads balances, positions, activity or points, it sends your public wallet address to our server, which reads the matching public data from QoreChain. Our hosting may also keep standard server logs, such as IP address, time and the page requested, for security and troubleshooting, for a limited period.</p>
     </section>
     <section>
       <h2>Public blockchain data</h2>
-      <p>Wallet addresses, balances and transactions on QoreChain are public by design and visible to anyone. {name} only reads them. We cannot change or delete anything recorded on the blockchain.</p>
+      <p>Wallet addresses, balances and transactions on QoreChain are public by design and visible to anyone. {name} only reads them. Our indexer copies public pool activity from QoreChain, including the wallet addresses involved, into our own database to show charts, activity and, while the points program runs, a public leaderboard that lists wallet addresses with their points. We cannot change or delete anything recorded on the blockchain.</p>
     </section>
     <section>
       <h2>Third parties</h2>
