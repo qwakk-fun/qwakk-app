@@ -9,7 +9,10 @@ export async function GET(request: Request) {
   }
 
   try {
-    const response = await fetch(`${QORECHAIN_REST_URL}/cosmos/bank/v1beta1/balances/${encodeURIComponent(address)}`, { cache: "no-store" });
+    const response = await fetch(`${QORECHAIN_REST_URL}/cosmos/bank/v1beta1/balances/${encodeURIComponent(address)}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    });
     if (!response.ok) throw new Error("Balance query failed");
     const data = await response.json();
     return Response.json(

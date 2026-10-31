@@ -1,4 +1,5 @@
 import { indexerRead } from "../../../lib/qwakk-market";
+import { cachedJsonResponse, createServerCache, type CachedJson } from "../../../lib/qwakk-server-cache";
 
 type MarketRow = {
   id: string | number;
@@ -25,17 +26,26 @@ type SwapRow = {
 const POOL_LIMIT = 8;
 const SWAP_LIMIT = 60;
 
-function json(body: unknown, status = 200) {
-  return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
-}
+/**
+ * The live ticker polls this on every page and each call makes up to nine
+ * indexer reads, so the merged feed is shared for a few seconds.
+ */
+const activityCache = createServerCache<CachedJson>({
+  maxEntries: 1,
+  ttlMs: (result) => (result.status === 200 ? 5_000 : 2_000),
+});
 
 /**
  * Recent swaps across the busiest QoreChain Diana pools, newest first. The
  * indexer serves swaps per pool, so this merges them for the live feed.
  */
 export async function GET() {
+  return cachedJsonResponse(await activityCache("activity", readActivity));
+}
+
+async function readActivity(): Promise<CachedJson> {
   const data = await indexerRead("/markets") as { markets?: MarketRow[] } | null;
-  if (!data) return json({ error: "Activity is temporarily unavailable" }, 503);
+  if (!data) return { status: 503, body: { error: "Activity is temporarily unavailable" } };
   const markets = (Array.isArray(data.markets) ? data.markets : [])
     .filter((market) => /^\d+$/.test(String(market.id)))
     .sort((a, b) => (Number(b.transactions_24h) || 0) - (Number(a.transactions_24h) || 0))
@@ -63,5 +73,5 @@ export async function GET() {
     }));
   });
   swaps.sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime());
-  return json({ swaps: swaps.slice(0, SWAP_LIMIT) });
+  return { status: 200, body: { swaps: swaps.slice(0, SWAP_LIMIT) } };
 }

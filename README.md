@@ -35,10 +35,14 @@ What is blocking trading (checked on 2026-10-12):
 
 - The native AMM keeper is live on Diana: a simulated `MsgCreatePool` fails on
   balances instead of "not implemented". No pool exists yet.
-- Diana only has `uqor` in bank supply, so no pool can be opened. There is no
-  token factory, ERC20 registration is permissioned
-  (`permissionless_registration: false`), there are no IBC channels and every
-  bridge is `pending`. QoreChain has been asked for a test denom.
+- Update 2026-10-31: Diana now has test tokens next to `uqor`. Qwakk's asset
+  registry (`lib/qwakk-assets.ts`) lists them with their exact, case-sensitive
+  denoms: fUSD (6 decimals), fETH (18), fBTC (8), each an `erc20:0x...` denom,
+  and ATOM (`ibc/27394FB...`, shown with 6 decimals because its chain metadata
+  only lists `uatom`). Other denoms are read from bank metadata through
+  `/api/native/assets`. When a token's decimals cannot be confirmed, amount
+  entry for it is blocked instead of guessed. Pool 1 (fETH/QOR) exists with dust
+  reserves. A keyless simulation of a QOR to fETH swap on it succeeded.
 - QoreX 0.3.5 refuses bare classical `signDirect` on QoreChain networks. Qwakk
   now uses QoreX `signAndBroadcast`, where the wallet adds the post-quantum
   layer. This path is built but not yet verified end to end on Diana: run the
@@ -99,14 +103,19 @@ npm run lint
 npm run typecheck
 ```
 
-To run the full local stack:
+To run the full local stack (testnet by default):
 
 ```bash
 docker compose up --build
 ```
 
 The web application is available on port `3001`, the indexer on port `4400`
-and PostgreSQL on port `5438`.
+and PostgreSQL on port `5438`. For a separate mainnet stack, add
+`--env-file deploy/compose.mainnet.env` (ports `3101`, `4500` and `5439`).
+
+GitHub Actions (`.github/workflows/ci.yml`) runs `npm ci`, lint, typecheck and
+`npm test` on pushes to `main` and on pull requests, and builds the production
+Docker image.
 
 ## Architecture
 
@@ -121,45 +130,94 @@ indexer and queries Diana server-side for live account and quote data.
 
 ## CapRover deployment
 
-Create three CapRover apps. Suggested names below are also used by CapRover's
-internal service discovery.
+Each network is its own deployment of three CapRover apps: PostgreSQL, the
+indexer and the web app. Testnet and mainnet never share an app, a database or
+a treasury address. All six apps deploy the same repository and the same
+`captain-definition`; environment variables pick the role and the network.
+
+| Role | Testnet app | Mainnet app | Container HTTP port |
+| --- | --- | --- | --- |
+| PostgreSQL | `qwakk-postgres` | `qwakk-mainnet-postgres` | 5432 (private) |
+| Indexer | `qwakk-indexer` | `qwakk-mainnet-indexer` | 4400 (private) |
+| Web | `qwakk-web` | `qwakk-mainnet-web` | 3000 (public, HTTPS) |
+
+The names are suggestions and also become CapRover's internal hostnames
+(`srv-captain--<app-name>`). Only the web apps get a public domain. Do not
+enable "Expose as web app" or port mappings on PostgreSQL or the indexer, and
+never map the web container port to the host: the rate limiter trusts the
+client IP that CapRover's nginx adds (see "Rate limits and client IPs").
+
+### Environment per network
+
+`QWAKK_NETWORK` selects the chain preset on both the web app and the indexer.
+The public QoreChain endpoints come from that preset
+(`lib/qwakk-network.ts`), so `QORECHAIN_REST_URL`, `QORECHAIN_RPC_URL` and
+`QORECHAIN_EVM_RPC_URL` are optional overrides for a private node. Do not set
+them to an empty value. The full list with comments is in `.env.example`.
+
+| Variable | Web | Indexer | Testnet | Mainnet |
+| --- | --- | --- | --- | --- |
+| `QWAKK_PROCESS_ROLE` | `web` | `indexer` | | |
+| `QWAKK_NETWORK` | yes | yes | `testnet` | `mainnet` |
+| `DATABASE_URL` | | yes | testnet database | mainnet database |
+| `QWAKK_INDEXER_URL` | yes | | `http://srv-captain--qwakk-indexer:4400` | `http://srv-captain--qwakk-mainnet-indexer:4400` |
+| `QWAKK_INDEXER_PORT` | | yes | `4400` | `4400` |
+| `QWAKK_INDEXER_START_HEIGHT` | | optional | a block the node still keeps (Diana prunes, about six days) | any block (mainnet keeps all) |
+| `QWAKK_TREASURY_ADDRESS` | yes | yes (excluded from points) | testnet treasury (pending) | mainnet treasury, owner decides |
+| `QWAKK_SWAP_FEE_BPS` | yes | | `10` (fee on) | owner decides |
+| `QWAKK_POINTS_ENABLED` | yes | yes | `enabled` | owner decides |
+| `QWAKK_NATIVE_ACTIONS` | yes | | per launch checklist | owner decides |
+| `QWAKK_BLOCKED_POOL_IDS`, `QWAKK_BLOCKED_DENOMS` | yes | | empty unless pausing | empty unless pausing |
+| `QWAKK_HEALTH_MAX_INDEXER_LAG` | optional | | `600` default | `600` default |
+| `QWAKK_SITE_URL` | yes | | the testnet web domain | the mainnet web domain |
+| `COINGECKO_API_KEY` | optional | | | |
+| `QWAKK_RATE_LIMIT`, `QWAKK_TRUSTED_PROXY_HOPS` | optional | | defaults | defaults |
+| `PORT` | `3000` | | | |
+
+Owner decisions for the testnet launch: the interface fee is on
+(`QWAKK_SWAP_FEE_BPS=10` plus a valid public `QWAKK_TREASURY_ADDRESS`; without
+a valid address the fee stays off) and points are on
+(`QWAKK_POINTS_ENABLED=enabled` on both testnet apps). Mainnet values are
+decided separately.
+
+`QWAKK_SWAP_FEE_BPS` must be a whole number from 0 to 30 (0.30%, the limit
+promised on the public `/fees` page); any other value turns the fee off, and so
+does a missing or invalid treasury address.
 
 ### 1. PostgreSQL
 
-Create a one-click PostgreSQL app named `qwakk-postgres` with a persistent
-volume. Create a strong password and keep the database private to the CapRover
-network.
-
-Recommended database values:
+Create a one-click PostgreSQL 16 app per network (`qwakk-postgres`,
+`qwakk-mainnet-postgres`) with a persistent volume. Give each its own strong
+password and keep it private to the CapRover network.
 
 ```text
 POSTGRES_DB=qwakk
 POSTGRES_USER=qwakk
-POSTGRES_PASSWORD=<strong-password>
+POSTGRES_PASSWORD=<strong-password, different per network>
 ```
 
 ### 2. Indexer
 
-Create `qwakk-indexer`, deploy this repository and set its container HTTP port
-to `4400`. Configure:
+Create `qwakk-indexer` (and `qwakk-mainnet-indexer`), deploy this repository
+and set the container HTTP port to `4400`. Testnet example:
 
 ```text
 QWAKK_PROCESS_ROLE=indexer
+QWAKK_NETWORK=testnet
 DATABASE_URL=postgresql://qwakk:<url-encoded-password>@srv-captain--qwakk-postgres:5432/qwakk
-QORECHAIN_REST_URL=https://api-testnet.qore.host
-QORECHAIN_RPC_URL=https://rpc-testnet.qore.host
 QWAKK_INDEXER_PORT=4400
 # Optional: first block to index on a fresh database. It must still be kept by
 # the node. Without it the indexer starts from the current height.
 QWAKK_INDEXER_START_HEIGHT=
-# Testnet points. Leave unset until the program works end to end; set it on
-# the web app too. LP snapshots and scoring run either way.
-QWAKK_POINTS_ENABLED=
+QWAKK_POINTS_ENABLED=enabled
+QWAKK_TREASURY_ADDRESS=<public-testnet-qor-address>
 # Owner and test wallets kept off the leaderboard (comma separated qor1 addresses).
 QWAKK_POINTS_EXCLUDED_ADDRESSES=
 ```
 
-The indexer health endpoint is `/health`.
+For mainnet use `QWAKK_NETWORK=mainnet`, the mainnet database host
+`srv-captain--qwakk-mainnet-postgres` and the mainnet decisions above. The
+indexer health endpoint is `/health`.
 
 #### Points settings
 
@@ -197,39 +255,147 @@ Pools without a QOR side score 0 for now.
 
 ### 3. Web application
 
-Create `qwakk-web`, deploy the same repository and set its container HTTP port
-to `3000`. Configure:
+Create `qwakk-web` (and `qwakk-mainnet-web`), deploy the same repository, set
+the container HTTP port to `3000`, attach the domain and turn on HTTPS with
+"Force HTTPS". Testnet example:
 
 ```text
 QWAKK_PROCESS_ROLE=web
+QWAKK_NETWORK=testnet
 QWAKK_INDEXER_URL=http://srv-captain--qwakk-indexer:4400
-QORECHAIN_REST_URL=https://api-testnet.qore.host
-QORECHAIN_RPC_URL=https://rpc-testnet.qore.host
-QWAKK_TREASURY_ADDRESS=<public-qor-address>
+QWAKK_TREASURY_ADDRESS=<public-testnet-qor-address>
 QWAKK_SWAP_FEE_BPS=10
-# Leave unset until the signing probe succeeds on Diana.
+QWAKK_POINTS_ENABLED=enabled
+# Off until the launch checklist says otherwise. A comma list such as
+# swap,liquidity turns on only those actions.
 QWAKK_NATIVE_ACTIONS=
+# Emergency pause for single pools or tokens.
+QWAKK_BLOCKED_POOL_IDS=
+QWAKK_BLOCKED_DENOMS=
+QWAKK_SITE_URL=https://<testnet-web-domain>
 # Optional CoinGecko demo key for higher market data limits.
 COINGECKO_API_KEY=
-# Leave unset until the points program works end to end; must match the indexer.
-QWAKK_POINTS_ENABLED=
 PORT=3000
 ```
 
-`QWAKK_SWAP_FEE_BPS=10` means a disclosed 0.10% interface fee. The code caps it
-at 30 (0.30%), the limit promised on the public `/fees` page. If the public
-treasury address is missing or invalid, the fee route stays disabled. The web
-health endpoint is `/api/health` and reports both Diana and indexer readiness.
+Health checks:
 
-After configuring both applications, deploy the same branch to each:
+- `/api/health?shallow=1` only says the process answers. The Docker
+  `HEALTHCHECK` uses it, so a QoreChain or indexer outage never makes Swarm
+  restart the web container.
+- `/api/health` is the deep check for monitoring: the configured endpoints
+  answer with the configured chain id, the indexer answers and is at most
+  `QWAKK_HEALTH_MAX_INDEXER_LAG` blocks behind. It returns 503 otherwise.
+
+After configuring the apps of a network, deploy the same branch to each:
 
 ```bash
 caprover deploy -n <captain-machine-name> -a qwakk-indexer -b main
 caprover deploy -n <captain-machine-name> -a qwakk-web -b main
+# Mainnet
+caprover deploy -n <captain-machine-name> -a qwakk-mainnet-indexer -b main
+caprover deploy -n <captain-machine-name> -a qwakk-mainnet-web -b main
 ```
 
 The root `captain-definition` uses the production `Dockerfile`; the environment
-role selects which process starts.
+role selects which process starts. To try the mainnet stack locally:
+`docker compose --env-file deploy/compose.mainnet.env up --build` (its own
+containers, ports 3101, 4500 and 5439, and its own volume).
+
+### Rate limits and client IPs
+
+`proxy.ts` runs before every page and API route. It sets the security headers
+(a nonce based Content-Security-Policy on pages, `frame-ancestors 'none'`,
+`X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`)
+and rate limits `/api/*` per client IP with in-memory token buckets
+(`lib/qwakk-rate-limit.ts`). Over budget, a route answers 429 with a JSON
+`error` and `Retry-After`.
+
+| Bucket | Routes | Burst | Refill per minute |
+| --- | --- | --- | --- |
+| `tx-build` | `/api/native-tx/prepare`, `/api/native-tx/probe` | 10 | 12 |
+| `positions` | `/api/positions` | 5 | 4 |
+| `tx-status` | `/api/native-tx/status` | 30 | 40 |
+| `quote` | `/api/swap-quote` | 30 | 30 |
+| `chain-read` | `/api/account`, `/api/transactions`, `/api/native/*` | 40 | 60 |
+| `api` | every other `/api/*` route | 120 | 240 |
+
+`/api/health` is never limited. Network, markets and activity are also served
+from 4 to 5 second server caches, so polling them costs one upstream read per
+cache period no matter how many clients poll.
+
+The client IP is the last `X-Forwarded-For` entry, which CapRover's nginx
+appends from the TCP peer it saw (`proxy_add_x_forwarded_for`). Entries a
+client sends itself sit to the left and are ignored. If another proxy that
+appends to `X-Forwarded-For`, such as Cloudflare, is put in front of CapRover,
+set `QWAKK_TRUSTED_PROXY_HOPS=2`. `QWAKK_RATE_LIMIT=off` turns the limiter off
+in an emergency. Buckets live in one process: with several web replicas each
+replica counts on its own.
+
+Optional outer layer in CapRover's nginx (shared by all replicas, applied
+before a request reaches Node). The zones go into the http context once, in
+CapRover's base nginx configuration (Settings, NGINX Configurations, inside
+`http { ... }`), because an app's own configuration can be rendered more than
+once and a duplicate zone stops nginx from reloading:
+
+```nginx
+limit_req_zone $binary_remote_addr zone=qwakk_testnet_api:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=qwakk_testnet_tx:10m rate=20r/m;
+```
+
+Then in the web app's HTTP Settings, "Edit Default Nginx Configurations", add
+these two locations inside the main `server { ... }` block, next to the
+existing `location / { ... }` (they reuse its `$upstream` and proxy headers).
+Use `qwakk_mainnet_*` zones for the mainnet app.
+
+```nginx
+        location ~ ^/api/(native-tx/(prepare|probe)|positions)(/|$) {
+            limit_req zone=qwakk_testnet_tx burst=15 nodelay;
+            limit_req_status 429;
+            proxy_pass $upstream;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        location /api/ {
+            limit_req zone=qwakk_testnet_api burst=100 nodelay;
+            limit_req_status 429;
+            proxy_pass $upstream;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+```
+
+These limits are looser than the app's own, so the app stays the primary
+limiter and nginx only stops floods. Save during a quiet moment and check
+that the site still loads; CapRover rejects a configuration nginx cannot load.
+
+### Database backups
+
+The indexer database holds the points history and every indexed swap. Diana
+prunes old blocks after about six days, so testnet data older than that cannot
+be indexed again; mainnet can be re-indexed but slowly. CapRover's own backup
+covers its configuration, not app volumes. Recommended per network:
+
+- A nightly `pg_dump` on the server, kept for 14 days and copied off the
+  server (object storage or another machine):
+
+  ```bash
+  mkdir -p /var/backups/qwakk
+  docker exec $(docker ps -q -f name=srv-captain--qwakk-postgres) \
+    pg_dump -U qwakk -d qwakk -Fc > /var/backups/qwakk/testnet-$(date +%F).dump
+  find /var/backups/qwakk -name '*.dump' -mtime +14 -delete
+  ```
+
+  Run it from the host crontab, for example `15 3 * * *`. Repeat with
+  `srv-captain--qwakk-mainnet-postgres` and a `mainnet-` file name.
+- Before every deploy that changes `indexer/schema.sql`, take one manual dump.
+- Once a month, restore the latest dump into a scratch database with
+  `pg_restore` to prove the backups work.
 
 ## First Diana pool
 

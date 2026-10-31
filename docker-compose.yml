@@ -1,34 +1,60 @@
-# Pinned so container and volume names do not depend on the folder name.
-name: qwakk
+# Full local stack: web + indexer + PostgreSQL.
+#
+# Testnet (default, what ./dev.sh uses for its database):
+#   docker compose up --build
+# Mainnet, as a second stack with its own containers, ports and volume:
+#   docker compose --env-file deploy/compose.mainnet.env up --build
+#
+# Every value below can be overridden from the shell or an --env-file. The
+# defaults keep the original names (project "qwakk", container "qwakk-postgres",
+# ports 3001/4400/5438), so ./dev.sh keeps working unchanged.
+name: ${QWAKK_COMPOSE_PROJECT:-qwakk}
+
+x-qwakk-chain: &qwakk-chain
+  # Web and indexer both pick their public endpoints from this preset.
+  QWAKK_NETWORK: ${QWAKK_NETWORK:-testnet}
+  # Optional endpoint overrides (for example a private node). Uncomment to use;
+  # an empty value is not the same as unset for every reader.
+  # QORECHAIN_REST_URL: ${QORECHAIN_REST_URL}
+  # QORECHAIN_RPC_URL: ${QORECHAIN_RPC_URL}
+  # QORECHAIN_EVM_RPC_URL: ${QORECHAIN_EVM_RPC_URL}
 
 services:
   web:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: qwakk-web
+    container_name: ${QWAKK_COMPOSE_PROJECT:-qwakk}-web
     depends_on:
       indexer:
         condition: service_healthy
     environment:
+      <<: *qwakk-chain
       QWAKK_PROCESS_ROLE: web
       QWAKK_INDEXER_URL: http://indexer:4400
-      QORECHAIN_REST_URL: https://api-testnet.qore.host
-      QORECHAIN_RPC_URL: https://rpc-testnet.qore.host
+      QWAKK_NATIVE_ACTIONS: ${QWAKK_NATIVE_ACTIONS:-}
+      QWAKK_BLOCKED_POOL_IDS: ${QWAKK_BLOCKED_POOL_IDS:-}
+      QWAKK_BLOCKED_DENOMS: ${QWAKK_BLOCKED_DENOMS:-}
+      QWAKK_TREASURY_ADDRESS: ${QWAKK_TREASURY_ADDRESS:-}
+      QWAKK_SWAP_FEE_BPS: ${QWAKK_SWAP_FEE_BPS:-10}
+      QWAKK_POINTS_ENABLED: ${QWAKK_POINTS_ENABLED:-}
+      QWAKK_SITE_URL: ${QWAKK_SITE_URL:-}
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY:-}
       PORT: 3000
     ports:
-      - "3001:3000"
+      - "${QWAKK_WEB_HOST_PORT:-3001}:3000"
     restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
-    container_name: qwakk-postgres
+    container_name: ${QWAKK_COMPOSE_PROJECT:-qwakk}-postgres
     environment:
       POSTGRES_DB: qwakk
       POSTGRES_USER: qwakk
+      # Local only. Production databases live in CapRover with their own password.
       POSTGRES_PASSWORD: qwakk_local
     ports:
-      - "5438:5432"
+      - "${QWAKK_DB_HOST_PORT:-5438}:5432"
     volumes:
       - qwakk-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -41,24 +67,28 @@ services:
     build:
       context: .
       dockerfile: indexer/Dockerfile
-    container_name: qwakk-indexer
+    container_name: ${QWAKK_COMPOSE_PROJECT:-qwakk}-indexer
     depends_on:
       postgres:
         condition: service_healthy
     environment:
+      <<: *qwakk-chain
       QWAKK_PROCESS_ROLE: indexer
       DATABASE_URL: postgresql://qwakk:qwakk_local@postgres:5432/qwakk
-      QORECHAIN_REST_URL: https://api-testnet.qore.host
-      QORECHAIN_RPC_URL: https://rpc-testnet.qore.host
       QWAKK_INDEXER_PORT: 4400
+      QWAKK_INDEXER_START_HEIGHT: ${QWAKK_INDEXER_START_HEIGHT:-}
+      QWAKK_POINTS_ENABLED: ${QWAKK_POINTS_ENABLED:-}
+      QWAKK_TREASURY_ADDRESS: ${QWAKK_TREASURY_ADDRESS:-}
     ports:
-      - "4400:4400"
+      - "${QWAKK_INDEXER_HOST_PORT:-4400}:4400"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:4400/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:4400/livez"]
       interval: 10s
       timeout: 5s
       retries: 12
     restart: unless-stopped
 
+# The volume name is prefixed with the project name, so each network keeps its
+# own database (qwakk_qwakk-postgres-data, qwakk-mainnet_qwakk-postgres-data).
 volumes:
   qwakk-postgres-data:

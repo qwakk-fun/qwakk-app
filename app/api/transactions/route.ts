@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     const readQuery = async (query: string) => {
       const response = await fetch(
         `${QORECHAIN_REST_URL}/cosmos/tx/v1beta1/txs?${new URLSearchParams({ query, "pagination.limit": String(PAGE_SIZE), order_by: "ORDER_BY_DESC" })}`,
-        { cache: "no-store" },
+        { cache: "no-store", signal: AbortSignal.timeout(8_000) },
       );
       if (!response.ok) throw new Error("Transaction query failed");
       const data = await response.json();
