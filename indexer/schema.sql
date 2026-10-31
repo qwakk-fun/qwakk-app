@@ -184,3 +184,15 @@ CREATE TABLE IF NOT EXISTS points_pool_bonuses (
 );
 
 CREATE INDEX IF NOT EXISTS points_pool_bonuses_creator_idx ON points_pool_bonuses (season, creator);
+
+-- Volume in the pool's quote token (QOR, then fUSD, otherwise token B), display
+-- units. Rows written before this column only have volume_qor, which is the
+-- quote volume whenever it is set, so readers use COALESCE(volume_quote, volume_qor).
+ALTER TABLE candles ADD COLUMN IF NOT EXISTS volume_quote NUMERIC;
+
+-- Decimals are NULL when unknown: a token without a curated entry whose chain
+-- metadata lists only the exponent 0 base unit, or no metadata at all. Market
+-- math leaves such pools unpriced instead of guessing. Relaxing the constraint
+-- changes no stored value and is safe to repeat.
+ALTER TABLE tokens ALTER COLUMN decimals DROP NOT NULL;
+ALTER TABLE tokens ALTER COLUMN decimals DROP DEFAULT;

@@ -57,3 +57,64 @@ export async function indexBlockRange(savedHeight: number, until: number, handle
     await handlers.saveHeight(height);
   }
 }
+
+/**
+ * Where indexing can resume when the node prunes old blocks. A saved height
+ * below the node's earliest kept block can never be read again (the RPC
+ * answers "height N is not available"), so the indexer would retry it
+ * forever. The node's own status is a positive answer that those blocks are
+ * gone, so the gap is reported and indexing resumes at the earliest kept block.
+ */
+export function resumeAfterPruning(savedHeight: number, earliestHeight: number) {
+  if (!Number.isSafeInteger(earliestHeight) || earliestHeight <= 1 || savedHeight + 1 >= earliestHeight) {
+    return { savedHeight, skipped: null };
+  }
+  return { savedHeight: earliestHeight - 1, skipped: { from: savedHeight + 1, to: earliestHeight - 1 } };
+}
+
+/** Blocks behind the tip before the indexer switches from block scanning to an event search. */
+export const CATCH_UP_THRESHOLD = 300;
+/** Blocks covered by one event search. */
+export const CATCH_UP_SPAN = 20_000;
+/** The newest blocks are always scanned one by one, in case the node's tx index lags its blocks. */
+export const CATCH_UP_MARGIN = 100;
+
+/** The range to catch up through an event search, or null when block scanning is enough. */
+export function catchUpRange(savedHeight: number, currentHeight: number) {
+  if (currentHeight - savedHeight <= CATCH_UP_THRESHOLD) return null;
+  const to = Math.min(savedHeight + CATCH_UP_SPAN, currentHeight - CATCH_UP_MARGIN);
+  return to > savedHeight ? { from: savedHeight + 1, to } : null;
+}
+
+export type CatchUpHandlers = BlockRangeHandlers & {
+  /** Heights in [from, to] that hold AMM events. Throws when the search is unavailable. */
+  findHeights: (from: number, to: number) => Promise<number[]>;
+};
+
+/**
+ * Indexes only the blocks an event search found in [from, to], through the
+ * same block path as scanning, then marks the whole range as indexed. A
+ * failing block stops before its height (and the range end) is saved.
+ */
+export async function catchUpWithSearch(from: number, to: number, handlers: CatchUpHandlers) {
+  const heights = [...new Set(await handlers.findHeights(from, to))]
+    .filter((height) => Number.isSafeInteger(height) && height >= from && height <= to)
+    .sort((a, b) => a - b);
+  for (const height of heights) {
+    await handlers.processBlock(height);
+    await handlers.saveHeight(height);
+  }
+  await handlers.saveHeight(to);
+  return heights.length;
+}
+
+/**
+ * True when the event search finds a block we already know holds an AMM
+ * event. A node whose tx index does not cover amm_* events answers every
+ * search with zero results; trusting it would mark whole spans as indexed and
+ * skip their events forever. Search failures propagate to the caller.
+ */
+export async function verifyEventSearch(referenceHeight: number | null, findHeights: (from: number, to: number) => Promise<number[]>) {
+  if (referenceHeight === null || !Number.isSafeInteger(referenceHeight) || referenceHeight <= 0) return false;
+  return (await findHeights(referenceHeight, referenceHeight)).includes(referenceHeight);
+}

@@ -59,15 +59,15 @@ test("turns a day of amm_swap events into candles, 24h volume and price change",
   for (const { at, event } of fixture) {
     const swap = parseSwapEvent(eventValues(event));
     if (!swap) continue;
-    const { price, volumeQor } = swapTrade(swap, pool);
+    const { price, volumeQor, volumeQuote } = swapTrade(swap, pool);
     assert.ok(price);
-    applyTradeToCandles(candles, new Date(at), price, volumeQor);
+    applyTradeToCandles(candles, new Date(at), price, volumeQor, volumeQuote);
   }
   const byKey = (interval: string, start: string) => candles.get(`${interval}|${start}`);
 
   assert.equal([...candles.values()].filter((candle) => candle.interval === "1m").length, 3);
-  assert.deepEqual(byKey("1m", "2026-10-15T10:40:00.000Z"), { interval: "1m", startTime: "2026-10-15T10:40:00.000Z", open: "2.1", high: "2.2", low: "2.1", close: "2.2", volumeQor: "21", transactions: 2 });
-  assert.deepEqual(byKey("1h", "2026-10-15T10:00:00.000Z"), { interval: "1h", startTime: "2026-10-15T10:00:00.000Z", open: "2.1", high: "2.2", low: "2.1", close: "2.2", volumeQor: "31", transactions: 3 });
+  assert.deepEqual(byKey("1m", "2026-10-15T10:40:00.000Z"), { interval: "1m", startTime: "2026-10-15T10:40:00.000Z", open: "2.1", high: "2.2", low: "2.1", close: "2.2", volumeQor: "21", volumeQuote: "44.2", transactions: 2 });
+  assert.deepEqual(byKey("1h", "2026-10-15T10:00:00.000Z"), { interval: "1h", startTime: "2026-10-15T10:00:00.000Z", open: "2.1", high: "2.2", low: "2.1", close: "2.2", volumeQor: "31", volumeQuote: "65.2", transactions: 3 });
   assert.equal(byKey("6h", "2026-10-15T06:00:00.000Z")?.volumeQor, "31");
   assert.equal(byKey("6h", "2026-10-14T06:00:00.000Z")?.close, "2");
   assert.equal(byKey("1d", "2026-10-14T00:00:00.000Z")?.volumeQor, "100");
@@ -75,6 +75,8 @@ test("turns a day of amm_swap events into candles, 24h volume and price change",
 
   const summary = marketSummary([...candles.values()], now);
   assert.equal(summary.volumeQor24h, "31");
+  // The pool has no quote side set, so token B (TEST) is the quote: 21 + 42 + 2.2 TEST.
+  assert.equal(summary.volumeQuote24h, "65.2");
   assert.equal(summary.transactions24h, 3);
   assert.equal(summary.price, "2.2");
   assert.equal(summary.price24hAgo, "2");

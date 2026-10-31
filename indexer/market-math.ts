@@ -53,24 +53,43 @@ export function bucketStart(date: Date, seconds: number) {
 }
 
 export type SwapAmounts = { denomIn: string; amountIn: string; denomOut: string; amountOut: string };
-export type PoolTokenInfo = { tokenA: string; tokenB: string; decimalsA: number; decimalsB: number; qorDecimals?: number };
+export type QuoteSide = "a" | "b";
+export type PoolTokenInfo = { tokenA: string; tokenB: string; decimalsA: number; decimalsB: number; qorDecimals?: number; quoteSide?: QuoteSide };
 
 /**
- * Price (token A in token B) and QOR volume of one swap. The price is null
- * when the swap denoms do not match the pool; the volume is null when neither
- * side is uqor, so non-QOR pools never report a made-up QOR volume.
+ * Which token of a pair prices the other. Ranked tokens (QOR, then
+ * stable-like tokens) win; between two unranked tokens token B is the quote,
+ * so the stored price B per A already reads as quote per base.
+ */
+export function chooseQuoteSide(rankA: number | null, rankB: number | null): QuoteSide {
+  if (rankA !== null && (rankB === null || rankA < rankB)) return "a";
+  return "b";
+}
+
+/**
+ * Price (token A in token B), QOR volume and quote volume of one swap. The
+ * price is null when the swap denoms do not match the pool; the QOR volume is
+ * null when neither side is uqor, so non-QOR pools never report a made-up QOR
+ * volume. The quote volume is the quote token's side of the swap, in display units.
  */
 export function swapTrade(swap: SwapAmounts, pool: PoolTokenInfo) {
-  const price = swap.denomIn === pool.tokenA && swap.denomOut === pool.tokenB
+  const forward = swap.denomIn === pool.tokenA && swap.denomOut === pool.tokenB;
+  const reverse = swap.denomIn === pool.tokenB && swap.denomOut === pool.tokenA;
+  const price = forward
     ? priceBPerA(swap.amountIn, pool.decimalsA, swap.amountOut, pool.decimalsB)
-    : swap.denomIn === pool.tokenB && swap.denomOut === pool.tokenA
+    : reverse
       ? priceBPerA(swap.amountOut, pool.decimalsA, swap.amountIn, pool.decimalsB)
       : null;
   const qorDecimals = pool.qorDecimals ?? 6;
   const volumeQor = swap.denomIn === "uqor"
     ? toDisplayUnits(swap.amountIn, qorDecimals)
     : swap.denomOut === "uqor" ? toDisplayUnits(swap.amountOut, qorDecimals) : null;
-  return { price, volumeQor };
+  const quoteDenom = (pool.quoteSide ?? "b") === "a" ? pool.tokenA : pool.tokenB;
+  const quoteDecimals = (pool.quoteSide ?? "b") === "a" ? pool.decimalsA : pool.decimalsB;
+  const volumeQuote = !forward && !reverse
+    ? null
+    : swap.denomIn === quoteDenom ? toDisplayUnits(swap.amountIn, quoteDecimals) : toDisplayUnits(swap.amountOut, quoteDecimals);
+  return { price, volumeQor, volumeQuote };
 }
 
 function toScaled(value: string) {
@@ -97,6 +116,8 @@ export type Candle = {
   low: string;
   close: string;
   volumeQor: string | null;
+  /** Volume in the pool's quote token, display units. */
+  volumeQuote?: string | null;
   transactions: number;
 };
 
@@ -105,19 +126,21 @@ export type Candle = {
  * twin of the candle upsert in server.ts: the first trade opens a bucket,
  * later trades widen high and low, move close and add volume.
  */
-export function applyTradeToCandles(candles: Map<string, Candle>, executedAt: Date, price: string, volumeQor: string | null) {
+export function applyTradeToCandles(candles: Map<string, Candle>, executedAt: Date, price: string, volumeQor: string | null, volumeQuote: string | null = null) {
   for (const [interval, seconds] of Object.entries(CANDLE_INTERVALS)) {
     const startTime = bucketStart(executedAt, seconds).toISOString();
     const key = `${interval}|${startTime}`;
     const existing = candles.get(key);
     if (!existing) {
-      candles.set(key, { interval, startTime, open: price, high: price, low: price, close: price, volumeQor, transactions: 1 });
+      candles.set(key, { interval, startTime, open: price, high: price, low: price, close: price, volumeQor, volumeQuote, transactions: 1 });
       continue;
     }
     existing.high = compareDecimal(price, existing.high) > 0 ? price : existing.high;
     existing.low = compareDecimal(price, existing.low) < 0 ? price : existing.low;
     existing.close = price;
     existing.volumeQor = existing.volumeQor === null && volumeQor === null ? null : addDecimal(existing.volumeQor ?? "0", volumeQor ?? "0");
+    const previousQuote = existing.volumeQuote ?? null;
+    existing.volumeQuote = previousQuote === null && volumeQuote === null ? null : addDecimal(previousQuote ?? "0", volumeQuote ?? "0");
     existing.transactions += 1;
   }
   return candles;
@@ -133,11 +156,13 @@ export function marketSummary(candles: Candle[], now: Date) {
   const since = now.getTime() - 86_400_000;
   const recent = minute.filter((candle) => new Date(candle.startTime).getTime() >= since);
   const volumes = recent.map((candle) => candle.volumeQor).filter((value): value is string => value !== null);
+  const quoteVolumes = recent.map((candle) => candle.volumeQuote ?? candle.volumeQor).filter((value): value is string => value !== null);
   const earlier = minute.filter((candle) => new Date(candle.startTime).getTime() <= since);
   const price = minute.at(-1)?.close ?? null;
   const price24hAgo = earlier.at(-1)?.close ?? null;
   return {
     volumeQor24h: volumes.length ? volumes.reduce(addDecimal) : null,
+    volumeQuote24h: quoteVolumes.length ? quoteVolumes.reduce(addDecimal) : null,
     transactions24h: recent.reduce((sum, candle) => sum + candle.transactions, 0),
     price,
     price24hAgo,
@@ -154,4 +179,177 @@ export function priceChangePercent(current: string, previous: string) {
   const negative = scaled < BigInt(0);
   const text = toDecimalString(negative ? -scaled : scaled, 4);
   return `${negative ? "-" : ""}${text}`;
+}
+
+/**
+ * 1 / price, truncated to PRICE_SCALE decimals. Used to turn a stored price
+ * B per A into quote per base when token A is the quote. Null for zero.
+ */
+export function invertPrice(price: string) {
+  const scaled = toScaled(price);
+  if (scaled === BigInt(0)) return null;
+  return toDecimalString((BigInt(10) ** BigInt(2 * PRICE_SCALE)) / scaled, PRICE_SCALE);
+}
+
+/** A stored price B per A, read as quote per base. */
+export function priceInQuote(priceBPerA: string | null, quoteSide: QuoteSide) {
+  if (priceBPerA === null) return null;
+  return quoteSide === "b" ? toDecimalString(toScaled(priceBPerA), PRICE_SCALE) : invertPrice(priceBPerA);
+}
+
+export type PriceCandle = { open: string; high: string; low: string; close: string };
+
+/** A B-per-A candle read as quote per base. Inverting swaps high and low. */
+export function candleInQuote<T extends PriceCandle>(candle: T, quoteSide: QuoteSide): T | null {
+  if (quoteSide === "b") return candle;
+  const open = invertPrice(candle.open);
+  const high = invertPrice(candle.low);
+  const low = invertPrice(candle.high);
+  const close = invertPrice(candle.close);
+  if (open === null || high === null || low === null || close === null) return null;
+  return { ...candle, open, high, low, close };
+}
+
+export function multiplyDecimal(a: string, b: string) {
+  return toDecimalString((toScaled(a) * toScaled(b)) / BigInt(10) ** BigInt(PRICE_SCALE), PRICE_SCALE);
+}
+
+export type PoolReserves = {
+  poolType: string;
+  reserveA: string;
+  reserveB: string;
+  decimalsA: number;
+  decimalsB: number;
+  quoteSide: QuoteSide;
+};
+
+function sides(pool: PoolReserves) {
+  return pool.quoteSide === "b"
+    ? { base: pool.reserveA, baseDecimals: pool.decimalsA, quote: pool.reserveB, quoteDecimals: pool.decimalsB }
+    : { base: pool.reserveB, baseDecimals: pool.decimalsB, quote: pool.reserveA, quoteDecimals: pool.decimalsA };
+}
+
+/** Decimal-adjusted reserve ratio, quote per base. Null when the base reserve is empty. */
+export function spotPriceInQuote(pool: PoolReserves) {
+  const { base, baseDecimals, quote, quoteDecimals } = sides(pool);
+  if (!/^\d+$/.test(base) || !/^\d+$/.test(quote)) return null;
+  return priceBPerA(base, baseDecimals, quote, quoteDecimals);
+}
+
+/**
+ * Pool value in the quote token, display units. A constant product pool holds
+ * equal value on both sides at its spot price, so TVL is twice the quote
+ * reserve. Other curves need a traded price for the base side; without one
+ * the TVL is unknown (null).
+ */
+export function poolTvlInQuote(pool: PoolReserves, lastPriceInQuote: string | null) {
+  const { base, baseDecimals, quote, quoteDecimals } = sides(pool);
+  if (!/^\d+$/.test(base) || !/^\d+$/.test(quote) || baseDecimals > PRICE_SCALE || quoteDecimals > PRICE_SCALE) return null;
+  const quoteUnits = toDisplayUnits(quote, quoteDecimals);
+  if (pool.poolType === "constant_product") return addDecimal(quoteUnits, quoteUnits);
+  if (lastPriceInQuote === null) return null;
+  return addDecimal(quoteUnits, multiplyDecimal(toDisplayUnits(base, baseDecimals), lastPriceInQuote));
+}
+
+/**
+ * Smallest reserve, in base units, that is not dust: one millionth of a whole
+ * token, and never below the AMM's 1000 unit minimum liquidity.
+ */
+export function dustThreshold(decimals: number) {
+  assertDecimals(decimals);
+  const ten = BigInt(10);
+  const millionth = decimals > 6 ? ten ** BigInt(decimals - 6) : BigInt(1);
+  return millionth > BigInt(1000) ? millionth : BigInt(1000);
+}
+
+export type LiquidityStatus = { lowLiquidity: boolean; reason: "unknown_decimals" | "empty" | "dust_reserve" | "below_min_tvl" | null };
+
+/**
+ * Flags pools whose price cannot be trusted: an empty side, a dust reserve on
+ * either side, or a TVL under the quote token's minimum. The pool stays
+ * listed; the UI decides how to mark or hide it.
+ */
+export function liquidityStatus(pool: PoolReserves, tvlInQuote: string | null, minTvl: string | null): LiquidityStatus {
+  if (!/^\d+$/.test(pool.reserveA) || !/^\d+$/.test(pool.reserveB)) return { lowLiquidity: true, reason: "empty" };
+  const reserveA = BigInt(pool.reserveA);
+  const reserveB = BigInt(pool.reserveB);
+  if (reserveA === BigInt(0) || reserveB === BigInt(0)) return { lowLiquidity: true, reason: "empty" };
+  if (reserveA < dustThreshold(pool.decimalsA) || reserveB < dustThreshold(pool.decimalsB)) return { lowLiquidity: true, reason: "dust_reserve" };
+  if (tvlInQuote !== null && minTvl !== null && compareDecimal(tvlInQuote, minTvl) < 0) return { lowLiquidity: true, reason: "below_min_tvl" };
+  return { lowLiquidity: false, reason: null };
+}
+
+/** Market math on stored values; a value it cannot read exactly becomes null instead of failing the response. */
+function exact<T>(compute: () => T): T | null {
+  try {
+    return compute();
+  } catch {
+    return null;
+  }
+}
+
+export type PairInput = {
+  poolType: string;
+  /** Null when the token's decimals are unknown. */
+  decimalsA: number | null;
+  decimalsB: number | null;
+  reserveA: string | null;
+  reserveB: string | null;
+  /** Latest and 24h-ago trade prices as stored (token B per token A). */
+  priceBPerA: string | null;
+  price24hAgoBPerA: string | null;
+  volumeQuote24h: string | null;
+  quoteSide: QuoteSide;
+  minTvl: string | null;
+};
+
+/**
+ * Quote-oriented market figures for one pool. A pool with a token of unknown
+ * decimals is unpriced: every price, volume and TVL figure is null and it is
+ * flagged low liquidity with reason "unknown_decimals", so nothing is computed
+ * from a guessed decimal count.
+ */
+export function pairFigures(input: PairInput) {
+  if (input.decimalsA === null || input.decimalsB === null) {
+    return {
+      decimalsKnown: false,
+      priceQuote: null,
+      priceQuote24hAgo: null,
+      priceChangePercent24h: null,
+      spotPriceQuote: null,
+      spotPriceBPerA: null,
+      volumeQuote24h: null,
+      tvlQuote: null,
+      liquidity: { lowLiquidity: true, reason: "unknown_decimals" } as LiquidityStatus,
+    };
+  }
+  const reserves: PoolReserves = {
+    poolType: input.poolType,
+    reserveA: input.reserveA ?? "0",
+    reserveB: input.reserveB ?? "0",
+    decimalsA: input.decimalsA,
+    decimalsB: input.decimalsB,
+    quoteSide: input.quoteSide,
+  };
+  const priceQuote = exact(() => priceInQuote(input.priceBPerA, input.quoteSide));
+  const priceQuote24hAgo = exact(() => priceInQuote(input.price24hAgoBPerA, input.quoteSide));
+  const tvlQuote = exact(() => poolTvlInQuote(reserves, priceQuote));
+  return {
+    decimalsKnown: true,
+    priceQuote,
+    priceQuote24hAgo,
+    priceChangePercent24h: priceQuote !== null && priceQuote24hAgo !== null ? exact(() => priceChangePercent(priceQuote, priceQuote24hAgo)) : null,
+    spotPriceQuote: exact(() => spotPriceInQuote(reserves)),
+    spotPriceBPerA: exact(() => spotPriceInQuote({ ...reserves, quoteSide: "b" })),
+    volumeQuote24h: input.volumeQuote24h,
+    tvlQuote,
+    liquidity: liquidityStatus(reserves, tvlQuote, input.minTvl),
+  };
+}
+
+/** Stored decimals as read from PostgreSQL: a non-negative integer, or null when unknown. */
+export function knownDecimals(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 && number <= 36 ? number : null;
 }
