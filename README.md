@@ -440,3 +440,7 @@ past the bank step. The script header lists every option.
 - `npm run verify:amm`: check Qwakk's AMM math and messages against a live pool without signing.
 
 Native AMM reference: <https://docs.qorechain.io/architecture/amm/>
+
+## License
+
+MIT, see [LICENSE](LICENSE).
