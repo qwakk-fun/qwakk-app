@@ -91,6 +91,19 @@ test("server-renders the fees page with the interface fee cap", async () => {
   assert.doesNotMatch(html, /\u2014/);
 });
 
+test("server-renders the read-only Pond Vault page", async () => {
+  const response = await render("/vault");
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /The Pond Vault/);
+  assert.match(html, /ML-DSA-87/);
+  assert.match(html, /<title>Pond Vault \| /);
+  // Read only: no wallet prompt, no signing or sending control.
+  assert.doesNotMatch(html, /Connect wallet to continue|Confirm in QoreX|Sign approval|<button[^>]*>\s*(Withdraw|Execute|Approve)/i);
+  assert.doesNotMatch(html, /\u2014/);
+});
+
 test("points share previews at the public site, not localhost", async () => {
   const html = await (await render()).text();
   assert.match(html, /property="og:image" content="https:\/\/qwakk\.fun\/og\.png"/);

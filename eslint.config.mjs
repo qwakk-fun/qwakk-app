@@ -14,6 +14,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Foundry project: dependencies and build output. contracts/cli is linted.
+    "contracts/lib/**",
+    "contracts/out/**",
+    "contracts/cache/**",
   ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

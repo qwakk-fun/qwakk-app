@@ -16,7 +16,7 @@ import { LiveTicker } from "./LiveTicker";
 import { loadFeatures, useFeatures } from "./useFeatures";
 import { useWalletSession } from "./useWalletSession";
 
-type Page = "home" | "swap" | "pools" | "points" | "profile" | "fees" | "legal";
+type Page = "home" | "swap" | "pools" | "points" | "profile" | "fees" | "legal" | "vault";
 
 const NAV_ITEMS = [
   { page: "home", href: "/", label: "Board", icon: House },

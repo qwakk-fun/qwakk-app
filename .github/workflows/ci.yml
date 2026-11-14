@@ -46,3 +46,45 @@ jobs:
 
       # Same Dockerfile CapRover uses (captain-definition). Built, never pushed.
       - run: docker build --pull --tag qwakk-app:ci .
+
+  contracts:
+    name: Pond Vault contracts and CLI
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.9.0
+
+      # forge-std is not committed (contracts/.gitignore); pin the same tag as local.
+      - run: forge install foundry-rs/forge-std@v1.17.0 --no-git
+
+      - run: forge fmt --check
+
+      - run: forge build --sizes
+
+      # Unit tests with real ML-DSA-87 vectors, fuzz (4,096 runs) and invariants.
+      - run: forge test -vv
+        env:
+          FOUNDRY_PROFILE: ci
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: contracts/cli/package-lock.json
+
+      - run: npm ci
+        working-directory: contracts/cli
+
+      - run: npm run typecheck
+        working-directory: contracts/cli
+
+      # Encoder against the committed vectors, ABI sync with the forge artifact.
+      - run: npm test
+        working-directory: contracts/cli

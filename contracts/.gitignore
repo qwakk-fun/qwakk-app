@@ -1,0 +1,16 @@
+# Foundry
+/out/
+/cache/
+/broadcast/
+# forge-std is installed by `forge install` (see README), not committed.
+/lib/
+
+# Never commit keys, mnemonics or recovery codes.
+.env
+.env.*
+!.env.example
+
+# CLI
+/cli/node_modules/
+# Signed approvals are single use and bound to one vault, but keep them out of git.
+approval-*.json

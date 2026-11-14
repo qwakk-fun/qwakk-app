@@ -13,3 +13,5 @@ npm-debug.log*
 *.sqlite
 *.sqlite3
 .DS_Store
+# The Pond Vault contracts and CLI are not part of the web or indexer image.
+contracts

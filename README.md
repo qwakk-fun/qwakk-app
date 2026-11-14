@@ -88,6 +88,27 @@ code, block height and an explorer link. The network fee is about 0.03 QOR.
 Never add a mnemonic or private key to the repository, browser, PostgreSQL or
 CapRover. Qwakk only needs public wallet addresses.
 
+## Pond Vault (Build Before Q-Day)
+
+`contracts/` holds the Qwakk Pond Vault: a post-quantum guarded vault for
+Qwakk's interface fees on the QoreChain EVM, Qwakk's entry in the Build Before
+Q-Day Post-Quantum dApp category. Every withdrawal or rule change needs the
+owner's transaction (sent inside an EVM window scoped to the vault) plus an
+ML-DSA-87 approval that the contract checks with QoreChain's `pqcVerify` and
+`pqcKeyStatus` precompiles, then waits out a timelock (withdrawals also stay
+within a daily cap). By default the owner and the approver are one account, so
+one mnemonic holds both keys; a separate approver account makes them independent.
+
+- Contract, Foundry tests and threat model: [`contracts/README.md`](contracts/README.md)
+- Owner and approver CLI: `contracts/cli` (`npm run pond -- help`)
+- Read-only dashboard: `/vault`, enabled by `QWAKK_VAULT_ADDRESS` (web app,
+  testnet only). Without it the page says the vault is not deployed.
+
+The vault is separate from trading: swaps, pools and liquidity stay on the
+QoreChain Native rail (`x/amm`). It is not deployed on Diana yet, and the
+interface fee treasury does not point at it. Approvals are signed by the
+owner's local CLI, never by the web app or a server.
+
 ## Requirements
 
 - Node.js `>=22.13.0`
@@ -167,6 +188,7 @@ them to an empty value. The full list with comments is in `.env.example`.
 | `QWAKK_SWAP_FEE_BPS` | yes | | `10` (fee on) | owner decides |
 | `QWAKK_POINTS_ENABLED` | yes | yes | `enabled` | owner decides |
 | `QWAKK_NATIVE_ACTIONS` | yes | | per launch checklist | owner decides |
+| `QWAKK_VAULT_ADDRESS` | yes | | Pond Vault `0x` address, optional (`/vault`) | ignored |
 | `QWAKK_BLOCKED_POOL_IDS`, `QWAKK_BLOCKED_DENOMS` | yes | | empty unless pausing | empty unless pausing |
 | `QWAKK_HEALTH_MAX_INDEXER_LAG` | optional | | `600` default | `600` default |
 | `QWAKK_SITE_URL` | yes | | the testnet web domain | the mainnet web domain |

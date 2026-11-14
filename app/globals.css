@@ -598,6 +598,26 @@ a.table-row:hover, button.table-row:hover { background: rgba(255, 255, 255, 0.03
 .fee-split { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 10px; margin-top: 12px; align-items: start; }
 .fees .info-list b { text-transform: none; }
 .fee-note .panel-title { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Pond Vault (read-only dashboard) */
+.vault .info-list b { text-transform: none; }
+.vault .panel-title { display: inline-flex; align-items: center; gap: 8px; }
+.vault-state { margin-top: 12px; }
+.vault-paused { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 12px 16px; border: 1px solid var(--beak); border-radius: var(--radius-lg); background: var(--beak-wash); font-weight: 600; }
+.vault-paused svg { flex: none; color: var(--beak); }
+.vault-balances .table-row { grid-template-columns: minmax(0, 1.2fr) repeat(3, minmax(0, 1fr)); }
+.vault-queue { margin-top: 12px; }
+.vault-queue .table-row { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); }
+.vault-details { display: grid; gap: 2px; min-width: 0; font-size: 13px; }
+.vault-chip { display: inline-flex; padding: 2px 9px; border-radius: 999px; background: var(--raised); color: var(--text-2); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.vault-chip.is-ready { background: var(--accent-wash); color: var(--accent); }
+.vault-chip.is-blocked { background: var(--beak-wash); color: var(--beak); }
+.vault-chip.is-off { color: var(--text-3); }
+.vault-links { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.vault-tx { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); font-size: 12px; }
+.vault-tx:hover { color: var(--text); }
+.vault-address { display: grid; gap: 4px; }
+.vault-address code { overflow-wrap: anywhere; color: var(--text); font: 12px/1.5 var(--font-mono); }
 .fee-note .panel-title svg { color: var(--accent); }
 .fee-note .panel-body { color: var(--text-2); }
 .fee-link { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
@@ -882,6 +902,10 @@ a.table-row:hover, button.table-row:hover { background: rgba(255, 255, 255, 0.03
 
   .points-connect { flex-direction: column; align-items: stretch; }
   .points-table .hide-sm, .points-days .hide-sm { display: none; }
+  .vault .hide-sm { display: none; }
+  .vault-balances .table-row { grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; padding-inline: 12px; }
+  .vault-queue .table-row { grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; padding-inline: 12px; }
+  .vault-paused { align-items: flex-start; }
   .points-table .table-row { grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; padding-inline: 12px; }
   .points-table .points-pinned { bottom: 64px; grid-template-columns: minmax(0, 1fr) auto; border-radius: 0; }
   .points-pinned-label { display: none; }
