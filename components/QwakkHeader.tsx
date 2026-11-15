@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeftRight, BookOpen, Compass, House, Layers, LogOut, Plus, Search, Trophy, Wallet } from "lucide-react";
@@ -10,9 +10,11 @@ import { quack } from "../lib/quack";
 import { POINTS_NAV_LABEL } from "../lib/qwakk-points-copy";
 import { readQoreXSigner } from "../lib/qorex-native";
 import { NETWORK_UNKNOWN_COPY, QOREX_PENDING_COPY, qorexNetworkCopy, type CopyNetwork } from "../lib/qwakk-tx-copy";
+import { currentMobilePlatform, type MobilePlatform } from "../lib/qwakk-mobile-wallet";
 import { storeWalletAddress } from "../lib/qwakk-wallet-session";
 import { BrandMark } from "./BrandMark";
 import { LiveTicker } from "./LiveTicker";
+import { QoreXMobileSheet } from "./QoreXMobileSheet";
 import { loadFeatures, useFeatures } from "./useFeatures";
 import { useWalletSession } from "./useWalletSession";
 
@@ -37,7 +39,10 @@ export const CREATE_EVENT = "qwakk:request-create";
 function walletConnectionMessage(error: unknown, network: CopyNetwork) {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
   if (message.includes("lock") || message.includes("unlock") || message.includes("vault")) {
-    return "QoreX is locked. Open the QoreX extension from your browser toolbar, unlock it, then try again.";
+    // Inside the QoreX app's dApp browser there is no toolbar to point at.
+    return currentMobilePlatform()
+      ? "QoreX is locked. Unlock it in the QoreX app, then try again."
+      : "QoreX is locked. Open the QoreX extension from your browser toolbar, unlock it, then try again.";
   }
   if (message.includes("active network") || message.includes("unsupported chain")) return qorexNetworkCopy(network);
   if (message.includes("reject") || message.includes("denied")) {
@@ -54,6 +59,9 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
   const [isConnecting, setIsConnecting] = useState(false);
   const [notice, setNotice] = useState("");
   const [needsQoreX, setNeedsQoreX] = useState(false);
+  // Set when a phone browser without QoreX asks to connect.
+  const [mobileWallet, setMobileWallet] = useState<MobilePlatform | null>(null);
+  const closeMobileWallet = useCallback(() => setMobileWallet(null), []);
   const { actions, points, network } = useFeatures();
   const [quacking, setQuacking] = useState(false);
 
@@ -97,6 +105,15 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
     }
     const nativeWallet = window.qorex?.native;
     if (!nativeWallet) {
+      // QoreX has no mobile extension. The QoreX app's dApp browser injects
+      // window.qorex, so it never gets here; a plain phone browser does.
+      const platform = currentMobilePlatform();
+      if (platform) {
+        setNotice("");
+        setNeedsQoreX(false);
+        setMobileWallet(platform);
+        return;
+      }
       setNeedsQoreX(true);
       setNotice(`Install QoreX to connect a QoreChain wallet, then come back to ${BRAND.name}.`);
       return;
@@ -182,5 +199,6 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
       <LiveTicker />
     </header>
     {notice && <div className="toast" role="status"><span>{notice}</span>{needsQoreX && <a href={QOREX_INSTALL_URL} target="_blank" rel="noreferrer">Install QoreX</a>}<button type="button" onClick={() => { setNotice(""); setNeedsQoreX(false); }} aria-label="Dismiss notice">×</button></div>}
+    {mobileWallet && <QoreXMobileSheet platform={mobileWallet} onClose={closeMobileWallet} />}
   </>;
 }

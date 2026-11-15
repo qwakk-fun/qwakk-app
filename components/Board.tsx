@@ -99,7 +99,8 @@ function TrendingColumn({ active, marketsState }: { active: boolean; marketsStat
         const { base, quote } = marketSides(market);
         const volume = marketVolume(market);
         return <li key={market.id}>
-          <Link className="coin-row" href={`/pools/${market.id}`}>
+          {/* One tap to trade: the swap form opens with this pair picked and sits first on phones. */}
+          <Link className="coin-row" href={`/swap?pool=${market.id}`}>
             <span className="coin-avatar"><TokenIcon denom={base.denom} size="avatar" /><span className="coin-badge"><TokenIcon denom={quote.denom} size="small" /></span></span>
             <span className="coin-main">
               <span className="coin-name"><b>{pairLabel(market)}</b>{hot.has(String(market.id)) && <span className="hot-tag">Hot</span>}</span>

@@ -135,7 +135,8 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
   return <div className="app-shell">
     <QwakkHeader page="pools" />
     <main className="app-main">
-      <div className="container">
+      {/* pool-page: on phones the swap action docks above the tab bar instead of sitting below the chart and swaps. */}
+      <div className="container pool-page">
         <Link className="back-link" href="/pools"><ArrowLeft size={15} />All pools</Link>
         <section className="pool-head">
           <div className="cell-main">

@@ -3,6 +3,8 @@
  * wallet text never reaches the screen; it is mapped to one of these lines.
  */
 
+import { currentMobilePlatform } from "./qwakk-mobile-wallet";
+
 export const SIMULATION_FAILURE_COPY = {
   insufficient_funds: "This wallet does not have enough balance for the amounts and the network fee.",
   pool_not_found: "This pool is not available on QoreChain Diana.",
@@ -53,6 +55,8 @@ export const QOREX_OUTDATED_COPY = "This QoreX is too old to trade here. Update 
 export const QOREX_NETWORK_COPY = "QoreX is on another network. Open QoreX, tap the version number at the bottom 7 times to turn on Developer mode, choose Switch to testnet (diana), then try again.";
 /** docs.qorechain.io/qorex/troubleshooting: "Settings → Use testnet (developers) ... Turn it off to return to mainnet." */
 export const QOREX_MAINNET_NETWORK_COPY = "QoreX is on the testnet. Open QoreX Settings, turn off Use testnet (developers), then try again.";
+/** The QoreX mobile app (dApp browser): docs.qorechain.io/qorex/dapp-browser, "Settings ... Use testnet (developers)". */
+export const QOREX_MOBILE_NETWORK_COPY = "QoreX is on another network. Open QoreX Settings, turn on Use testnet (developers), then try again.";
 
 /** The network as copy needs it. Matches `PublicQwakkNetwork` in lib/qwakk-network.ts. */
 export type CopyNetwork = { id: "testnet" | "mainnet"; label: string };
@@ -71,8 +75,10 @@ export function networkCopy(copy: string, network?: Pick<CopyNetwork, "label"> |
 }
 
 /** How to put QoreX on the network this deployment trades on. */
-export function qorexNetworkCopy(network?: Pick<CopyNetwork, "id"> | null) {
-  return network?.id === "mainnet" ? QOREX_MAINNET_NETWORK_COPY : QOREX_NETWORK_COPY;
+export function qorexNetworkCopy(network?: Pick<CopyNetwork, "id"> | null, mobile = currentMobilePlatform() !== null) {
+  if (network?.id === "mainnet") return QOREX_MAINNET_NETWORK_COPY;
+  // The extension's developer-mode recipe does not exist in the mobile app.
+  return mobile ? QOREX_MOBILE_NETWORK_COPY : QOREX_NETWORK_COPY;
 }
 
 /**

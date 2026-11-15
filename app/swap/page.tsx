@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowDownUp, Layers } from "lucide-react";
 import { FaucetHint } from "../../components/FaucetHint";
@@ -160,6 +160,8 @@ export default function SwapPage() {
   const [reviewNotice, setReviewNotice] = useState("");
   const [quoteVersion, setQuoteVersion] = useState(0);
   const balances = useWalletBalances(walletAddress);
+  // On phones the swap card sits above the chart and the pool list.
+  const quoteCard = useRef<HTMLElement>(null);
 
   // Any pool pair works: curated tokens resolve at once, others from the chain's bank metadata.
   const resolveAsset = useAssets(pools.flatMap((pool) => [poolDenom(pool, "a"), poolDenom(pool, "b")]));
@@ -335,6 +337,12 @@ export default function SwapPage() {
     setReversed(false);
     setReviewed(null);
     setReviewNotice("");
+    // The list is below the swap card on phones, so bring the card back into view.
+    const card = quoteCard.current;
+    // Its scroll margin is the height of the sticky top bar and ticker, so anything above it is hidden.
+    if (card && window.matchMedia("(max-width: 1080px)").matches && card.getBoundingClientRect().top < parseFloat(getComputedStyle(card).scrollMarginTop)) {
+      card.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    }
   }
 
   function editInputs(update: () => void) {
@@ -462,7 +470,7 @@ export default function SwapPage() {
               </div>
               <span>{chartView === "qor"
                 ? <>QOR market across exchanges, from <a href="https://www.coingecko.com/en/coins/qorechain" target="_blank" rel="noreferrer">CoinGecko</a>.{` Pool prices on ${networkLabel} can differ.`}</>
-                : `Prices from trades in this pool on ${networkLabel}.`}</span>
+                : <>{`Prices from trades in this pool on ${networkLabel}.`}{selectedId && <> <Link href={`/pools/${selectedId}`}>Pool details</Link></>}</>}</span>
             </div>
           </section>
 
@@ -492,7 +500,7 @@ export default function SwapPage() {
           </section>
         </div>
 
-        <aside className="panel quote-card" aria-labelledby="quote-title">
+        <aside ref={quoteCard} className="panel quote-card" aria-labelledby="quote-title">
           <div className="panel-head"><span className="panel-title" id="quote-title">{nativeActions ? "Swap" : "Quote"}</span><span className="kicker">Native AMM</span></div>
           <div className="panel-body">
             <div className="quote-field">
