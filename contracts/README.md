@@ -353,20 +353,36 @@ testnet only and the CLI refuses `QORE_NETWORK=mainnet`.
 
 ## QCAI audit (two stages)
 
-> **Pending.** The exact two-stage QCAI audit procedure for the fest has been
-> requested from QoreChain. The tool is the QoreChain dashboard's Contract
-> Auditor, which runs on QCAIA (docs: dashboard/contract-auditor): it reviews
-> pasted source and returns a security score, a post-quantum readiness score
-> and findings, exportable as PDF or a public link.
+The tool is the QoreChain dashboard's AI Smart Contract Auditor
+(https://dashboard.qorechain.io/audit, runs on QCAIA). It reviews pasted source
+and returns a security score, a risk level, a post-quantum readiness score and
+findings, exportable as PDF. The exact two-stage procedure for the fest has been
+requested from QoreChain; until it is confirmed, stage 2 is a second run after
+our responses below.
 
-| Stage | When | Scope | Report | Findings and fixes |
+| Stage | When | Scope | Report | Result |
 | --- | --- | --- | --- | --- |
-| 1 | Before deploying to Diana | `src/PondVault.sol`, `src/interfaces/IQorePQC.sol` | _link pending_ | _pending_ |
-| 2 | After stage 1 fixes, on the deployed source | same, at the deployed commit | _link pending_ | _pending_ |
+| 1 | 2026-11-15, after deployment | `src/PondVault.sol` and `src/interfaces/IQorePQC.sol`, flattened, at `6f5a34b` (the deployed source; unchanged since) | [`audit/qcai-stage1-pondvault-2026-11-15.pdf`](audit/qcai-stage1-pondvault-2026-11-15.pdf) | Security score 85/100, risk level Medium, 5 findings. Quantum readiness "not scored for this setting" (the tool auto-detected the source as Ethereum). |
+| 2 | _pending_ | same source | _pending_ | _pending_ |
 
-The vault went on Diana on 2026-11-15 before stage 1 ran, so stage 1 now
-reviews the source of the deployed vault (`6f5a34b`). A fix from either stage
-needs a new deployment.
+The vault went on Diana on 2026-11-15 before stage 1 ran, so stage 1 reviewed the
+source of the deployed vault. A code change from either stage needs a new
+deployment.
+
+### Stage 1 findings and our responses
+
+The report's line numbers do not match the source file, so the table names the
+functions instead.
+
+| Finding (report severity) | Our assessment | Evidence |
+| --- | --- | --- |
+| Potential reentrancy via external calls (High) | Not exploitable. `execute` marks the action `Executed`, and `_spend` records the day's spend, before `_send` makes the external call; nothing changes state after it. `queue`, `unpause`, `execute` and `depositToken` share a reentrancy guard. `pause` and `cancel` are owner or guardian only. | `test_ReentrantRecipientCannotReenter` |
+| Missing access control for key rotation (Medium) | By design, already guarded. `SetApprover` needs the owner's transaction, a fresh ML-DSA-87 approval from the current approver and the timelock. The new approver's key must be registered, ML-DSA-87, 2,592 bytes and possession proven, checked at queue and again at execute. | `test_RotateApproverToSecondKey`, `test_RevertWhen_NewApproverHasNoKeyAtQueue`, `test_RevertWhen_NewApproverLostKeyBeforeExecute` |
+| Potential overflow in daily cap calculation (Medium) | Not possible as described. The contract compiles with Solidity 0.8.28, whose checked arithmetic reverts on overflow, so `spent + amount` can never wrap and pass the cap. A revert would also need amounts near 2^256. | `testFuzz_DailyCapWithinOneDay`, the "no UTC day pays out more than the cap" invariant |
+| Unchecked return data from token transfers (Low) | Intended. `_callToken` accepts a token that returns `true` or nothing and refuses `false`, a revert, any other return data or a non-contract, so an unusual token fails closed. | `test_RevertWhen_TokenReturnsFalse`, `test_RevertWhen_DepositTokenIsNotAContract` |
+| Timestamp dependency in the timelock (Info) | Accepted. Timelocks are 60 s to 30 days and approvals live at most 1 day, so a few seconds of block time drift cannot skip a timelock in a useful way. Listed under Known limits above. | `test_RevertWhen_TimelockOutOfBounds`, `test_RevertWhen_ExecutedBeforeTimelock` |
+
+No code change was needed, so the deployed vault stands.
 
 ## Kits and network features used
 

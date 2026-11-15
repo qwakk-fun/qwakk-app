@@ -173,7 +173,8 @@ dApp category. The repository existed before the event started on 4 November
 - 15 November: the DEX went live at <https://app.qwakk.fun>, and two swaps
   through the live interface were verified on chain (see Current status).
 
-Not done yet: the two-stage QCAI audit, the route that sends interface fees
+QCAI audit stage 1 ran on 2026-11-15: score 85/100, five findings, none needing a code change (report and responses in [contracts/README.md](contracts/README.md#qcai-audit-two-stages)).
+Not done yet: QCAI audit stage 2, the route that sends interface fees
 into the vault, and the Q-Day Drill run (the drill is registered with the
 vault and its owner account, but has not run).
 
