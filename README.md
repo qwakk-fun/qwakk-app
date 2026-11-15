@@ -6,17 +6,42 @@ Qwakk is a non-custodial interface for QoreChain's native `x/amm` module. The
 current target is the Diana testnet. Qwakk does not deploy or use a separate EVM
 AMM contract.
 
+- Live app (QoreChain Diana testnet): <https://app.qwakk.fun>
+- Landing page: <https://qwakk.fun>
+
 ## Current status
 
-Qwakk is read-only today. Swap, pool creation and liquidity flows are built but
-stay hidden until native signing works end to end (see Wallet actions below).
+Checked on 2026-11-15. Qwakk is live on the QoreChain Diana testnet at
+<https://app.qwakk.fun> since 15 November 2026. It runs on CapRover from commit
+`513abda` as three services (web, indexer and PostgreSQL), with the interface
+fee at 10 bps (0.10%) and the points season `testnet-1`.
 
-What works:
+Verified on chain:
+
+- Swaps through the live interface, signed and broadcast by QoreX
+  `signAndBroadcast`:
+  - [`5332E1D8...CE73E`](https://explore.qore.network/tx/5332E1D8F36DAA88EE5FEEF11E14F3B03FB74D61D48B22782C82F2D9B5DCE73E):
+    pool 2, 10 QOR to fUSD.
+  - [`D71A0870...CB37A`](https://explore.qore.network/tx/D71A0870BF0F0847D7CB819836F142E099A0EC8E64963D1A4346840F79BCB37A):
+    pool 3, 2 fUSD to fETH.
+
+  Both have code 0 and carry the `/qorechain.pqc.v1.PQCHybridSignature`
+  extension. Each one holds a `MsgSend` of the 0.10% interface fee to the
+  treasury plus the `MsgSwapExactIn`, in one atomic transaction. Both were sent
+  from the treasury wallet itself, so the fee went from the treasury to the
+  treasury.
+- On 31 October 2026 the owner's treasury created pools 2 (fUSD/QOR), 3
+  (fETH/fUSD) and 4 (fBTC/QOR) and added their liquidity through the Qwakk
+  interface and QoreX.
+- On 13 October 2026 the signing probe (below) produced the first hybrid-signed
+  Qwakk transaction on Diana (height 7811325). Diana has since pruned that
+  block, so the swaps above are the proof to check.
+
+How it works:
 
 - Pool, market, account and transaction data are read from Diana.
-- Swap quotes use the native AMM quote endpoint (`/qorechain/amm/v1/quote/exact_in`),
-  which the live keeper answers (it returns "pool not found" until a pool
-  exists). Qwakk adds price impact, blocks swaps above the chain's
+- Swap quotes use the native AMM quote endpoint (`/qorechain/amm/v1/quote/exact_in`).
+  Qwakk adds price impact, blocks swaps above the chain's
   `max_swap_impact_bps` cap and re-quotes before the wallet opens.
 - Liquidity positions are read from the AMM LP balance query. The AMM keeps LP
   shares in its own store, not as bank tokens.
@@ -30,23 +55,16 @@ What works:
   disclosed interface fee transfer on a swap.
 - QOR/USD price, volume and market cap come from CoinGecko and are labeled as
   such wherever they appear.
-
-What is blocking trading (checked on 2026-10-12):
-
-- The native AMM keeper is live on Diana: a simulated `MsgCreatePool` fails on
-  balances instead of "not implemented". No pool exists yet.
-- Update 2026-10-31: Diana now has test tokens next to `uqor`. Qwakk's asset
-  registry (`lib/qwakk-assets.ts`) lists them with their exact, case-sensitive
-  denoms: fUSD (6 decimals), fETH (18), fBTC (8), each an `erc20:0x...` denom,
-  and ATOM (`ibc/27394FB...`, shown with 6 decimals because its chain metadata
-  only lists `uatom`). Other denoms are read from bank metadata through
+- Assets: Diana has test tokens next to `uqor`. Qwakk's asset registry
+  (`lib/qwakk-assets.ts`) lists them with their exact, case-sensitive denoms:
+  fUSD (6 decimals), fETH (18), fBTC (8), each an `erc20:0x...` denom, and ATOM
+  (`ibc/27394FB...`, shown with 6 decimals because its chain metadata only lists
+  `uatom`). Other denoms are read from bank metadata through
   `/api/native/assets`. When a token's decimals cannot be confirmed, amount
-  entry for it is blocked instead of guessed. Pool 1 (fETH/QOR) exists with dust
-  reserves. A keyless simulation of a QOR to fETH swap on it succeeded.
-- QoreX 0.3.5 refuses bare classical `signDirect` on QoreChain networks. Qwakk
-  now uses QoreX `signAndBroadcast`, where the wallet adds the post-quantum
-  layer. This path is built but not yet verified end to end on Diana: run the
-  signing probe below.
+  entry for it is blocked instead of guessed.
+- QoreX 0.3.5 refuses bare classical `signDirect` on QoreChain networks, so
+  every action goes through QoreX `signAndBroadcast`, where the wallet adds the
+  post-quantum layer.
 
 ### Wallet actions
 
@@ -62,8 +80,8 @@ While it is off, no wallet action is rendered and `/api/native-tx/prepare`
 returns 404. When it is on, every action is built on the server, simulated against QoreChain
 Diana (so a failing transaction is explained before the wallet opens, and the
 gas limit comes from simulated gas), then approved, signed and broadcast by
-QoreX and followed into a block. Turn it on only after the signing probe below
-succeeds.
+QoreX and followed into a block. It is on at <https://app.qwakk.fun>. On a new
+deployment, turn it on only after the signing probe below succeeds.
 
 QoreX must be 0.3.5 or newer and set to QoreChain Diana (in QoreX: turn on
 Developer mode, then Switch to testnet (diana)). Otherwise Qwakk shows an update
@@ -102,12 +120,70 @@ one mnemonic holds both keys; a separate approver account makes them independent
 - Contract, Foundry tests and threat model: [`contracts/README.md`](contracts/README.md)
 - Owner and approver CLI: `contracts/cli` (`npm run pond -- help`)
 - Read-only dashboard: `/vault`, enabled by `QWAKK_VAULT_ADDRESS` (web app,
-  testnet only). Without it the page says the vault is not deployed.
+  testnet only). Without it the page says the vault is not deployed. Live at
+  <https://app.qwakk.fun/vault>.
+
+Deployed on QoreChain Diana (EVM chain id 9800) on 15 November 2026 at
+`0x6fEFdEA7209797c116747450b12695AccbE81133`
+(`qor1dlhaafeqj7tuz9n5w3gtzf544n97syfn0c2axu`), with a 120 second timelock, a
+10 QOR native daily cap and no guardian. A live deposit, an ML-DSA-87 approved
+withdrawal checked on chain by `pqcVerify`, and its execution after the
+timelock all succeeded. Every transaction is listed in
+[`contracts/README.md`](contracts/README.md#status).
 
 The vault is separate from trading: swaps, pools and liquidity stay on the
-QoreChain Native rail (`x/amm`). It is not deployed on Diana yet, and the
-interface fee treasury does not point at it. Approvals are signed by the
+QoreChain Native rail (`x/amm`). The interface fee does not reach the vault
+yet: today it goes straight to the testnet treasury
+`qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq`. Approvals are signed by the
 owner's local CLI, never by the web app or a server.
+
+## Build Before Q-Day
+
+Qwakk is entered in QoreChain's Build Before Q-Day hackathon, Post-Quantum
+dApp category. The repository existed before the event started on 4 November
+2026, so the work is split here to let the jury judge the fest work on its own.
+
+### Before the fest (29 August to 31 October 2026)
+
+- The DEX app: Next.js App Router on Vinext, React 19 and Tailwind 4, with
+  server routes between the browser and QoreChain.
+- The native rail: `@qorechain/sdk` builds the `x/amm` messages
+  (`MsgSwapExactIn`, `MsgCreatePool`, `MsgAddLiquidity`, `MsgRemoveLiquidity`),
+  `/api/native-tx/prepare` simulates them against Diana, and QoreX
+  `signAndBroadcast` adds the ML-DSA-87 layer, signs and broadcasts.
+- Quotes from the chain's `QuoteExactIn` endpoint, the price impact guard and
+  the re-quote before the wallet opens.
+- The indexer (pools, swaps and candles in PostgreSQL, with catch-up through
+  CometBFT `tx_search` after Diana prunes old blocks) and the testnet points
+  board.
+- The asset registry for QOR, fUSD, fETH, fBTC and IBC ATOM.
+- Rate limits, a nonce-based Content Security Policy, CI and the CapRover
+  setup.
+- On chain: the first hybrid-signed Qwakk transaction (13 October 2026) and
+  pools 2, 3 and 4 created with liquidity through the Qwakk interface and QoreX
+  (31 October 2026).
+
+### During the fest (from 4 November 2026)
+
+- 14 November: the repository went public under the MIT licence (`9c98fcd`).
+- 14 November: Pond Vault, the contract, Foundry tests, threat model, owner
+  and approver CLI and the read-only `/vault` dashboard (`6f5a34b`).
+- 15 November: the brand and art notice ([NOTICE.md](NOTICE.md), `513abda`).
+- 15 November: Pond Vault deployed and tested on Diana (see above).
+- 15 November: the DEX went live at <https://app.qwakk.fun>, and two swaps
+  through the live interface were verified on chain (see Current status).
+
+Not done yet: the two-stage QCAI audit, the route that sends interface fees
+into the vault, and the Q-Day Drill run (the drill is registered with the
+vault and its owner account, but has not run).
+
+### QoreChain testnet addresses used
+
+| What | Address |
+| --- | --- |
+| Pond Vault contract | `0x6fEFdEA7209797c116747450b12695AccbE81133` (`qor1dlhaafeqj7tuz9n5w3gtzf544n97syfn0c2axu`) |
+| Vault owner and approver, Q-Day Drill account (testnet only) | `0x50879493D6cE5834113DDf2A042F643d1C07CCf8` (`qor12zrefy7keevrgyfamu4qgtmy85wq0n8cxrd3s3`) |
+| Interface fee treasury, pools 2 to 4 creator | `qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq` |
 
 ## Requirements
 
@@ -184,7 +260,7 @@ them to an empty value. The full list with comments is in `.env.example`.
 | `QWAKK_INDEXER_URL` | yes | | `http://srv-captain--qwakk-indexer:4400` | `http://srv-captain--qwakk-mainnet-indexer:4400` |
 | `QWAKK_INDEXER_PORT` | | yes | `4400` | `4400` |
 | `QWAKK_INDEXER_START_HEIGHT` | | optional | a block the node still keeps (Diana prunes, about six days) | any block (mainnet keeps all) |
-| `QWAKK_TREASURY_ADDRESS` | yes | yes (excluded from points) | testnet treasury (pending) | mainnet treasury, owner decides |
+| `QWAKK_TREASURY_ADDRESS` | yes | yes (excluded from points) | `qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq` | mainnet treasury, owner decides |
 | `QWAKK_SWAP_FEE_BPS` | yes | | `10` (fee on) | owner decides |
 | `QWAKK_POINTS_ENABLED` | yes | yes | `enabled` | owner decides |
 | `QWAKK_NATIVE_ACTIONS` | yes | | per launch checklist | owner decides |
@@ -462,6 +538,49 @@ past the bank step. The script header lists every option.
 - `npm run verify:amm`: check Qwakk's AMM math and messages against a live pool without signing.
 
 Native AMM reference: <https://docs.qorechain.io/architecture/amm/>
+
+## Credits
+
+Qwakk is built on these open-source projects. Each keeps its own licence.
+
+Starter template: the first commit (`6462e25`) started from a generated
+starter project for OpenAI's Sites hosting: Vinext on Vite with
+`@openai/sites-vite-plugin`, `.openai/hosting.json`, a Drizzle and D1 example
+and a ChatGPT auth helper. The unused starter files were removed in `7530114`.
+The Vite plugin and `.openai/hosting.json` are still part of the build
+configuration.
+
+App and indexer:
+
+| Project | Licence | Used for |
+| --- | --- | --- |
+| [Vinext](https://github.com/cloudflare/vinext) | MIT | Next.js App Router on Vite |
+| [Vite](https://vite.dev), `@vitejs/plugin-react`, `@vitejs/plugin-rsc` | MIT | Build and dev server |
+| `@cloudflare/vite-plugin` | MIT | Vinext's server runtime in the build |
+| `@openai/sites-vite-plugin` | MIT | From the starter template (see above) |
+| [React](https://react.dev) and React DOM 19 | MIT | UI |
+| [Tailwind CSS](https://tailwindcss.com) 4 | MIT | Styling |
+| [`@qorechain/sdk`](https://www.npmjs.com/package/@qorechain/sdk) 0.8.2 | Apache-2.0 | Native `x/amm` and bank messages, bech32 addresses, pool bootstrap |
+| [`cosmjs-types`](https://github.com/confio/cosmjs-types) | Apache-2.0 | Protobuf encoding of native transactions |
+| [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) | Apache-2.0 | Price and pool charts (credited in the site footer) |
+| [Lucide](https://lucide.dev) (`lucide-react`) | ISC | Icons |
+| [node-postgres](https://node-postgres.com) (`pg`) | MIT | Indexer database client |
+| [TypeScript](https://www.typescriptlang.org), [tsx](https://tsx.is), [ESLint](https://eslint.org) | Apache-2.0, MIT, MIT | Types, scripts, linting |
+
+Pond Vault (`contracts/`):
+
+| Project | Licence | Used for |
+| --- | --- | --- |
+| [`create-qorechain-dapp`](https://www.npmjs.com/package/create-qorechain-dapp) 0.14.0, Foundry template | see the package | Base of `foundry.toml`: compiler, optimizer and named RPCs |
+| [qorechain/build-before-qday](https://github.com/qorechain/build-before-qday), workshop 1 (`01-qday-counter/scripts/window.ts`) | see the repository | The EVM window helper the CLI grew from |
+| [Foundry](https://getfoundry.sh) and [forge-std](https://github.com/foundry-rs/forge-std) 1.17.0 | MIT or Apache-2.0 | Build, unit, fuzz and invariant tests |
+| `@qorechain/sdk` 0.14.0, `@qorechain/evm` 0.14.0, `@qorechain/pqc` 0.2.3 | Apache-2.0 | Accounts, hybrid native transactions, EVM windows, PQC key registration, ML-DSA-87 signing and test vectors |
+| [viem](https://viem.sh) | MIT | EVM reads and writes in the CLI |
+| `@cosmjs/stargate` | Apache-2.0 | RPC transport that broadcasts the CLI's native transactions |
+
+Services, not bundled: the QoreX wallet signs every transaction, the public
+QoreChain Diana endpoints serve chain data, and CoinGecko serves QOR market
+data.
 
 ## License
 

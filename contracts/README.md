@@ -46,10 +46,39 @@ sequenceDiagram
 
 | | |
 | --- | --- |
-| Contract, tests, CLI, dashboard | Built. `forge test`: 53 unit, 9 fuzz (1,024 runs each, 4,096 in CI), 3 invariants (128 runs x 64 calls). |
+| Contract, tests, CLI, dashboard | Built. `forge test`: 53 unit, 9 fuzz (1,024 runs each, 4,096 in CI), 3 invariants (128 runs x 64 calls); forge reports 63 passed. CLI `npm test`: 17 of 17 passed. Both run again on 2026-11-15. |
 | ML-DSA-87 vectors | 12 real vectors, each verified by Diana's live `pqcVerify` precompile with an `eth_call` (true), and a tampered copy of each refused (false), on 2026-11-14. |
 | Full CLI flow | Rehearsed end to end on a local anvil node with stand-in precompiles (deploy, deposit, queue, approval file, pause, approved unpause, cancel, execute, smoke). |
-| On QoreChain Diana | **Not deployed yet.** Nothing has been broadcast. The owner runs the steps below. |
+| On QoreChain Diana | **Deployed and tested on 2026-11-15.** Deposit, an ML-DSA-87 approved withdrawal checked on chain by `pqcVerify`, and its execution after the timelock all succeeded. See "Diana deployment" below. |
+| Replay on Diana | Not run live: the smoke script stopped after the deposit, and the remaining steps were run by hand without the replay `eth_call`. The vault's nonce advanced to 1 after the queue. Replay rejection is proven by the Foundry tests. |
+| Fee route into the vault | **Pending.** Interface fees go straight to the testnet treasury `qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq` today. `native-send-test` has not been run. |
+| QCAI audit | **Pending.** See "QCAI audit (two stages)". |
+
+### Diana deployment
+
+QoreChain testnet `qorechain-diana`, EVM chain id 9800. Explorer links use
+`https://explore.qore.network/tx/<hash>`.
+
+| | |
+| --- | --- |
+| Vault | `0x6fEFdEA7209797c116747450b12695AccbE81133` (`qor1dlhaafeqj7tuz9n5w3gtzf544n97syfn0c2axu`) |
+| Owner and approver (one testnet-only account, also the Q-Day Drill account) | `0x50879493D6cE5834113DDf2A042F643d1C07CCf8` (`qor12zrefy7keevrgyfamu4qgtmy85wq0n8cxrd3s3`) |
+| Settings | Timelock 120 s, native daily cap 10 QOR, no guardian |
+| Source | The deployed runtime bytecode equals `forge build` of `src/` at `6f5a34b` (compared on 2026-11-15) |
+| Dashboard | <https://app.qwakk.fun/vault> |
+
+| Step | Transaction |
+| --- | --- |
+| ML-DSA-87 key registration with proof of possession | [`CAF3DA17...D17E7`](https://explore.qore.network/tx/CAF3DA17E2742D9879E05F85FFB42B7105151022E443E794E3B9BC622E0D17E7) |
+| Unscoped deploy window (1 transaction) | [`6EFDDB8B...43123`](https://explore.qore.network/tx/6EFDDB8B1679F56A0B63EAA9B3DD22FF5F03AB36584CBBAF7D55B233C7143123) |
+| Deploy (2,131,623 gas) | [`0x694cd9f1...2b874`](https://explore.qore.network/tx/0x694cd9f1d55f4498f4f605c2001c48be2694cee6644a26a4c50ab23e54c2b874) |
+| Window scoped to the vault only (`allowedTargets=[vault]`, 4 transactions) | [`36162FA0...AD5AA`](https://explore.qore.network/tx/36162FA0EE1C0D4AB9A19A36CDE709DFA2981348CE0164C773F8CF0A9F2AD5AA) |
+| Deposit 100 QOR | [`0x17c8eeb9...c63ae`](https://explore.qore.network/tx/0x17c8eeb99fbd01a516e621a63e1f37d55913a86aec166c8ddce89ad1b1dc63ae) |
+| Queue a 0.005 QOR withdrawal with an ML-DSA-87 approval, verified on chain by `pqcVerify` (328,598 gas) | [`0xfb3f4c20...e3ba6`](https://explore.qore.network/tx/0xfb3f4c2063322de1db03ea9a440599cb492d5364d8a1b4ee02f4873dc0ee3ba6) |
+| Execute after the timelock | [`0x84a73b40...343ad`](https://explore.qore.network/tx/0x84a73b40813c0a0dfa120ea26e0cb4a72e3b13839162a0d33109595b273343ad) |
+
+The Q-Day Drill is registered on the project page with the account and the
+vault above. The drill has not run yet.
 
 ## Layout
 
@@ -186,8 +215,10 @@ npm run vectors -- --live   # --live: also checks each vector on Diana with eth_
 
 ## Owner runbook (QoreChain Diana)
 
-Nothing below has been run on Diana yet. Every command that sends something
-prints what it will do and waits for "yes".
+The vault in "Diana deployment" was deployed and tested with these steps on
+2026-11-15. Step 9 stopped after the deposit, so the queue and the execute were
+then run by hand. Every command that sends something prints what it will do and
+waits for "yes".
 
 **Prerequisites:** Foundry 1.9 (`brew install foundry`, or `foundryup`), Node.js
 22.13 or later, test QOR from the faucet
@@ -244,11 +275,10 @@ Other commands: `queue withdraw|cap|timelock|owner|approver|guardian|unpause`,
 - Opening a window advances the account's nonce and replaces any open window.
 - The docs say a scoped window must also list a standard precompile that a
   transaction is sent to. The vault calls `pqcVerify` and `pqcKeyStatus`
-  internally, and whether a scoped window needs them listed for internal calls
-  is **unverified**. If `queue` is refused with "EVM authorisation window
-  exhausted" while `deposit` works, set
-  `POND_WINDOW_EXTRA_TARGETS=0x0000000000000000000000000000000000000a01,0x0000000000000000000000000000000000000a02`
-  and open the vault window again.
+  internally, and on Diana that does **not** need them listed: on 2026-11-15
+  `queue` succeeded inside a window with `allowedTargets=[vault]` only (see
+  "Diana deployment"). `POND_WINDOW_EXTRA_TARGETS` stays available but is not
+  needed for the vault.
 - Deploying PondVault costs about 2.13 million gas (Foundry gas report), inside
   the 3,000,000 gas the deploy window is sized for.
 
@@ -333,6 +363,10 @@ testnet only and the CLI refuses `QORE_NETWORK=mainnet`.
 | --- | --- | --- | --- | --- |
 | 1 | Before deploying to Diana | `src/PondVault.sol`, `src/interfaces/IQorePQC.sol` | _link pending_ | _pending_ |
 | 2 | After stage 1 fixes, on the deployed source | same, at the deployed commit | _link pending_ | _pending_ |
+
+The vault went on Diana on 2026-11-15 before stage 1 ran, so stage 1 now
+reviews the source of the deployed vault (`6f5a34b`). A fix from either stage
+needs a new deployment.
 
 ## Kits and network features used
 
