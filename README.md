@@ -465,4 +465,4 @@ Native AMM reference: <https://docs.qorechain.io/architecture/amm/>
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+The source code is MIT, see [LICENSE](LICENSE). The Qwakk name, logo, icons and artwork are not: all rights reserved, see [NOTICE.md](NOTICE.md). Forks must use their own name and branding.
