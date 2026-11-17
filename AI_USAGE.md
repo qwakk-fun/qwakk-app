@@ -1,8 +1,8 @@
 # AI usage
 
-Qwakk is built by one person working with AI. This file explains how: which tools, how the work is split, what the AI produced, what the human did, and how the output is checked. Facts here can be checked against the commit history.
+Qwakk is designed and run by one builder, who uses Claude Code as the coding tool. This file explains how: which tools, how the work is split, what the builder did, what Claude Code wrote, and how the output is checked. Facts here can be checked against the commit history.
 
-Short version: Claude agents (Anthropic) wrote most of the code, docs and operations work. The builder directed every task, reviewed and tried the results, made the product decisions and approved every commit, push and deploy.
+Short version: the builder designed the product and its architecture and directs every task. Claude Code (Anthropic) writes most of the code, docs and operations work to that design. The builder reviews and tries every result and approves every commit, push and deploy.
 
 ## Tools
 
@@ -15,7 +15,7 @@ Short version: Claude agents (Anthropic) wrote most of the code, docs and operat
 
 ### One lead, seven specialists
 
-The builder opens Claude Code in a workspace folder that holds this repo next to the marketing site and the game. They give short commands, usually one line and often in Turkish ("fix the swap screen", "why does the tx fail"). A lead agent turns each command into work:
+The builder set up this workflow: the lead, the seven specialist roles and the rules each one must follow. They open Claude Code in a workspace folder that holds this repo next to the marketing site and the game and give short commands, usually one line and often in Turkish ("fix the swap screen", "why does the tx fail"). A lead agent turns each command into work:
 
 1. It finds which repo and which area the request touches.
 2. It checks the facts first (chain endpoints, wallet behaviour, package versions) instead of guessing.
@@ -50,9 +50,19 @@ The workspace adds: ask the builder before anything destructive or outward-facin
 
 ### Reports
 
-Each task ends with a short report: what changed, how it was verified, and what was not verified (for example anything that needs the builder's browser wallet). The builder reads it, tries the result, and decide what to commit.
+Each task ends with a short report: what changed, how it was verified, and what was not verified (for example anything that needs the builder's browser wallet). The builder reads it, tries the result, and decides what to commit.
 
-## What the AI produced
+## What the builder did
+
+- **Architecture.** How the app is put together: QoreX signs every action in the user's own wallet, server routes only prepare and simulate native transactions, an indexer with PostgreSQL feeds the market data, and Pond Vault guards the fees on the EVM side. Agents work inside that structure and do not change it on their own.
+- **Product decisions.** Non-custodial only, native rail only, the interface fee (0.10%, hard cap 0.30%, published on the fees page), points with no monetary value, the brand and the voice.
+- **Wallet signing in the trading app.** Every Qwakk trade is signed in the QoreX browser wallet; the app and its server never see a key. The builder ran the signing probe in their own browser with QoreX. On 13 October 2026 it produced the first hybrid-signed Qwakk transaction on QoreChain Diana (height 7811325). On 15 November 2026 two swaps through the live app were signed in QoreX from the builder's treasury wallet ([pool 2](https://explore.qore.network/tx/5332E1D8F36DAA88EE5FEEF11E14F3B03FB74D61D48B22782C82F2D9B5DCE73E), [pool 3](https://explore.qore.network/tx/D71A0870BF0F0847D7CB819836F142E099A0EC8E64963D1A4346840F79BCB37A)).
+- **Pond Vault keys.** The vault's owner and approver is a testnet-only account. Its mnemonic sits in a git-ignored `contracts/.env` on the builder's machine, where the local CLI reads it. The builder made that mnemonic and typed it into the file. On 15 November 2026 the agent (Claude Code) ran the Diana vault steps through this CLI on the builder's machine, one command at a time, each only after the builder said yes, and after reading the CLI's own preview of what it would send. The agent never printed or saw the mnemonic words.
+- **Talking to QoreChain.** Reporting the QoreX signing problem and asking for the second test token, with the precise questions the research produced.
+- **Approvals.** Commits, pushes, deploys, DNS and CapRover settings happen only after the builder says so.
+- **Review by use.** The builder clicks through every change and sends back what feels wrong.
+
+## What Claude Code wrote
 
 - Most of the application code: the swap, pool and liquidity flows, the server route that builds and simulates native transactions for QoreX `signAndBroadcast`, quote handling and price impact guards, the asset registry, rate limiting and security headers.
 - The indexer: block sync, AMM event parsing, candles, recovery from pruned blocks, the points system.
@@ -60,15 +70,6 @@ Each task ends with a short report: what changed, how it was verified, and what 
 - Tests (19 test files in `tests/`, plus 2 Foundry and 3 CLI test files for Pond Vault), CI, Dockerfiles and the CapRover setup in the README.
 - Research notes. One example: when QoreX started refusing the old signing call, the AI read the QoreX extension's shipped code, found the new `signAndBroadcast` method and its limits, and moved every action to it.
 - UI copy, the docs and the legal page drafts (terms, privacy, risk, fees).
-
-## What the human did
-
-- **Product decisions.** Non-custodial only, native rail only, the interface fee (0.10%, hard cap 0.30%, published on the fees page), points with no monetary value, the brand and the voice.
-- **Wallet signing in the trading app.** Every Qwakk trade is signed in the QoreX browser wallet; the app and its server never see a key. The builder ran the signing probe in their own browser with QoreX. On 13 October 2026 it produced the first hybrid-signed Qwakk transaction on QoreChain Diana (height 7811325). On 15 November 2026 two swaps through the live app were signed in QoreX from the builder's treasury wallet ([pool 2](https://explore.qore.network/tx/5332E1D8F36DAA88EE5FEEF11E14F3B03FB74D61D48B22782C82F2D9B5DCE73E), [pool 3](https://explore.qore.network/tx/D71A0870BF0F0847D7CB819836F142E099A0EC8E64963D1A4346840F79BCB37A)).
-- **Pond Vault keys.** The vault's owner and approver is a testnet-only account. Its mnemonic sits in a git-ignored `contracts/.env` on the builder's machine, where the local CLI reads it. The builder made that mnemonic and typed it into the file. On 15 November 2026 the agent (Claude Code) ran the Diana vault steps through this CLI on the builder's machine, one command at a time, each only after the builder said yes, and after reading the CLI's own preview of what it would send. The agent never printed or saw the mnemonic words.
-- **Talking to QoreChain.** Reporting the QoreX signing problem and asking for the second test token, with the precise questions the research produced.
-- **Approvals.** Commits, pushes, deploys, DNS and CapRover settings happen only after the builder says so.
-- **Review by use.** The builder clicks through every change and sends back what feels wrong.
 
 ## How the output is checked
 
@@ -78,7 +79,7 @@ Each task ends with a short report: what changed, how it was verified, and what 
 - Keyless checks against the live chain: simulations through `/cosmos/tx/v1beta1/simulate` and `npm run verify:amm`, which compares Qwakk's math with the chain's quotes without signing anything.
 - The builder's own hands-on test with QoreX for anything that signs.
 
-## Where the AI was wrong, and how it was caught
+## Where Claude Code was wrong, and how it was caught
 
 - **A dead signing path.** The first integration used QoreX `signDirect`. A QoreX update made it refuse that call. The AI's research found the new path, and the builder's live probe confirmed it.
 - **A broken production build.** The lockfile was missing entries that macOS npm had dropped, so the server's clean install failed. Fixed in `13fd5b4`, and the check is now part of the deploy notes.
