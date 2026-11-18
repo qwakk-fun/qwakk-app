@@ -223,7 +223,10 @@ export function MarketsView() {
         </div>
 
         {visibleMarkets.length === 0
-          ? <section className="panel" aria-label={copy("QoreChain Diana pools")}>{emptyState}</section>
+          ? state === "loading" && view === "grid"
+            // Card-sized placeholders, so the grid does not jump when the pools arrive.
+            ? <section className="pool-grid" aria-busy="true" aria-label={copy("QoreChain Diana pools")}><p className="sr-only">{copy("Reading pools from QoreChain Diana…")}</p>{Array.from({ length: 6 }, (_, index) => <span className="row-skeleton is-card" aria-hidden="true" key={index} />)}</section>
+            : <section className="panel" aria-label={copy("QoreChain Diana pools")}>{emptyState}</section>
           : view === "grid"
             ? <section className="pool-grid" aria-label={copy("QoreChain Diana pools")}>{visibleMarkets.map((market) => <PoolCard market={market} key={market.id} />)}</section>
             : <section className="panel markets-table" aria-label={copy("QoreChain Diana pools")}>

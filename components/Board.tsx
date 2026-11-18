@@ -183,7 +183,7 @@ function TradersColumn({ active, activity }: { active: boolean; activity: Return
           <Identicon address={trader.address} size={30} />
           <span className="rank-name mono" title={trader.address}>{shortWallet(trader.address)}</span>
           <span className="rank-value">
-            <b className="num up">{sort === "volume" ? `${formatDecimal(trader.volume, 2)} QOR` : `${trader.swaps} ${trader.swaps === 1 ? "swap" : "swaps"}`}</b>
+            <b className="num">{sort === "volume" ? `${formatDecimal(trader.volume, 2)} QOR` : `${trader.swaps} ${trader.swaps === 1 ? "swap" : "swaps"}`}</b>
             <small className="num">{sort === "volume" ? `${trader.swaps} ${trader.swaps === 1 ? "swap" : "swaps"}` : `${formatDecimal(trader.volume, 2)} QOR`}</small>
           </span>
         </li>)}</ol>

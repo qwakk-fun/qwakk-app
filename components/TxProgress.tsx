@@ -32,7 +32,7 @@ export function TxProgress({ state, onDone }: { state: TxState; onDone: () => vo
 
   return <div className={`tx-progress ${state.phase}${quiet ? " is-quiet" : ""}`} role="status" aria-live="polite">
     {finished ? <p className="tx-result">
-      {state.phase === "success" ? <CheckCircle2 size={18} className="up" /> : quiet ? <Info size={18} /> : <CircleAlert size={18} className="down" />}
+      {state.phase === "success" ? <CheckCircle2 size={18} className="tx-ok" aria-hidden="true" /> : quiet ? <Info size={18} /> : <CircleAlert size={18} className="down" />}
       <span>{state.message}</span>
     </p> : <ol className="tx-steps">
       {STEPS.map((step, index) => <li key={step.phase} className={index < current ? "is-done" : index === current ? "is-current" : ""}>

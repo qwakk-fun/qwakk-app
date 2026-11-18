@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { CandlestickSeries, ColorType, createChart, type UTCTimestamp } from "lightweight-charts";
+import { CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart, type UTCTimestamp } from "lightweight-charts";
 import { formatQuotePrice } from "../lib/qwakk-market-view";
 import { THEME } from "../lib/theme";
 
@@ -40,8 +40,14 @@ export function PoolChart({ candles, unit }: { candles: PoolCandle[]; unit: stri
       height: 400,
       layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: THEME.text, fontFamily: "var(--font-geist-mono), ui-monospace, monospace", fontSize: 11 },
       grid: { vertLines: { visible: false }, horzLines: { color: THEME.grid } },
-      rightPriceScale: { borderVisible: false },
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
       timeScale: { borderColor: THEME.axis, timeVisible: true },
+      // Same quiet crosshair as the QOR chart: a solid guide, labels on the raised surface.
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: { color: THEME.axis, width: 1, style: LineStyle.Solid, labelBackgroundColor: THEME.raised },
+        horzLine: { color: THEME.axis, width: 1, style: LineStyle.Dashed, labelBackgroundColor: THEME.raised },
+      },
     });
     const series = chart.addSeries(CandlestickSeries, {
       upColor: THEME.up,

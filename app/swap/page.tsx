@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowDownUp, Layers } from "lucide-react";
 import { FaucetHint } from "../../components/FaucetHint";
@@ -57,6 +57,11 @@ function poolDenom(pool: RawPool | undefined, side: "a" | "b") {
 function poolKind(pool: RawPool) {
   const kind = (pool.pool_type ?? pool.type ?? "liquidity_pool").replace(/_/g, " ");
   return pool.status === "paused" ? `${kind}, paused` : kind;
+}
+
+/* Long figures step down a size so every digit stays visible. */
+function amountSize(text: string) {
+  return text.length > 12 ? "is-xlong" : text.length > 9 ? "is-long" : undefined;
 }
 
 function percent(bps: number) {
@@ -123,6 +128,9 @@ export default function SwapPage() {
   const [pools, setPools] = useState<RawPool[]>([]);
   const [selectedPoolId, setSelectedPoolId] = useState("");
   const [reversed, setReversed] = useState(false);
+  // Half turns of the flip button's arrows. Purely visual: each tap adds one, so a
+  // second tap mid-turn carries on from wherever the arrows are.
+  const [flipTurns, setFlipTurns] = useState(0);
   const [amount, setAmount] = useState("1");
   const [slippageChoice, setSlippageChoice] = useState<string>(String(DEFAULT_SLIPPAGE_BPS));
   const [customSlippage, setCustomSlippage] = useState("");
@@ -505,7 +513,7 @@ export default function SwapPage() {
           <div className="panel-body">
             <div className="quote-field">
               <span className="quote-field-top"><span>You pay</span>{quickAmounts.length > 0 && <span className="quick-amounts" role="group" aria-label="Quick amounts">{quickAmounts.map((option) => <button type="button" key={option.label} aria-pressed={amount === option.value} disabled={tx.busy || confirming} onClick={() => editInputs(() => { setAmount(option.value); setClampedAmount(""); })}>{option.label}</button>)}</span>}</span>
-              <span className="quote-field-row"><input aria-label={`Amount in ${shortDenom(denomIn || "uqor")}`} inputMode="decimal" value={amount} disabled={tx.busy || confirming} onChange={(event) => { const next = event.target.value; editInputs(() => { setAmount(next); setClampedAmount(""); }); }} /><span className="token-chip"><TokenIcon denom={denomIn || "uqor"} size="small" />{shortDenom(denomIn || "uqor")}</span></span>
+              <span className="quote-field-row"><input aria-label={`Amount in ${shortDenom(denomIn || "uqor")}`} className={amountSize(amount)} inputMode="decimal" value={amount} disabled={tx.busy || confirming} onChange={(event) => { const next = event.target.value; editInputs(() => { setAmount(next); setClampedAmount(""); }); }} /><span className="token-chip"><TokenIcon denom={denomIn || "uqor"} size="small" />{shortDenom(denomIn || "uqor")}</span></span>
               <span className="quote-hint">{inputHint}</span>
               {walletAddress && enoughBalance === false && <>
                 <span className="quote-hint is-error">{denomIn === "uqor" ? "Not enough QOR for this amount plus the network fee." : `Not enough ${shortDenom(denomIn)} for this amount, or not enough QOR for the network fee.`}</span>
@@ -513,10 +521,10 @@ export default function SwapPage() {
               </>}
               {clamped && <span className="quote-hint">Set to the most this pool takes in one swap. A bigger amount would move its price past the chain&apos;s limit.</span>}
             </div>
-            <button type="button" className="quote-switch" aria-label="Switch tokens" disabled={!selectedPool || tx.busy || confirming} onClick={() => editInputs(() => setReversed((current) => !current))}><ArrowDownUp size={16} /></button>
+            <button type="button" className="quote-switch" aria-label="Switch tokens" disabled={!selectedPool || tx.busy || confirming} style={{ "--flip": `${flipTurns * 180}deg` } as CSSProperties} onClick={() => { setFlipTurns((turns) => turns + 1); editInputs(() => setReversed((current) => !current)); }}><ArrowDownUp size={18} aria-hidden="true" /></button>
             <div className="quote-field">
               <span className="quote-field-top"><span>You receive</span></span>
-              <span className="quote-field-row"><output aria-live="polite">{output}</output>{denomOut ? <span className="token-chip"><TokenIcon denom={denomOut} size="small" />{shortDenom(denomOut)}</span> : <span className="token-chip subtle">Select a pool</span>}</span>
+              <span className="quote-field-row"><output aria-live="polite" title={output} className={[quoteState === "loading" ? "is-pending" : "", amountSize(output) ?? ""].filter(Boolean).join(" ") || undefined}>{output}</output>{denomOut ? <span className="token-chip"><TokenIcon denom={denomOut} size="small" />{shortDenom(denomOut)}</span> : <span className="token-chip subtle">Select a pool</span>}</span>
               <span className={`quote-hint ${quoteState === "unavailable" ? "is-error" : ""}`}>{outputHint}</span>
             </div>
             {/* One notice slot under the amounts: a too-thin pool, a blocked quote (with the largest amount the pool takes), nothing to receive, or a high price impact. */}
@@ -548,15 +556,15 @@ export default function SwapPage() {
                     <p className="review-line">You pay <b>{formatVisibleAmount(reviewedQuote.totalAmountIn, inputDecimals, 6)} {shortDenom(denomIn)}</b> and receive at least <b>{formatVisibleAmount(reviewedQuote.minOut, outputDecimals, 6)} {shortDenom(denomOut)}</b>.{reviewedQuote.interfaceFee.enabled && reviewedQuote.interfaceFee.amount !== "0" && <> This includes a <b>{formatVisibleAmount(reviewedQuote.interfaceFee.amount, inputDecimals, 6)} {shortDenom(denomIn)}</b> interface fee.</>}</p>
                     {reviewNotice && <p className="quote-hint is-error" role="alert">{copy(reviewNotice)}</p>}
                     <div className="review-actions">
-                      <button type="button" className="btn btn-ghost" disabled={confirming} onClick={() => { setReviewed(null); setReviewNotice(""); }}>Edit</button>
-                      <button type="button" className="btn btn-primary" disabled={confirming || !canReview} onClick={() => void confirmSwap()}>{confirming ? "Checking the price…" : "Confirm in QoreX"}</button>
+                      <button type="button" className="btn btn-ghost btn-lg" disabled={confirming} onClick={() => { setReviewed(null); setReviewNotice(""); }}>Edit</button>
+                      <button type="button" className="btn btn-primary btn-lg" disabled={confirming || !canReview} onClick={() => void confirmSwap()}>{confirming ? "Checking the price…" : "Confirm in QoreX"}</button>
                     </div>
                   </div>
                   : !walletAddress
-                    ? <button type="button" className="btn btn-primary btn-block" onClick={() => window.dispatchEvent(new Event("qwakk:request-connect"))}>Connect wallet</button>
+                    ? <button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => window.dispatchEvent(new Event("qwakk:request-connect"))}>Connect wallet</button>
                     : <>
                       {reviewNotice && <p className="quote-hint is-error" role="alert">{copy(reviewNotice)}</p>}
-                      <button type="button" className="btn btn-primary btn-block" disabled={!canReview} onClick={() => { if (quote && currentKey) setReviewed({ key: currentKey, data: quote }); setReviewNotice(""); }}>{selectedTooThin ? "Pool too thin to trade" : quote?.blocked === "impact" ? "Too large for this pool" : quote?.blocked === "paused" ? "Pool paused" : quote?.blocked ? "Swap unavailable" : zeroOut ? "Amount too small" : enoughBalance === false ? `Not enough ${shortDenom(denomIn)}` : quote ? "Review swap" : !selectedPool ? "No pool selected" : quoteState === "loading" ? "Getting a quote…" : "Quote unavailable"}</button>
+                      <button type="button" className="btn btn-primary btn-block btn-lg" disabled={!canReview} onClick={() => { if (quote && currentKey) setReviewed({ key: currentKey, data: quote }); setReviewNotice(""); }}>{selectedTooThin ? "Pool too thin to trade" : quote?.blocked === "impact" ? "Too large for this pool" : quote?.blocked === "paused" ? "Pool paused" : quote?.blocked ? "Swap unavailable" : zeroOut ? "Amount too small" : enoughBalance === false ? `Not enough ${shortDenom(denomIn)}` : quote ? "Review swap" : !selectedPool ? "No pool selected" : quoteState === "loading" ? "Getting a quote…" : "Quote unavailable"}</button>
                     </>}
             </div>}
             <p className="quote-status"><span className={`dot ${networkState === "ready" && pools.length ? "live" : ""}`} />{readiness}</p>

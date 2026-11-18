@@ -6,7 +6,10 @@
  */
 export const THEME = {
   surface: "#111214",
-  grid: "#1a1b1f",
+  /** Crosshair label chips sit on the raised surface (--raised), not the library's default blue-gray. */
+  raised: "#17181b",
+  /** Hairline grid on the raised tone, so it reads as structure and never competes with the series. */
+  grid: "#17181b",
   axis: "#2a2b30",
   text: "#a0a1a8",
   accent: "#ffd43b",
