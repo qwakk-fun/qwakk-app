@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, ExternalLink, PauseCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, PauseCircle } from "lucide-react";
 import { LiquidityPanel } from "./LiquidityPanel";
 import { QwakkHeader } from "./QwakkHeader";
 import { SiteFooter } from "./SiteFooter";
@@ -53,6 +53,8 @@ type Swap = {
 /** `quote_candles` are already in quote per base; the raw `candles` are not used. */
 type Detail = { pool: Pool; quote_candles?: PoolCandle[]; swaps: Swap[] };
 
+const SWAPS_PER_PAGE = 10;
+
 function shortAddress(value: string | null) {
   if (!value) return "Unknown wallet";
   return `${value.slice(0, 8)}…${value.slice(-5)}`;
@@ -78,7 +80,9 @@ function amountLabel(pool: Pool, denom: string, amount: string) {
 export function PoolDetailView({ poolId }: { poolId: string }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "missing" | "unavailable">("loading");
-  const [chartInterval, setChartInterval] = useState<ChartInterval>("1m");
+  // Same default as the swap page: 1m candles on a quiet pool are mostly empty.
+  const [chartInterval, setChartInterval] = useState<ChartInterval>("1h");
+  const [swapPage, setSwapPage] = useState(1);
   // Each wallet action has its own switch (QWAKK_NATIVE_ACTIONS). The liquidity
   // panel shows only the parts whose switch is on (remove-only is a valid mode).
   const { actions } = useFeatures();
@@ -122,6 +126,10 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
   }
 
   const { pool, swaps } = detail;
+  // The table shows one page at a time. A refresh that shrinks the list keeps the page in range.
+  const swapPages = Math.max(1, Math.ceil(swaps.length / SWAPS_PER_PAGE));
+  const currentSwapPage = Math.min(swapPage, swapPages);
+  const visibleSwaps = swaps.slice((currentSwapPage - 1) * SWAPS_PER_PAGE, currentSwapPage * SWAPS_PER_PAGE);
   const candles = detail.quote_candles ?? [];
   const { base, quote } = marketSides(pool);
   const reserves = marketReserves(pool, 6);
@@ -176,7 +184,7 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
               <div className="table">
                 <div className="table-row table-head"><span>Time</span><span>Sold</span><span>Bought</span><span className="hide-sm">Wallet</span><span aria-hidden="true" /></div>
                 {swaps.length === 0 && <div className="empty"><p>No swaps have been indexed for this pool yet.</p></div>}
-                {swaps.map((swap) => <div className="table-row" key={`${swap.tx_hash}-${swap.executed_at}`}>
+                {visibleSwaps.map((swap) => <div className="table-row" key={`${swap.tx_hash}-${swap.executed_at}`}>
                   <span className="subtle">{dateTime(swap.executed_at)}</span>
                   <span className="num">{amountLabel(pool, swap.denom_in, swap.amount_in)}</span>
                   <span className="num">{amountLabel(pool, swap.denom_out, swap.amount_out)}</span>
@@ -184,6 +192,11 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
                   <a className="end subtle" href={`https://explore.qore.network/tx/${swap.tx_hash}`} target="_blank" rel="noreferrer" aria-label="Open transaction in the QoreChain explorer"><ExternalLink size={15} /></a>
                 </div>)}
               </div>
+              {swapPages > 1 && <nav className="table-pages" aria-label="Recent swaps pages">
+                <button type="button" className="btn btn-ghost btn-sm" disabled={currentSwapPage <= 1} onClick={() => setSwapPage(currentSwapPage - 1)}><ChevronLeft size={15} aria-hidden="true" />Newer</button>
+                <span className="subtle num" aria-live="polite">Page {currentSwapPage} of {swapPages}</span>
+                <button type="button" className="btn btn-ghost btn-sm" disabled={currentSwapPage >= swapPages} onClick={() => setSwapPage(currentSwapPage + 1)}>Older<ChevronRight size={15} aria-hidden="true" /></button>
+              </nav>}
             </section>
           </div>
           <aside className="panel" aria-labelledby="pool-info-title">

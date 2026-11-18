@@ -34,7 +34,15 @@ export function PoolChart({ candles, unit }: { candles: PoolCandle[]; unit: stri
       high: Number(candle.high),
       low: Number(candle.low),
       close: Number(candle.close),
-    })).filter((candle) => Number.isFinite(candle.open) && Number.isFinite(candle.high) && Number.isFinite(candle.low) && Number.isFinite(candle.close));
+    })).filter((candle) => Number.isFinite(candle.open) && Number.isFinite(candle.high) && Number.isFinite(candle.low) && Number.isFinite(candle.close))
+      // A quiet pool has many one-swap buckets whose open equals their close, which draw as flat dashes.
+      // With no swaps in between, the price at a bucket's start is the previous bucket's close, so each
+      // candle opens there (as on most DEX charts) and the chart reads as one continuous price path.
+      .map((candle, index, list) => {
+        if (index === 0) return candle;
+        const open = list[index - 1].close;
+        return { ...candle, open, high: Math.max(candle.high, open), low: Math.min(candle.low, open) };
+      });
     const chart = createChart(container, {
       autoSize: true,
       height: 400,
