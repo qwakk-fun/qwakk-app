@@ -9,6 +9,7 @@ import {
   EthNativeSigner,
   deriveUnifiedAccount,
   getNetwork,
+  type EthNativeSignerOptions,
   type UnifiedAccount,
 } from "@qorechain/sdk";
 import { PRECOMPILE_ADDRESSES, classifyEvmWindowRejection, evmWindowStatus, qorechainTestnet, type EvmWindow } from "@qorechain/evm";
@@ -182,26 +183,73 @@ export function explainEvmError(error: unknown): string {
 
 export type NativeMessages = Parameters<EthNativeSigner["sign"]>[0]["messages"];
 
-/** A hybrid-signed (or, only for key registration, classical) native-lane transaction. */
-export async function broadcastNative(acc: UnifiedAccount, mode: "hybrid" | "classical", messages: NativeMessages): Promise<string> {
-  if (devnetRpc()) throw new Error("POND_DEVNET_RPC is set: native-lane transactions only exist on QoreChain.");
+/**
+ * Optional settings for a native-lane transaction. Without them a transaction
+ * keeps the original settings: the default registry, 800,000 gas and a
+ * 0.1 QOR fee (the create-qorechain-dapp window helper's numbers).
+ */
+export type NativeOptions = {
+  /** A registry that also encodes messages @qorechain/sdk does not ship (for example MsgConvertERC20). */
+  registry?: EthNativeSignerOptions["registry"];
+  gas?: bigint;
+  feeUqor?: bigint;
+};
+
+async function accountSequence(acc: UnifiedAccount) {
   const net = network();
   const res = await fetch(`${net.rest}/cosmos/auth/v1beta1/accounts/${acc.cosmos}`);
   if (res.status === 404) throw new Error(`${acc.cosmos} does not exist on chain yet: get test QOR from the faucet first.`);
   if (!res.ok) throw new Error(`account query failed: HTTP ${res.status}`);
   const body = (await res.json()) as { account?: Record<string, unknown> };
   const a = (body.account?.base_account ?? body.account ?? {}) as Record<string, string>;
-  const signer = new EthNativeSigner(acc, { signMode: mode, rest: net.rest });
+  return { accountNumber: BigInt(a.account_number ?? "0"), sequence: BigInt(a.sequence ?? "0") };
+}
+
+function nativeParams(net: ReturnType<typeof network>, seq: { accountNumber: bigint; sequence: bigint }, messages: NativeMessages, opts: NativeOptions) {
+  return {
+    chainId: net.chainId,
+    accountNumber: seq.accountNumber,
+    sequence: seq.sequence,
+    fee: { amount: [{ denom: "uqor", amount: String(opts.feeUqor ?? 100_000n) }], gas: String(opts.gas ?? 800_000n) },
+    messages,
+  };
+}
+
+/**
+ * Dry run: sign the transaction exactly as it would be sent (same messages,
+ * same signing mode, current sequence) and ask the node to simulate it. Nothing
+ * is broadcast and the sequence does not advance. Returns the gas it used, or
+ * throws with the node's reason.
+ */
+export async function simulateNative(acc: UnifiedAccount, mode: "hybrid" | "classical", messages: NativeMessages, opts: NativeOptions = {}): Promise<bigint> {
+  if (devnetRpc()) throw new Error("POND_DEVNET_RPC is set: native-lane transactions only exist on QoreChain.");
+  const net = network();
+  const signer = new EthNativeSigner(acc, { signMode: mode, rest: net.rest, ...(opts.registry ? { registry: opts.registry } : {}) });
+  const params = nativeParams(net, await accountSequence(acc), messages, opts);
+  const signBytesVersion = mode === "hybrid" ? await signer.resolveSignBytesVersion(net.chainId) : undefined;
+  const signed = signer.sign({ ...params, ...(signBytesVersion ? { signBytesVersion } : {}) });
+  const res = await fetch(`${net.rest}/cosmos/tx/v1beta1/simulate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tx_bytes: Buffer.from(signed.txRawBytes).toString("base64") }),
+  });
+  const body = (await res.json().catch(() => ({}))) as { gas_info?: { gas_used?: string }; message?: string };
+  if (!res.ok || !body.gas_info?.gas_used) {
+    throw new Error(`the node's simulation refused it: ${(body.message ?? `HTTP ${res.status}`).split("\n")[0].slice(0, 300)}`);
+  }
+  return BigInt(body.gas_info.gas_used);
+}
+
+/** A hybrid-signed (or, only for key registration, classical) native-lane transaction. */
+export async function broadcastNative(acc: UnifiedAccount, mode: "hybrid" | "classical", messages: NativeMessages, opts: NativeOptions = {}): Promise<string> {
+  if (devnetRpc()) throw new Error("POND_DEVNET_RPC is set: native-lane transactions only exist on QoreChain.");
+  const net = network();
+  const seq = await accountSequence(acc);
+  const signer = new EthNativeSigner(acc, { signMode: mode, rest: net.rest, ...(opts.registry ? { registry: opts.registry } : {}) });
   const transport = await StargateClient.connect(net.rpc);
   try {
-    // Same fee as the create-qorechain-dapp window helper: hybrid txs are large.
-    const result = await signer.signAndBroadcast(transport, {
-      chainId: net.chainId,
-      accountNumber: BigInt(a.account_number ?? "0"),
-      sequence: BigInt(a.sequence ?? "0"),
-      fee: { amount: [{ denom: "uqor", amount: "100000" }], gas: "800000" },
-      messages,
-    });
+    // Default fee as the create-qorechain-dapp window helper: hybrid txs are large.
+    const result = await signer.signAndBroadcast(transport, nativeParams(net, seq, messages, opts));
     if (result.code !== 0) {
       throw new Error(`QoreChain refused the native transaction (code ${result.code}): ${txLink(result.transactionHash)}`);
     }

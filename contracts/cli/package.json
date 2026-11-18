@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Owner and approver CLI for the Qwakk Pond Vault on the QoreChain EVM.",
+  "description": "Owner and approver CLI for the Qwakk Pond Vault, and the QWAKK token CLI, on QoreChain Diana.",
   "license": "MIT",
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
     "pond": "tsx --env-file-if-exists=../.env src/pond.ts",
+    "token": "tsx --env-file-if-exists=../.env src/token.ts",
     "vectors": "tsx src/vectors.ts",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"

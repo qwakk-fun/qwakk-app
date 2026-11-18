@@ -19,6 +19,18 @@ export type CuratedToken = {
   minTvl?: string;
 };
 
+/**
+ * QWAKK on Diana: the same value as QWAKK_TOKEN_ADDRESS in lib/qwakk-assets.ts
+ * (null until the token is deployed, registered and pooled; a test checks they
+ * match). Chain metadata alone already resolves it (symbol QWAKK, display
+ * "Qwakk", 6 decimals); the entry pins those values like the other tokens.
+ */
+export const QWAKK_TOKEN_ADDRESS: string | null = null;
+
+function qwakkEntry(address: string | null): Record<string, CuratedToken> {
+  return address ? { [`erc20:${address.toLowerCase()}`]: { symbol: "QWAKK", name: "Qwakk", decimals: 6 } } : {};
+}
+
 /** Keys are lowercase: erc20 hex addresses and IBC hashes are matched case-insensitively. */
 const CURATED_TOKENS: Readonly<Record<IndexerNetworkId, Record<string, CuratedToken>>> = {
   testnet: {
@@ -28,6 +40,7 @@ const CURATED_TOKENS: Readonly<Record<IndexerNetworkId, Record<string, CuratedTo
     "erc20:0x4604e7e45b2ecdbfbdc157103f5b2b62cb16451a": { symbol: "fBTC", name: "FestBTC", decimals: 8 },
     // Chain metadata only lists the uatom unit (exponent 0, symbol UATOM).
     "ibc/27394fb092d2eccd56123c74f36e4c1f926001ceada9ca97ea622b25f41e5eb2": { symbol: "ATOM", name: "Cosmos Hub ATOM", decimals: 6 },
+    ...qwakkEntry(QWAKK_TOKEN_ADDRESS),
   },
   // Mainnet bank supply holds only uqor (checked 2026-10-31). Add tokens here as they launch.
   mainnet: {

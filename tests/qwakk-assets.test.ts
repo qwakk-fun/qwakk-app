@@ -1,18 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { qorechainRegistry } from "@qorechain/sdk";
+import { qorechainRegistry, toChecksumAddress } from "@qorechain/sdk";
 
-import { curatedToken } from "../indexer/token-registry";
+import { QWAKK_TOKEN_ADDRESS as INDEXER_QWAKK_TOKEN_ADDRESS, curatedToken } from "../indexer/token-registry";
 import { readResolvedAsset } from "../lib/qwakk-asset-metadata";
 import {
   DIANA_ASSETS,
+  MAINNET_ASSETS,
+  QWAKK_TOKEN_ADDRESS,
   assetForDenom,
   assetFromBankMetadata,
   createPoolTokenOptions,
   decimalsFromBankMetadata,
   displaySymbol,
   formatBaseAmount,
+  qwakkTokenAsset,
   resolveAsset,
   toBaseAmount,
   withAssetOverrides,
@@ -29,7 +32,7 @@ const sender = "qor1exampleaddress000000000000";
 const registry = qorechainRegistry();
 
 test("curated Diana tokens carry the chain's exact denoms and decimals", () => {
-  assert.deepEqual(DIANA_ASSETS.map((asset) => [asset.symbol, asset.denom, asset.decimals]), [
+  assert.deepEqual(DIANA_ASSETS.filter((asset) => asset.icon !== "qwakk").map((asset) => [asset.symbol, asset.denom, asset.decimals]), [
     ["QOR", "uqor", 6],
     ["fUSD", FUSD, 6],
     ["fETH", FETH, 18],
@@ -106,7 +109,8 @@ test("indexed rows take curated symbols and decimals", () => {
 
 test("create pool offers every curated token plus held denoms, case preserved", () => {
   const balances = new Map([["uqor", BigInt(5)], [FETH, BigInt(1)], ["factory/qor1x/Duck", BigInt(3)], ["uempty", BigInt(0)]]);
-  assert.deepEqual(createPoolTokenOptions(balances), ["uqor", FUSD, FETH, FBTC, ATOM, "factory/qor1x/Duck"]);
+  const qwakk = qwakkTokenAsset(QWAKK_TOKEN_ADDRESS);
+  assert.deepEqual(createPoolTokenOptions(balances), ["uqor", FUSD, FETH, FBTC, ATOM, ...(qwakk ? [qwakk.denom] : []), "factory/qor1x/Duck"]);
   assert.deepEqual(createPoolTokenOptions(null), DIANA_ASSETS.map((asset) => asset.denom));
 });
 
@@ -158,4 +162,42 @@ test("the indexer's curated tokens match the app registry", () => {
     assert.ok(indexed, `${asset.symbol} is missing from indexer/token-registry.ts`);
     assert.deepEqual({ symbol: indexed.symbol, name: indexed.name, decimals: indexed.decimals }, { symbol: asset.symbol, name: asset.name, decimals: asset.decimals });
   }
+});
+
+test("QWAKK joins the Diana registry only through QWAKK_TOKEN_ADDRESS", () => {
+  const listed = DIANA_ASSETS.filter((asset) => asset.symbol === "QWAKK" || asset.icon === "qwakk");
+  if (QWAKK_TOKEN_ADDRESS === null) {
+    // Not deployed, registered and pooled yet: nothing may offer or name QWAKK.
+    assert.deepEqual(listed, []);
+    assert.equal(createPoolTokenOptions(null).some((denom) => /qwakk/i.test(displaySymbol(denom))), false);
+  } else {
+    assert.deepEqual(listed, [qwakkTokenAsset(QWAKK_TOKEN_ADDRESS)]);
+  }
+  assert.equal(MAINNET_ASSETS.some((asset) => asset.icon === "qwakk"), false);
+});
+
+test("QWAKK_TOKEN_ADDRESS is null or EIP-55, and the indexer holds the same value", () => {
+  if (QWAKK_TOKEN_ADDRESS !== null) {
+    assert.match(QWAKK_TOKEN_ADDRESS, /^0x[0-9a-fA-F]{40}$/);
+    assert.equal(QWAKK_TOKEN_ADDRESS, toChecksumAddress(QWAKK_TOKEN_ADDRESS), "use the EIP-55 spelling: the erc20: denom is case sensitive");
+  }
+  assert.equal(INDEXER_QWAKK_TOKEN_ADDRESS, QWAKK_TOKEN_ADDRESS, "set the same address in indexer/token-registry.ts");
+});
+
+test("the QWAKK entry keeps the exact denom and the contract's own metadata", () => {
+  const address = toChecksumAddress(`0x${"ab12cd34ef".repeat(4)}`);
+  assert.deepEqual(qwakkTokenAsset(address), { denom: `erc20:${address}`, symbol: "QWAKK", name: "Qwakk", decimals: 6, icon: "qwakk" });
+  assert.equal(qwakkTokenAsset(null), null);
+  assert.equal(qwakkTokenAsset(""), null);
+  assert.equal(qwakkTokenAsset("0x1234"), null);
+  assert.equal(qwakkTokenAsset(`erc20:${address}`), null);
+  // Until it is curated, a registered QWAKK still resolves from its bank metadata as the chain writes it.
+  const chain = assetFromBankMetadata(`erc20:${address}`, {
+    base: `erc20:${address}`,
+    display: "Qwakk",
+    name: `erc20:${address}`,
+    symbol: "QWAKK",
+    denom_units: [{ denom: `erc20:${address}`, exponent: 0 }, { denom: "Qwakk", exponent: 6 }],
+  });
+  assert.deepEqual({ symbol: chain.symbol, decimals: chain.decimals, source: chain.source }, { symbol: "QWAKK", decimals: 6, source: "chain" });
 });

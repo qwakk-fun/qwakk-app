@@ -89,8 +89,10 @@ test/PondVault.t.sol              unit and negative tests with real ML-DSA-87 ve
 test/PondVault.fuzz.t.sol         fuzz (timelock, cap, deadlines, roles, nonces) and invariants
 test/fixtures/pq-vectors.json     the vectors (generated, reproducible byte for byte)
 test/utils/                       shared setup, ERC-20 mocks, anvil stand-ins for the precompiles
+src/QwakkToken.sol                QWAKK, Qwakk's fixed-supply meme token (see "QWAKK token" below)
+test/QwakkToken.t.sol             its unit, x/erc20 conversion-shape, fuzz and invariant tests
 script/DeployPondVault.s.sol      Foundry deploy script for the anvil rehearsal only (refuses other chains)
-cli/                              owner and approver CLI (TypeScript, viem, QoreChain SDK)
+cli/                              owner and approver CLI (TypeScript, viem, QoreChain SDK), plus the QWAKK token CLI (src/token.ts)
 ```
 
 The read-only dashboard lives in the app: `app/vault/page.tsx`,
@@ -413,6 +415,120 @@ Reference: [qorechain/build-before-qday](https://github.com/qorechain/build-befo
 - `PRECOMPILE_ADDRESSES` in `@qorechain/evm@0.14.0` spells `0x...0A01` and
   `0x...0A02` in a case that is not a valid EIP-55 checksum, so viem refuses them
   as given. The CLI lowercases them first.
+
+## QWAKK token (QoreChain Diana)
+
+QWAKK is Qwakk's meme token on the Diana testnet: `Qwakk` / `QWAKK`, 6
+decimals, 1,000,000,000 QWAKK (10^15 base units) minted once to the deployer in
+the constructor. No owner or admin role, no mint or burn function, no fee, no
+pause, no blocklist (`src/QwakkToken.sol`). It trades in Qwakk the same way as
+fUSD, fETH and fBTC: as a bank coin `erc20:<address>` in an x/amm pool against
+QOR, signed by QoreX.
+
+| | |
+| --- | --- |
+| Contract and tests | Built. `forge test --match-path test/QwakkToken.t.sol`: 21 unit, 5 fuzz (1,024 runs each), 1 invariant (128 runs x 64 calls); 27 passed on 2026-11-18. |
+| CLI | Built. `npm run token -- <command>` with the commands status, deploy, convert and send. CLI `npm test`: 30 of 30 passed on 2026-11-18. |
+| Deploy dry run on Diana | `eth_estimateGas` of the deploy from the deployer: 379,212 gas, the same as Foundry's gas report (2026-11-18). |
+| Native dry runs on Diana | Signed hybrid and simulated (never broadcast, sequence unchanged): a MsgConvertERC20 with a `qor1` sender reached the EVM transfer, and a bank send of an `erc20:` coin reached the bank keeper (2026-11-18). |
+| On chain | **Deployed on 2026-11-18** at `0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23` (`qor15keu87ujut5f240ejzdeqpxxtu659m3r05j3gz`), block 10,322,273, 379,212 gas. The CLI checked name, symbol, decimals, supply and the deployer's 1,000,000,000 QWAKK on chain. Expected bank denom: `erc20:0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23`. |
+| Registration | Requested from QoreChain on 2026-11-18. Not registered yet. |
+
+### How registration and conversion work
+
+- **Registration is governance only on Diana** (`/cosmos/evm/erc20/v1/params`:
+  `permissionless_registration: false`). QoreChain submits a proposal with
+  `MsgRegisterERC20`, as testnet proposal 26 did for fUSD, fETH and fBTC
+  (signer: the gov module `qor10d07y265gmmuvt4z0w9aw880jnsr700jwfyxr3`). We do
+  not submit it.
+- **What registration reads from the contract** (cosmos/evm v0.6.3, which
+  QoreChain pins in `go.mod`; `x/erc20/keeper/proposals.go` and
+  `keeper/evm.go`): `name()`, `symbol()` and `decimals()`, called from the erc20
+  module address. No interface or ownership check. It then creates bank
+  metadata and an `OWNER_EXTERNAL` token pair. For QWAKK the metadata will be:
+  base and name `erc20:<EIP-55 address>`, symbol `QWAKK`, display unit `Qwakk`
+  at exponent 6, description "Cosmos coin token representation of <address>".
+  The CLI's replica of this rule reproduces Diana's live fUSD, fETH and fBTC
+  records exactly (`cli/test/token.test.ts`), and `token status` compares the
+  live record with it after registration.
+- **Why proposal 24 failed.** It carried the same three addresses as 26 and
+  ended later (24: 2026-10-28 01:48 UTC, 26: 2026-10-27 15:11 UTC, both passed
+  the vote). 26 executed first, so 24 hit `token ERC20 contract already
+  registered ... token pair already exists` (`failed_reason` at
+  `/cosmos/gov/v1/proposals/24`). So: one proposal per address.
+- **Registration does not move balances.** The whole supply stays an ERC-20
+  balance of the deployer until it is converted with `MsgConvertERC20`
+  (`keeper/convert.go`: the module takes the ERC-20 into escrow at
+  `0x47EeB2eac350E1923b8CBDfA4396A077b36E62a0` and mints the same amount as bank
+  coins to `receiver`). The token must return `true` from `transfer` and move
+  exactly the amount; the Foundry tests check both.
+- **Conversion is a Native-lane transaction**, signed hybrid with the
+  account's registered ML-DSA-87 key. `sender` and `receiver` are `qor1`
+  addresses: QoreChain patches the module to read a bech32 sender
+  (`qorechain-core` `app/app_config.go`; docs: developer-guide/evm-development,
+  "Converting between the two forms"). Diana holds 95 successful conversions in
+  that form, for example
+  [`D53380E8...FE3B6`](https://explore.qore.network/tx/D53380E8260EAA25A790D35E462AD14E07D13BD879C79C4BD43157E5B5FAE3B6)
+  (428,257 gas). No EVM window is needed: `qor1ztgyvvcgrn5wnthhdmfswddtd3aexk7zz6yln2`
+  converted fBTC and has never opened one. `@qorechain/sdk` 0.14.0 has no
+  builder for this message, so the CLI adds a four-field encoder that matches
+  that live transaction byte for byte.
+- **The bank coin moves like any other bank coin.** A `MsgSend` of `erc20:`
+  coins works (for example the faucet's
+  [`79D42B78...233C1`](https://explore.qore.network/tx/79D42B78EA8EF31D0350189562D66C99699D70AE8922420365206B65A08233C1)),
+  so the CLI sends QWAKK to the owner's QoreX wallet, and the pool is created in
+  the Qwakk app with QoreX exactly like pools 2 to 4.
+
+### Runbook
+
+Run from `qwakk-app/contracts/cli` unless a step says otherwise. The deployer is
+the testnet-only account of `QORE_MNEMONIC` in `contracts/.env`:
+`0xfcDA8fF7c31dCF8900F99fc91c7Db6E8b3112A5C` /
+`qor1lndgla7rrh8cjq8enly3cldkaze3z2jupzakmp`, a fresh account with its own
+ML-DSA-87 key. It is not the Pond Vault account: that one is the Q-Day Drill
+account, whose ECDSA key the drill bot holds, and the bot drained the budget of
+the unscoped window we opened on it on drill day. Never open an unscoped window on
+a drill account. Every command that sends prints
+what it will send and waits for "yes". `deploy`, `convert` and `send` take `--dry-run` to
+estimate or simulate on the node and stop.
+
+| Step | Command or action | Env vars | Sends | Fee |
+| --- | --- | --- | --- | --- |
+| 1 | `cd .. && forge build && forge test --match-path test/QwakkToken.t.sol`, then `cd cli && npm test` | none | nothing | none |
+| 2 | `npm run token -- status` (deployer QOR, key, window; "token not deployed yet") | `QORE_MNEMONIC` | nothing | none |
+| 3 | `npm run pond -- window deploy` | `QORE_MNEMONIC` | Native tx (hybrid): opens an unscoped window for 1 EVM transaction, replacing the old vault window | 0.1 QOR; the window allows up to 0.75 QOR of EVM fees |
+| 4 | `npm run token -- deploy`, then put the printed `QWAKK_TOKEN_ADDRESS=0x...` in `contracts/.env` | `QORE_MNEMONIC` | 1 EVM tx: deploys QwakkToken; the CLI then checks name, symbol, decimals, supply and the deployer's balance on chain | about 379,000 gas: about 0.043 QOR at 112.5 gwei (Diana's gas price on 2026-11-18), at most 0.124 QOR (gas limit 492,975 at the 250 gwei cap) |
+| 5 | Send QoreChain the registration request below, with the address from step 4. Wait until `npm run token -- status` shows "token pair erc20:0x..., enabled, OWNER_EXTERNAL" and "bank metadata as expected" | `QORE_MNEMONIC`, `QWAKK_TOKEN_ADDRESS` | nothing (QoreChain submits the proposal) | none for us |
+| 6 | `npm run token -- convert all` | `QORE_MNEMONIC`, `QWAKK_TOKEN_ADDRESS` | Native tx (hybrid): `MsgConvertERC20` of the whole supply into the deployer's bank balance | 0.1 QOR (800,000 gas at 0.125 uqor per gas; more only if the dry run needs more) |
+| 7 | `npm run token -- send <amount or all> --to qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq` | `QORE_MNEMONIC`, `QWAKK_TOKEN_ADDRESS` | Native tx (hybrid): bank `MsgSend` of QWAKK to the owner's QoreX wallet | 0.1 QOR |
+| 8 | `npm run token -- status --holder qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq` | same | nothing | none |
+| 9 | In the Qwakk app with QoreX (Diana): Pools, New pool, pick QWAKK (it appears from the wallet balance, labeled from its bank metadata) and QOR, enter both amounts, approve in QoreX. The amounts set the starting price. Add more liquidity from the pool page the same way. | none | QoreX signs `MsgCreatePool` (and later `MsgAddLiquidity`) | 100 QOR pool creation fee plus the network fee QoreX shows |
+| 10 | `npm run token -- status` lists the pool. Then in the app repo set the same EIP-55 address in two places: `QWAKK_TOKEN_ADDRESS` in `lib/qwakk-assets.ts` and in `indexer/token-registry.ts`. Run `npm run typecheck`, `npm run lint`, `npm test`, then deploy the web and indexer services. | none | nothing | none |
+
+After step 10 QWAKK carries the duck mark and its name everywhere in the app.
+Before step 10 it already trades: the app and the indexer resolve it from the
+bank metadata (symbol QWAKK, 6 decimals). Points count the QWAKK/QOR pool like
+any pool with a QOR side.
+
+Pool notes: each deposit must be at least 1,000 base units of each token
+(`min_liquidity`), the AMM refuses swaps above 5% price impact
+(`max_swap_impact_bps` 500), and the swap fee is 0.30% (0.20% to liquidity, 0.10%
+burned). A shallow pool hits the impact cap after small swaps, so size the QOR
+side for the swaps you expect.
+
+### Registration request for QoreChain
+
+Fill in the address from step 4 and send it as plain text:
+
+```text
+My friend, we deployed Qwakk's meme token QWAKK on Diana and would like it registered as a bank denom so it can be pooled against QOR in x/amm, like fUSD, fETH and fBTC in proposal 26.
+
+Could you submit a MsgRegisterERC20 proposal on qorechain-diana for this one contract: <QWAKK_TOKEN_ADDRESS>
+
+It is a plain fixed-supply ERC-20: name Qwakk, symbol QWAKK, 6 decimals, 1,000,000,000 supply minted once to the deployer. No owner, no mint, no fee on transfer, no pause, no blocklist. The expected denom is erc20:<QWAKK_TOKEN_ADDRESS>. Source: contracts/src/QwakkToken.sol in github.com/qwakk-fun/qwakk-app.
+
+Thank you!
+```
 
 ## License
 

@@ -10,7 +10,7 @@
  * reported (a balance, a pool, or `QwakkAsset.denom`).
  */
 
-export type QwakkAssetIcon = "qor" | "usd" | "eth" | "btc" | "atom" | "generic";
+export type QwakkAssetIcon = "qor" | "usd" | "eth" | "btc" | "atom" | "qwakk" | "generic";
 
 export type QwakkAsset = {
   /** The exact on-chain denom, case preserved. */
@@ -32,11 +32,39 @@ export type ResolvedAsset = Omit<QwakkAsset, "decimals"> & {
 };
 
 /**
+ * QWAKK, Qwakk's own token on QoreChain Diana: the EIP-55 address of the
+ * QwakkToken contract (contracts/src/QwakkToken.sol), or null.
+ *
+ * Keep it null until all three hold on Diana: the contract is deployed,
+ * QoreChain has registered it as a token pair (bank denom `erc20:<address>`),
+ * and the QWAKK/QOR pool exists. `npm run token -- status` in contracts/cli
+ * shows all three. While it is null the registry has no QWAKK entry, so
+ * nothing in the app offers or names QWAKK ahead of the chain. Set the same
+ * address in indexer/token-registry.ts; tests/qwakk-assets.test.ts checks that
+ * both match and that the spelling is EIP-55 (the denom is case sensitive).
+ */
+export const QWAKK_TOKEN_ADDRESS: string | null = null;
+
+/**
+ * The curated QWAKK entry for a token address. The values are the contract's
+ * own: name() "Qwakk", symbol() "QWAKK", decimals() 6, which registration
+ * copies into the bank metadata (symbol QWAKK, display unit "Qwakk" at
+ * exponent 6). Being Qwakk's own token, its official icon is the duck mark.
+ */
+export function qwakkTokenAsset(address: string | null): QwakkAsset | null {
+  if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) return null;
+  return { denom: `erc20:${address}`, symbol: "QWAKK", name: "Qwakk", decimals: 6, icon: "qwakk" };
+}
+
+const DIANA_QWAKK = qwakkTokenAsset(QWAKK_TOKEN_ADDRESS);
+
+/**
  * Curated tokens on QoreChain Diana. Values match Diana's
  * `/cosmos/bank/v1beta1/denoms_metadata` (checked 2026-10-31), except ATOM:
  * its IBC metadata (transfer/channel-0/uatom from the Cosmos Hub testnet) only
  * lists the exponent 0 unit "uatom" and the symbol "UATOM", while uatom is the
- * micro unit of ATOM, so Qwakk shows it as ATOM with 6 decimals.
+ * micro unit of ATOM, so Qwakk shows it as ATOM with 6 decimals. QWAKK joins
+ * only once `QWAKK_TOKEN_ADDRESS` is set.
  */
 export const DIANA_ASSETS: readonly QwakkAsset[] = [
   { denom: "uqor", symbol: "QOR", name: "QoreChain", decimals: 6, icon: "qor" },
@@ -44,6 +72,7 @@ export const DIANA_ASSETS: readonly QwakkAsset[] = [
   { denom: "erc20:0x02292293c13880a26242690eb70a0e42B8E91c28", symbol: "fETH", name: "FestETH", decimals: 18, icon: "eth" },
   { denom: "erc20:0x4604e7E45b2ecdbfbDc157103f5B2b62cb16451A", symbol: "fBTC", name: "FestBTC", decimals: 8, icon: "btc" },
   { denom: "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2", symbol: "ATOM", name: "Cosmos Hub ATOM", decimals: 6, icon: "atom" },
+  ...(DIANA_QWAKK ? [DIANA_QWAKK] : []),
 ];
 
 /**

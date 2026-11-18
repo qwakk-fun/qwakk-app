@@ -5,7 +5,8 @@ import { assetForDenom, displaySymbol } from "../lib/qwakk-assets";
  * Cosmos Hub ATOM mark from cosmos/chain-registry). The Diana test tokens
  * fUSD, fETH and fBTC have no official artwork, so they get a plain colored
  * badge. fETH and fBTC use plain letters, so a test token never borrows the
- * ETH or BTC sign. Anything else shows its first letter.
+ * ETH or BTC sign. QWAKK is Qwakk's own token, so its official mark is the
+ * duck. Anything else shows its first letter.
  */
 const BADGE_GLYPH = { usd: "$", eth: "E", btc: "B" } as const;
 
@@ -13,6 +14,7 @@ export function TokenIcon({ denom, size = "regular" }: { denom: string; size?: "
   const asset = assetForDenom(denom);
   if (asset?.icon === "qor") return <img className={`token-icon ${size} qor-icon`} src="/qorechain-mark.png" alt="" aria-hidden="true" />;
   if (asset?.icon === "atom") return <img className={`token-icon ${size} atom-icon`} src="/tokens/atom.svg" alt="" aria-hidden="true" />;
+  if (asset?.icon === "qwakk") return <img className={`token-icon ${size} qwakk-icon`} src="/brand-mark.svg" alt="" aria-hidden="true" />;
   if (asset && (asset.icon === "usd" || asset.icon === "eth" || asset.icon === "btc")) {
     return <span className={`token-icon ${size} ${asset.icon}-icon`} aria-hidden="true">{BADGE_GLYPH[asset.icon]}</span>;
   }
