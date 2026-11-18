@@ -76,18 +76,23 @@ test("window scope is read from the REST answer", () => {
 type Rpc = { id: number; method: string; params: unknown[] };
 
 /** A fake QoreChain: answers the vault's batch calls and the window REST route. */
-function fakeChain(opts: { code?: boolean; logsFail?: boolean; tokenReverts?: boolean } = {}) {
+function fakeChain(opts: { code?: boolean; logsFail?: boolean; tokenReverts?: boolean; txSearchFails?: boolean; hashChar?: string } = {}) {
   const tokens = vaultTokens();
-  const queuedHash = `0x${"a".repeat(64)}`;
-  const settledHash = `0x${"b".repeat(64)}`;
+  const c = opts.hashChar ?? "a";
+  const queuedEvmHash = `0x${c.repeat(64)}`;
+  const settledEvmHash = `0x${String.fromCharCode(c.charCodeAt(0) + 1).repeat(64)}`;
+  // explore.qore.network opens native hashes, so the snapshot links these, not the EVM ones.
+  const nativeFor = (evm: string) => evm.slice(2).toUpperCase().replace(/./, "E");
+  const queuedHash = nativeFor(queuedEvmHash);
+  const settledHash = nativeFor(settledEvmHash);
   const answer = (r: Rpc): unknown => {
     if (r.method === "eth_getBlockByNumber") return { number: "0x989680", timestamp: "0x7000" };
     if (r.method === "eth_getBalance") return "0xde0b6b3a7640000"; // 1 QOR
     if (r.method === "eth_getLogs") {
       if (opts.logsFail) throw new Error("range");
       return [
-        { topics: [POND_VAULT_TOPICS["ActionQueued(uint256,uint8,address,address,uint256,uint64,uint64)"], `0x${w(2)}`, `0x${w(1)}`], transactionHash: queuedHash },
-        { topics: [POND_VAULT_TOPICS["ActionExecuted(uint256,uint8)"].toUpperCase().replace("0X", "0x"), `0x${w(2)}`, `0x${w(1)}`], transactionHash: settledHash },
+        { topics: [POND_VAULT_TOPICS["ActionQueued(uint256,uint8,address,address,uint256,uint64,uint64)"], `0x${w(2)}`, `0x${w(1)}`], transactionHash: queuedEvmHash },
+        { topics: [POND_VAULT_TOPICS["ActionExecuted(uint256,uint8)"].toUpperCase().replace("0X", "0x"), `0x${w(2)}`, `0x${w(1)}`], transactionHash: settledEvmHash },
       ];
     }
     const { to, data } = (r.params[0] as { to: string; data: string });
@@ -120,6 +125,11 @@ function fakeChain(opts: { code?: boolean; logsFail?: boolean; tokenReverts?: bo
     if (href.includes("/qorechain/pqc/v1/evm_window/")) {
       assert.match(href, /evm_window\/qor-of-0x00000000000000000000000000000000000000a1$/);
       return new Response(JSON.stringify({ found: true, live: true, remaining_blocks: "100", remaining_txs: "2", native_only: false, allowed_targets: [VAULT] }));
+    }
+    if (href.includes("/cosmos/tx/v1beta1/txs?")) {
+      if (opts.txSearchFails) return new Response("{}", { status: 500 });
+      const evm = /ethereumTxHash='(0x[0-9a-f]{64})'/.exec(decodeURIComponent(href))?.[1] ?? "";
+      return new Response(JSON.stringify({ tx_responses: [{ txhash: nativeFor(evm) }] }));
     }
     const batch = JSON.parse(String(init?.body)) as Rpc[];
     return new Response(JSON.stringify(batch.map((r) => {
@@ -167,6 +177,14 @@ test("reads a full snapshot from the chain", async () => {
   assert.equal(s.actions[1].symbol, "fUSD");
   assert.equal(s.actions[1].to, null);
   assert.equal(s.ownerWindow?.scope, "vault");
+});
+
+test("vault links leave out a transaction whose native hash cannot be found", async () => {
+  const s = await readVaultSnapshot(config(fakeChain({ txSearchFails: true, hashChar: "c" }).fetchImpl));
+  assert.equal(s.status, "ok");
+  if (s.status !== "ok") return;
+  assert.equal(s.actions[0].queuedTx, null);
+  assert.equal(s.actions[0].settledTx, null);
 });
 
 test("a reverting token read only marks that balance unavailable", async () => {

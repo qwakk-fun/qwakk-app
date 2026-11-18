@@ -341,7 +341,49 @@ async function readActionTxs(config: VaultReadConfig, requests: RpcRequest[]) {
   } catch {
     // links are optional
   }
+  await Promise.all([toNativeHashes(config, queued), toNativeHashes(config, settled)]);
   return { queued, settled };
+}
+
+/** EVM hash (lowercase) to its native transaction hash. The mapping never changes, so it is kept for the process lifetime. */
+const nativeHashCache = new Map<string, string>();
+
+/**
+ * explore.qore.network opens native QoreChain hashes, not EVM 0x hashes, so each
+ * vault transaction is looked up by its ethereum_tx event on the REST node. A hash
+ * that cannot be resolved (pruned node, timeout) is dropped rather than linked broken.
+ */
+async function toNativeHashes(config: VaultReadConfig, hashes: Map<string, string>) {
+  await Promise.all(
+    [...hashes].map(async ([id, evmHash]) => {
+      const native = await nativeTxHash(config, evmHash);
+      if (native) hashes.set(id, native);
+      else hashes.delete(id);
+    }),
+  );
+}
+
+async function nativeTxHash(config: VaultReadConfig, evmHash: string): Promise<string | null> {
+  const key = evmHash.toLowerCase();
+  const cached = nativeHashCache.get(key);
+  if (cached) return cached;
+  try {
+    const doFetch = config.fetch ?? fetch;
+    const query = encodeURIComponent(`ethereum_tx.ethereumTxHash='${key}'`);
+    const response = await doFetch(`${config.restUrl}/cosmos/tx/v1beta1/txs?query=${query}&pagination.limit=1`, {
+      cache: "no-store",
+      // Links are a nicety: a slow REST node must not hold the whole vault read.
+      signal: AbortSignal.timeout(Math.min(config.timeoutMs ?? 3_000, 3_000)),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { tx_responses?: { txhash?: unknown }[] };
+    const native = body.tx_responses?.[0]?.txhash;
+    if (typeof native !== "string" || !/^[0-9A-F]{64}$/.test(native)) return null;
+    nativeHashCache.set(key, native);
+    return native;
+  } catch {
+    return null;
+  }
 }
 
 async function readWindow(config: VaultReadConfig, owner: string, vault: string): Promise<VaultWindow | null> {

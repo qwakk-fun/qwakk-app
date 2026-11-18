@@ -71,11 +71,11 @@ QoreChain testnet `qorechain-diana`, EVM chain id 9800. Explorer links use
 | --- | --- |
 | ML-DSA-87 key registration with proof of possession | [`CAF3DA17...D17E7`](https://explore.qore.network/tx/CAF3DA17E2742D9879E05F85FFB42B7105151022E443E794E3B9BC622E0D17E7) |
 | Unscoped deploy window (1 transaction) | [`6EFDDB8B...43123`](https://explore.qore.network/tx/6EFDDB8B1679F56A0B63EAA9B3DD22FF5F03AB36584CBBAF7D55B233C7143123) |
-| Deploy (2,131,623 gas) | [`0x694cd9f1...2b874`](https://explore.qore.network/tx/0x694cd9f1d55f4498f4f605c2001c48be2694cee6644a26a4c50ab23e54c2b874) |
+| Deploy (2,131,623 gas) | [`A191042F...EDED0`](https://explore.qore.network/tx/A191042FD64D71371F10004A5A454BA3CFC22D213F482B1E3B06B9F241AEDED0) |
 | Window scoped to the vault only (`allowedTargets=[vault]`, 4 transactions) | [`36162FA0...AD5AA`](https://explore.qore.network/tx/36162FA0EE1C0D4AB9A19A36CDE709DFA2981348CE0164C773F8CF0A9F2AD5AA) |
-| Deposit 100 QOR | [`0x17c8eeb9...c63ae`](https://explore.qore.network/tx/0x17c8eeb99fbd01a516e621a63e1f37d55913a86aec166c8ddce89ad1b1dc63ae) |
-| Queue a 0.005 QOR withdrawal with an ML-DSA-87 approval, verified on chain by `pqcVerify` (328,598 gas) | [`0xfb3f4c20...e3ba6`](https://explore.qore.network/tx/0xfb3f4c2063322de1db03ea9a440599cb492d5364d8a1b4ee02f4873dc0ee3ba6) |
-| Execute after the timelock | [`0x84a73b40...343ad`](https://explore.qore.network/tx/0x84a73b40813c0a0dfa120ea26e0cb4a72e3b13839162a0d33109595b273343ad) |
+| Deposit 100 QOR | [`ECD75A0C...F4A9F`](https://explore.qore.network/tx/ECD75A0CF8501C2E0C9E12A2F6404D5F8349ED4590674CE11260D03550BF4A9F) |
+| Queue a 0.005 QOR withdrawal with an ML-DSA-87 approval, verified on chain by `pqcVerify` (328,598 gas) | [`4D1B12F1...280AA`](https://explore.qore.network/tx/4D1B12F1BC2B85BAD90430420F2E2DA2C032F06F5F9BA6D520E362134E4280AA) |
+| Execute after the timelock | [`1B6F479D...3C337`](https://explore.qore.network/tx/1B6F479DAA68842C79FFB12CEAD7402DA605BB70D7E862C1715885E36383C337) |
 
 The Q-Day Drill is registered on the project page with the account and the
 vault above. The drill has not run yet.
@@ -431,7 +431,7 @@ QOR, signed by QoreX.
 | CLI | Built. `npm run token -- <command>` with the commands status, deploy, convert and send. CLI `npm test`: 30 of 30 passed on 2026-11-18. |
 | Deploy dry run on Diana | `eth_estimateGas` of the deploy from the deployer: 379,212 gas, the same as Foundry's gas report (2026-11-18). |
 | Native dry runs on Diana | Signed hybrid and simulated (never broadcast, sequence unchanged): a MsgConvertERC20 with a `qor1` sender reached the EVM transfer, and a bank send of an `erc20:` coin reached the bank keeper (2026-11-18). |
-| On chain | **Deployed on 2026-11-18** at `0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23` (`qor15keu87ujut5f240ejzdeqpxxtu659m3r05j3gz`), block 10,322,273, 379,212 gas. The CLI checked name, symbol, decimals, supply and the deployer's 1,000,000,000 QWAKK on chain. Expected bank denom: `erc20:0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23`. |
+| On chain | **Deployed on 2026-11-18** at `0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23` (`qor15keu87ujut5f240ejzdeqpxxtu659m3r05j3gz`), block 10,322,273, 379,212 gas ([`7DAF1B36...10913`](https://explore.qore.network/tx/7DAF1B36430B7FD756561CF6ED5F0D86CE01214F5F8DC5D26990091EE8810913)). The CLI checked name, symbol, decimals, supply and the deployer's 1,000,000,000 QWAKK on chain. Expected bank denom: `erc20:0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23`. |
 | Registration | Requested from QoreChain on 2026-11-18. Not registered yet. |
 
 ### How registration and conversion work
