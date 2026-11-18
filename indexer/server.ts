@@ -7,7 +7,7 @@ import { Pool } from "pg";
 import { catchUpRange, catchUpWithSearch, ensurePoolStored, indexBlockRange, isNotFoundAnswer, resumeAfterPruning, verifyEventSearch, type ChainLookup } from "./block-sync";
 import { eventValues, isQorAddress, LIQUIDITY_EVENT_TYPES, parseLiquidityEvent, parseSwapEvent, transactionSender, type ChainEvent } from "./amm-events";
 import {
-  CANDLE_INTERVALS, CHART_WINDOWS, bucketStart, candleInQuote, chooseQuoteSide, knownDecimals, pairFigures, priceInQuote, swapTrade,
+  CANDLE_INTERVALS, CANDLE_ROLLUPS, CHART_WINDOWS, bucketStart, candleInQuote, chooseQuoteSide, knownDecimals, pairFigures, priceInQuote, swapTrade,
   toDisplayUnits, type QuoteSide,
 } from "./market-math";
 import { minTvlFor, quoteRank, resolveTokenInfo, type DenomMetadata } from "./token-registry";
@@ -314,6 +314,39 @@ async function recordCandle(poolId: string, executedAt: Date, price: string, vol
          transactions = candles.transactions + 1`,
       [poolId, interval, bucketStart(executedAt, seconds), price, volumeQor, volumeQuote],
     );
+  }
+}
+
+/**
+ * Fills target candles (CANDLE_ROLLUPS, today 4h from 1h) for history that
+ * was indexed before the target interval existed. Runs on every start before
+ * the sync loop, so no swap is being recorded meanwhile. Buckets that already
+ * have a target row are left alone (ON CONFLICT DO NOTHING): those were written
+ * live by recordCandle or by an earlier run. It only inserts rows and never
+ * changes or deletes any. Twin of rollUpCandles in market-math.ts.
+ */
+async function backfillRolledUpCandles() {
+  for (const { target, source } of CANDLE_ROLLUPS) {
+    const seconds = CANDLE_INTERVALS[target];
+    const sourceSeconds = CANDLE_INTERVALS[source];
+    if (!seconds || !sourceSeconds || seconds % sourceSeconds !== 0) throw new Error(`Cannot roll ${source} candles up into ${target}`);
+    const result = await db.query(
+      `INSERT INTO candles (pool_id, interval, start_time, open, high, low, close, volume_qor, volume_quote, transactions)
+       SELECT pool_id, $1::text, bucket,
+              (ARRAY_AGG(open ORDER BY start_time ASC))[1],
+              MAX(high),
+              MIN(low),
+              (ARRAY_AGG(close ORDER BY start_time DESC))[1],
+              SUM(volume_qor),
+              SUM(COALESCE(volume_quote, volume_qor)),
+              SUM(transactions)
+         FROM (SELECT c.*, TO_TIMESTAMP(FLOOR(EXTRACT(EPOCH FROM c.start_time) / $2::int) * $2::int) AS bucket
+                 FROM candles c WHERE c.interval = $3) source
+        GROUP BY pool_id, bucket
+       ON CONFLICT (pool_id, interval, start_time) DO NOTHING`,
+      [target, seconds, source],
+    );
+    if (result.rowCount) console.log(`Backfilled ${result.rowCount} ${target} candles from ${source} candles`);
   }
 }
 
@@ -1137,7 +1170,7 @@ const server = createServer(async (request, response) => {
     const detailMatch = url.pathname.match(/^\/pools\/(\d+)$/);
     if (detailMatch) {
       const interval = url.searchParams.get("interval") ?? "1m";
-      if (!CHART_WINDOWS[interval]) return writeJson(response, 400, { error: "Unsupported chart interval" });
+      if (!Object.prototype.hasOwnProperty.call(CHART_WINDOWS, interval)) return writeJson(response, 400, { error: "Unsupported chart interval" });
       const detail = await poolDetail(detailMatch[1], interval);
       return detail ? writeJson(response, 200, detail) : writeJson(response, 404, { error: "Pool not found" });
     }
@@ -1213,6 +1246,9 @@ async function main() {
   await verifyChain();
   const saved = Number(await getState("last_indexed_height") ?? 0);
   syncState.height = saved > 0 ? saved : null;
+  // Before the first sync tick, so a live swap cannot land in a bucket that is being filled.
+  // A failure is logged and retried on the next start; it never stops indexing.
+  await backfillRolledUpCandles().catch((error) => console.warn("Candle backfill failed, it runs again on the next start:", error instanceof Error ? error.message : error));
   void runSync();
   setInterval(() => void runSync(), 5_000).unref();
   // Raw liquidity data is collected and scored even while the public points API is off,

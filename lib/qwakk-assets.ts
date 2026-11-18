@@ -43,7 +43,7 @@ export type ResolvedAsset = Omit<QwakkAsset, "decimals"> & {
  * address in indexer/token-registry.ts; tests/qwakk-assets.test.ts checks that
  * both match and that the spelling is EIP-55 (the denom is case sensitive).
  */
-export const QWAKK_TOKEN_ADDRESS: string | null = null;
+export const QWAKK_TOKEN_ADDRESS: string | null = "0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23";
 
 /**
  * The curated QWAKK entry for a token address. The values are the contract's

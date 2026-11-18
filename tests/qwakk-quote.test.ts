@@ -3,8 +3,9 @@ import test from "node:test";
 
 import type { AmmParams, AmmPool, ChainQuote } from "../lib/qwakk-amm-chain";
 import { classifyQuoteError, parseAmmParams, parseAmmPool } from "../lib/qwakk-amm-chain";
-import { constantProductOut, maxSwapInForImpact, maxTotalForSwapIn, priceImpactBps } from "../lib/qwakk-amm-math";
+import { constantProductOut, curveImpactBps, maxSwapInForImpact, maxTotalForSwapIn, priceImpactBps } from "../lib/qwakk-amm-math";
 import {
+  IMPACT_WARN_BPS,
   NETWORK_FEE_RESERVE_UQOR,
   QuoteError,
   buildExactInQuoteRequest,
@@ -151,6 +152,29 @@ test("blocks a swap above the chain's 5% impact cap and offers the largest amoun
   assert.ok(priceImpactBps(max, at, pool.reserveA, pool.reserveB) <= 500);
   const over = max + BigInt(50_000);
   assert.ok(priceImpactBps(over, constantProductOut(over, pool.reserveA, pool.reserveB, 30).amountOut, pool.reserveA, pool.reserveB) > 500);
+});
+
+test("does not report output rounding on a tiny swap as price impact", () => {
+  // Pool 6 on Diana: ~199.9M QWAKK and ~20,010 QOR. 1 QWAKK (10 bps interface fee) pays out 99 uqor
+  // where the mid price gives 99.9995, so the rounded output alone looked like a 1.00% impact.
+  const deep = { ...pool, tokenA: "erc20:0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23", tokenB: "uqor", reserveA: "199900549076510", reserveB: "20009970041" };
+  const request = buildExactInQuoteRequest({ poolId: "6", denomIn: deep.tokenA, amountIn: "1000000", slippageBps: 50, fee: { enabled: true, recipient: treasury, feeBps: 10 } });
+  const quote = buildSwapQuote({ request, pool: deep, params, chain: chainLike(request.swapAmountIn, deep.reserveA, deep.reserveB) });
+  assert.equal(quote.amountOut, "99");
+  assert.equal(quote.priceImpactBps, 100);
+  assert.equal(quote.curveImpactBps, 0);
+  assert.ok((quote.curveImpactBps ?? Number.POSITIVE_INFINITY) < IMPACT_WARN_BPS);
+  assert.equal(quote.blocked, null);
+});
+
+test("still reports the real price move of a large swap", () => {
+  // 100 QOR into a 1,000 QOR pool: 99.7 QOR after the fee moves the price 9.07%; with the fee the guard reads 9.34%.
+  const request = buildExactInQuoteRequest({ poolId: "1", denomIn: "uqor", amountIn: "100000000", fee: { enabled: false, feeBps: 0 } });
+  const quote = buildSwapQuote({ request, pool, params, chain: chainLike(request.swapAmountIn, pool.reserveA, pool.reserveB) });
+  assert.equal(quote.curveImpactBps, 907);
+  assert.equal(quote.priceImpactBps, 934);
+  assert.equal(curveImpactBps("0", "1000"), 0);
+  assert.equal(curveImpactBps("5", "0"), 10_000);
 });
 
 test("grows the maximum by the interface fee so the swap leg stays within the cap", () => {

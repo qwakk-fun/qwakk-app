@@ -42,11 +42,26 @@ export function priceBPerA(amountA: string, decimalsA: number, amountB: string, 
   return toDecimalString(numerator / denominator, PRICE_SCALE);
 }
 
-/** Candle intervals the indexer writes, in seconds. */
-export const CANDLE_INTERVALS: Record<string, number> = { "1m": 60, "5m": 300, "1h": 3600, "6h": 21600, "1d": 86400 };
+/**
+ * Candle intervals the indexer writes, in seconds. Buckets are aligned to the
+ * Unix epoch, so 4h candles start at 00, 04, 08, 12, 16 and 20 UTC. 6h candles
+ * were written before 4h replaced them; their rows stay in the table unused.
+ */
+export const CANDLE_INTERVALS: Record<string, number> = { "1m": 60, "5m": 300, "1h": 3600, "4h": 14400, "1d": 86400 };
 
-/** How far back each chart interval reaches when served. Every written interval must be listed. */
-export const CHART_WINDOWS: Record<string, string> = { "1m": "24 hours", "5m": "3 days", "1h": "30 days", "6h": "90 days", "1d": "365 days" };
+/**
+ * How far back each chart interval reaches when served. Every written interval
+ * must be listed, and only listed intervals are served. 60 days of 4h is 360
+ * candles, the same density the 6h chart had over 90 days.
+ */
+export const CHART_WINDOWS: Record<string, string> = { "1m": "24 hours", "5m": "3 days", "1h": "30 days", "4h": "60 days", "1d": "365 days" };
+
+/**
+ * Intervals the indexer fills from a finer stored interval on start, for
+ * history recorded before the interval existed. The source must divide the
+ * target evenly and must never be pruned (1h candles are kept forever).
+ */
+export const CANDLE_ROLLUPS: ReadonlyArray<{ target: string; source: string }> = [{ target: "4h", source: "1h" }];
 
 export function bucketStart(date: Date, seconds: number) {
   return new Date(Math.floor(date.getTime() / (seconds * 1000)) * seconds * 1000);
@@ -144,6 +159,34 @@ export function applyTradeToCandles(candles: Map<string, Candle>, executedAt: Da
     existing.transactions += 1;
   }
   return candles;
+}
+
+/**
+ * Rolls finer candles of one pool up into `target` candles. This is the
+ * in-memory twin of the startup backfill in server.ts (backfillRolledUpCandles):
+ * open is the earliest open, close the latest close, high and low the extremes,
+ * volumes and transactions are summed. A null volume_quote counts as
+ * volume_qor, like every reader of the candles table.
+ */
+export function rollUpCandles(candles: Candle[], target: string, seconds: number) {
+  const rolled = new Map<string, Candle>();
+  const ordered = [...candles].sort((a, b) => a.startTime.localeCompare(b.startTime));
+  for (const candle of ordered) {
+    const startTime = bucketStart(new Date(candle.startTime), seconds).toISOString();
+    const quote = candle.volumeQuote ?? candle.volumeQor;
+    const existing = rolled.get(startTime);
+    if (!existing) {
+      rolled.set(startTime, { ...candle, interval: target, startTime, volumeQuote: quote });
+      continue;
+    }
+    existing.high = compareDecimal(candle.high, existing.high) > 0 ? candle.high : existing.high;
+    existing.low = compareDecimal(candle.low, existing.low) < 0 ? candle.low : existing.low;
+    existing.close = candle.close;
+    existing.volumeQor = existing.volumeQor === null && candle.volumeQor === null ? null : addDecimal(existing.volumeQor ?? "0", candle.volumeQor ?? "0");
+    existing.volumeQuote = (existing.volumeQuote ?? null) === null && quote === null ? null : addDecimal(existing.volumeQuote ?? "0", quote ?? "0");
+    existing.transactions += candle.transactions;
+  }
+  return [...rolled.values()];
 }
 
 /**

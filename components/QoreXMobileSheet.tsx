@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Check, Copy, X } from "lucide-react";
+import { Check, Copy, ExternalLink, X } from "lucide-react";
 import { BRAND } from "../lib/brand";
-import { pageAddressForQoreX, qorexStoreLinks, type MobilePlatform } from "../lib/qwakk-mobile-wallet";
+import { pageAddressForQoreX, qorexBrowseLink, qorexStoreLinks, type MobilePlatform } from "../lib/qwakk-mobile-wallet";
 import { useFeatures } from "./useFeatures";
 
 /** A dragged sheet dismisses when its projected resting point passes this share of its height. */
@@ -29,14 +29,17 @@ type Drag = { id: number; startY: number; lastY: number; lastT: number; velocity
 /**
  * Shown when a phone browser asks to connect and has no `window.qorex`. QoreX
  * has no mobile extension, so the visitor opens this page in the QoreX app's
- * dApp browser, where connecting works like on desktop. No deep link is
- * offered: none that opens a URL in the dApp browser is documented
- * (see lib/qwakk-mobile-wallet.ts).
+ * dApp browser, where connecting works like on desktop. The primary action is
+ * QoreX's browse link (lib/qwakk-mobile-wallet.ts); it is a plain link in the
+ * same tab because iOS and Android hand a link to the app only when the user
+ * taps it. Store links and copy and paste stay as the fallback.
  */
 export function QoreXMobileSheet({ platform, onClose }: { platform: MobilePlatform; onClose: () => void }) {
   const { network } = useFeatures();
   const [address, setAddress] = useState("");
   const [copied, setCopied] = useState<"idle" | "done" | "manual">("idle");
+  // Null until the address is read after mount, and on a non-https page.
+  const browseLink = address ? qorexBrowseLink(address) : null;
   const field = useRef<HTMLInputElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
@@ -153,22 +156,22 @@ export function QoreXMobileSheet({ platform, onClose }: { platform: MobilePlatfo
         <h2 id="qorex-sheet-title">Your wallet lives in the QoreX app</h2>
         <button ref={closeButton} type="button" className="icon-btn icon-btn-keep" onClick={requestClose} aria-label="Close"><X size={18} /></button>
       </div>
-      <p id="qorex-sheet-lead" className="sheet-lead">Phone browsers can&apos;t run the QoreX extension. Open {BRAND.name} inside the QoreX app and connect from there.</p>
+      <p id="qorex-sheet-lead" className="sheet-lead">Phone browsers can&apos;t run the QoreX extension. The QoreX app has its own browser: {BRAND.name} runs there and connects to your wallet.</p>
+      {browseLink && <a className="btn btn-primary btn-block" href={browseLink}><ExternalLink size={16} aria-hidden="true" />Open in QoreX</a>}
+      {network?.id === "testnet" && <p className="sheet-note">Trading on {network.label}? In QoreX Settings, turn on <b>Use testnet (developers)</b> before you connect.</p>}
       <ol className="qorex-steps">
         <li>
-          <span>Get the QoreX app.</span>
+          <span>No QoreX app yet? Install it, then come back to this page.</span>
           <span className="qorex-stores">{qorexStoreLinks(platform).map((store) => <a key={store.id} className="btn btn-ghost btn-sm" href={store.href} target="_blank" rel="noreferrer">{store.label}</a>)}</span>
         </li>
-        <li><span>In QoreX, open the <b>dApp browser</b> from the Home tab.</span></li>
-        {network?.id === "testnet" && <li><span>Trading on {network.label}? In QoreX Settings, turn on <b>Use testnet (developers)</b>.</span></li>}
         <li>
-          <span>Paste this address, then tap Connect wallet.</span>
+          <span>{browseLink ? "Link didn't open the app? " : ""}In QoreX, open the <b>dApp browser</b> from the Home tab, paste this address, then tap Connect wallet.</span>
           <input ref={field} className="qorex-address" type="text" readOnly value={address} aria-label={`${BRAND.name} address`} onFocus={(event) => event.currentTarget.select()} />
         </li>
       </ol>
-      <button type="button" className="btn btn-primary btn-block" onClick={() => void copyAddress()} disabled={!address}>
+      <button type="button" className={`btn ${browseLink ? "btn-ghost" : "btn-primary"} btn-block`} onClick={() => void copyAddress()} disabled={!address}>
         {copied === "done" ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
-        {copied === "done" ? "Copied. Over to QoreX" : "Copy link"}
+        {copied === "done" ? "Copied. Over to QoreX" : "Copy address"}
       </button>
       {copied === "manual" && <p className="sheet-note" role="status">Copying is blocked here. Press and hold the address to copy it.</p>}
     </div>

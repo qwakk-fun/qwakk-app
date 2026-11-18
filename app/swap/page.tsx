@@ -5,9 +5,11 @@ import Link from "next/link";
 import { AlertTriangle, ArrowDownUp, Layers } from "lucide-react";
 import { FaucetHint } from "../../components/FaucetHint";
 import { useNetworkCopy } from "../../components/NetworkContext";
-import { PoolChart } from "../../components/PoolChart";
+import { ChartIntervalTabs } from "../../components/ChartIntervalTabs";
+import { ChartMessage, PoolChart } from "../../components/PoolChart";
 import { PriceChart } from "../../components/PriceChart";
 import { QwakkHeader } from "../../components/QwakkHeader";
+import { RecentSwaps } from "../../components/RecentSwaps";
 import { SiteFooter } from "../../components/SiteFooter";
 import { TokenIcon } from "../../components/TokenIcon";
 import { TxProgress } from "../../components/TxProgress";
@@ -16,14 +18,14 @@ import { useNativeTransaction } from "../../components/useNativeTransaction";
 import { useQorMarket } from "../../components/useQorMarket";
 import { useAssets } from "../../components/useAssets";
 import { useMarkets } from "../../components/useMarkets";
-import { usePoolCandles } from "../../components/usePoolCandles";
+import { usePoolDetail } from "../../components/usePoolDetail";
 import { useWalletBalances } from "../../components/useWalletBalances";
 import { formatBaseAmount, formatVisibleAmount, toBaseAmount } from "../../lib/qwakk-assets";
-import { CHART_INTERVALS, CHART_INTERVAL_LABELS, type ChartInterval } from "../../lib/qwakk-chart";
-import { isLowLiquidity, localLiquidityReason, lowLiquidityCopy, marketSides, priceUnit } from "../../lib/qwakk-market-view";
+import { CHART_INTERVAL_LABELS, chartEmptyCopy, type ChartInterval } from "../../lib/qwakk-chart";
+import { formatQuotePrice, isLowLiquidity, localLiquidityReason, lowLiquidityCopy, marketChange, marketPrice, marketSides, marketVolume, priceUnit, type QuoteMarket } from "../../lib/qwakk-market-view";
 import { DEFAULT_SLIPPAGE_BPS, IMPACT_WARN_BPS, NETWORK_FEE_RESERVE_UQOR, SLIPPAGE_PRESETS_BPS, SLIPPAGE_WARN_BPS, coversSpend, parseSlippagePercent, quoteKey, requoteDecision, type SwapQuote } from "../../lib/qwakk-quote";
 import { QUOTE_BLOCK_COPY, QUOTE_FAILURE_COPY, QUOTE_ZERO_OUT_COPY, assetDecimalsUnknownCopy } from "../../lib/qwakk-tx-copy";
-import { MARKET_RANGES, MARKET_RANGE_LABELS, formatChange, formatUsdCompact, formatUsdPrice, type MarketRange } from "../../lib/qor-price";
+import { MARKET_RANGES, MARKET_RANGE_LABELS, formatChange, formatUsdPrice, type MarketRange } from "../../lib/qor-price";
 
 type RawPool = {
   id?: string | number;
@@ -52,6 +54,15 @@ function poolId(pool?: RawPool) {
 function poolDenom(pool: RawPool | undefined, side: "a" | "b") {
   const value = side === "a" ? pool?.token_a : pool?.token_b;
   return typeof value === "string" ? value : value?.denom ?? "";
+}
+
+const poolFigure = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+const poolFigureCompact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
+
+/** A pool total (volume, liquidity) in its quote token: compact from 100,000 up. */
+function poolAmount(value: number | null, symbol: string) {
+  if (value === null || !Number.isFinite(value)) return "Not available";
+  return `${value >= 100_000 ? poolFigureCompact.format(value) : poolFigure.format(value)} ${symbol}`;
 }
 
 function poolKind(pool: RawPool) {
@@ -149,8 +160,8 @@ export default function SwapPage() {
   // The amount the trader set from the pool's one-swap limit, so the note can say so.
   const [clampedAmount, setClampedAmount] = useState("");
   const [range, setRange] = useState<MarketRange>("7");
-  // The chart follows the selected pool (indexer quote candles, as on the pool page).
-  // The CoinGecko QOR/USD chart stays one tap away as a secondary view.
+  // The pair bar, chart and recent swaps follow the selected pool (indexer data, as on the pool page).
+  // The CoinGecko QOR/USD chart stays one tap away as a secondary view, labeled with its source.
   const [chartView, setChartView] = useState<"pool" | "qor">("pool");
   const [chartInterval, setChartInterval] = useState<ChartInterval>("1h");
   const market = useQorMarket(range);
@@ -216,10 +227,17 @@ export default function SwapPage() {
   const selectedId = poolId(selectedPool);
   const selectedLowReason = selectedId && lowLiquidityById.has(selectedId) ? lowLiquidityById.get(selectedId) ?? null : undefined;
   const selectedLow = selectedLowReason !== undefined;
-  const poolChart = usePoolCandles(chartView === "pool" ? selectedId : "", chartInterval);
-  // A low-liquidity pool's price is not meaningful, so it is never charted (the flag can come from either read).
-  const chartPoolLow = selectedLow || (poolChart.pool ? isLowLiquidity(poolChart.pool) : false);
+  const poolChart = usePoolDetail(selectedId, chartInterval);
+  // The selected pool's indexed figures: the detail read when it has landed, the markets list until then.
+  const pairMarket: QuoteMarket | null = poolChart.pool ?? markets.find((row) => String(row.id) === selectedId) ?? null;
+  // A low-liquidity pool's price is not meaningful, so it is never charted or headlined (the flag can come from either read).
+  const chartPoolLow = selectedLow || (pairMarket ? isLowLiquidity(pairMarket) : false);
   const chartSides = poolChart.pool ? marketSides(poolChart.pool) : null;
+  const pairSides = pairMarket ? marketSides(pairMarket) : selectedPool ? { base: { denom: denomA, symbol: resolveAsset(denomA).symbol }, quote: { denom: denomB, symbol: resolveAsset(denomB).symbol } } : null;
+  const pairPrice = pairMarket && !chartPoolLow ? marketPrice(pairMarket) : null;
+  const pairChange = pairMarket && !chartPoolLow ? marketChange(pairMarket) : null;
+  const pairVolume = pairMarket ? marketVolume(pairMarket).value : null;
+  const pairLiquidity = pairMarket?.tvl_quote === null || pairMarket?.tvl_quote === undefined || pairMarket.tvl_quote === "" ? null : Number(pairMarket.tvl_quote);
   // Dust or empty reserves: no fair price, so review stays off.
   const selectedTooThin = selectedLowReason === "dust_reserve" || selectedLowReason === "empty";
   // Price protection: a preset, or a custom percent from 0.01% to 5%.
@@ -408,7 +426,8 @@ export default function SwapPage() {
   // Quote errors and review notices are fixed copy (ours or the route's); copy() names this deployment's network in them.
   const outputHint = quoteState === "unavailable" ? copy(quoteError) : !selectedPool ? (hiddenPools > 0 ? "Pick a pool to get a quote." : copy("A quote appears once QoreChain Diana has a pool.")) : denomOut && outputAsset.decimals === null ? assetDecimalsUnknownCopy(outputAsset.symbol) : quote?.source === "estimate" ? copy("Estimated from pool reserves. The QoreChain Diana quote service did not answer.") : copy(`Quoted by QoreChain Diana in ${shortDenom(denomOut)}`);
   const enoughBalance = balances && amountCheck.base ? coversSpend({ balances, spend: [{ denom: denomIn, amount: amountCheck.base }] }) : null;
-  const impactHigh = quote?.priceImpactBps !== null && quote?.priceImpactBps !== undefined && quote.priceImpactBps >= IMPACT_WARN_BPS;
+  // The shown impact leaves out the pool fee (its own row) and the rounding of a tiny output, which do not move the price.
+  const impactHigh = quote?.curveImpactBps !== null && quote?.curveImpactBps !== undefined && quote.curveImpactBps >= IMPACT_WARN_BPS;
   const maxHint = quote?.blocked === "impact" && quote.maxAmountIn && quote.maxAmountIn !== "0" ? quote.maxAmountIn : "";
   const maxText = maxHint ? `${formatVisibleAmount(maxHint, inputDecimals, 6)} ${shortDenom(denomIn)}` : "";
   // A blocked swap that the pool's one-swap limit explains says so plainly, with the largest amount it takes.
@@ -441,23 +460,35 @@ export default function SwapPage() {
     <main className="app-main">
       <div className="container trade-grid">
         <div className="trade-main">
-          <section className="panel pair-bar" aria-label="QOR market">
-            <div className="pair-title"><TokenIcon denom="uqor" size="large" /><div><b>QOR <span className="subtle">/ USD</span></b><span className="cell-sub">QoreChain native coin</span></div></div>
-            <div className="pair-quote"><div className="pair-price num">{market.data ? formatUsdPrice(market.data.price) : market.status === "unavailable" ? "Not available" : "…"}</div>{market.data && <span className={`change-pill ${change !== null && change < 0 ? "is-down" : "is-up"}`}>{formatChange(change)} 24h</span>}</div>
-            <div className="pair-stats">
-              <div className="stat"><span className="stat-label">24h volume</span><span className="stat-value">{formatUsdCompact(market.data?.volume24h ?? null)}</span></div>
-              <div className="stat"><span className="stat-label">Market cap</span><span className="stat-value">{formatUsdCompact(market.data?.marketCap ?? null)}</span></div>
-            </div>
+          <section className="panel pair-bar" aria-label="Selected pool">
+            {pairSides
+              ? <>
+                <div className="pair-title">
+                  <span className="coin-avatar"><TokenIcon denom={pairSides.base.denom} size="avatar" /><span className="coin-badge"><TokenIcon denom={pairSides.quote.denom} size="small" /></span></span>
+                  <div><b>{pairSides.base.symbol} <span className="subtle">/ {pairSides.quote.symbol}</span></b><span className="cell-sub">Pool #{selectedId} on {networkLabel}</span></div>
+                </div>
+                <div className="pair-quote">
+                  <div className="pair-price num">{chartPoolLow ? <span className="is-muted">Not shown</span> : pairPrice !== null ? <>{formatQuotePrice(pairPrice)}<small className="pair-unit">{pairSides.quote.symbol}</small></> : pairMarket ? "No swaps yet" : poolChart.state === "unavailable" ? "Not available" : "…"}</div>
+                  {pairChange !== null && <span className={`change-pill ${pairChange < 0 ? "is-down" : "is-up"}`}>{formatChange(pairChange)} 24h</span>}
+                </div>
+                <div className="pair-stats">
+                  <div className="stat"><span className="stat-label">24h volume</span><span className="stat-value num">{pairMarket ? pairVolume === null ? "None yet" : poolAmount(pairVolume, pairSides.quote.symbol) : "Not available"}</span></div>
+                  <div className="stat"><span className="stat-label">Liquidity</span><span className="stat-value num">{pairLiquidity === null ? "Not available" : poolAmount(pairLiquidity, pairSides.quote.symbol)}</span></div>
+                </div>
+              </>
+              : <div className="pair-title"><div><b>No pool selected</b><span className="cell-sub">{listedPools.length ? "Pick a pool below to see its price." : copy("A quote appears once QoreChain Diana has a pool.")}</span></div></div>}
           </section>
 
           <section className="panel" aria-labelledby="chart-title">
             <div className="panel-head chart-head">
               <div>
                 <span className="panel-title" id="chart-title">{chartView === "qor" ? "QOR price in USD" : chartSides ? `${chartSides.base.symbol} price in ${chartSides.quote.symbol}` : "Pool price"}</span>
-                {chartView === "pool" && <span className="cell-sub">{poolChart.pool ? `${priceUnit(poolChart.pool)}, ${CHART_INTERVAL_LABELS[chartInterval].toLowerCase()}` : CHART_INTERVAL_LABELS[chartInterval]}</span>}
+                <span className="cell-sub">{chartView === "qor"
+                  ? market.data ? `${formatUsdPrice(market.data.price)} now, ${formatChange(change)} in 24h` : "From CoinGecko"
+                  : poolChart.pool ? `${priceUnit(poolChart.pool)}, ${CHART_INTERVAL_LABELS[chartInterval].toLowerCase()}` : CHART_INTERVAL_LABELS[chartInterval]}</span>
               </div>
               {chartView === "pool"
-                ? <div className="segmented interval-tabs" role="group" aria-label="Chart interval">{CHART_INTERVALS.map((option) => <button type="button" key={option} aria-pressed={option === chartInterval} onClick={() => setChartInterval(option)}>{option}</button>)}</div>
+                ? <ChartIntervalTabs value={chartInterval} onChange={setChartInterval} />
                 : <div className="segmented" role="group" aria-label="Chart range">{MARKET_RANGES.map((option) => <button type="button" key={option} aria-pressed={option === range} onClick={() => setRange(option)}>{MARKET_RANGE_LABELS[option]}</button>)}</div>}
             </div>
             {chartView === "qor"
@@ -465,12 +496,17 @@ export default function SwapPage() {
                 ? <PriceChart points={market.data.points} dimmed={market.status === "refreshing"} />
                 : <div className="chart-empty" style={{ height: 360 }}>{market.status === "unavailable" ? "QOR market data is temporarily unavailable." : "Loading QOR market data…"}</div>
               : !selectedId
-                ? <div className="chart-empty pool-chart">Pick a pool to see its price chart.</div>
+                ? <ChartMessage>Pick a pool to see its price chart.</ChartMessage>
                 : chartPoolLow
-                  ? <div className="chart-empty pool-chart">No chart for this pool: it holds too little to give a meaningful price.</div>
-                  : poolChart.state === "ready" && poolChart.candles.length > 0
-                    ? <PoolChart candles={poolChart.candles} unit={poolChart.pool ? priceUnit(poolChart.pool) : "pool price"} />
-                    : <div className="chart-empty pool-chart">{poolChart.state === "ready" ? (chartInterval === "1d" ? "No trades yet in this pool." : "No trades yet in this pool for this range. Try a longer one.") : poolChart.state === "unavailable" || poolChart.state === "missing" ? "The pool chart is temporarily unavailable. It retries on its own." : "Loading the pool chart…"}</div>}
+                  ? <ChartMessage>No chart for this pool: it holds too little to give a meaningful price.</ChartMessage>
+                  : poolChart.candles.length > 0 && poolChart.interval
+                    // While another interval loads, the last one stays on screen, dimmed.
+                    ? <PoolChart candles={poolChart.candles} interval={poolChart.interval} unit={poolChart.pool ? priceUnit(poolChart.pool) : "pool price"} quoteSymbol={chartSides?.quote.symbol ?? ""} resetKey={`${selectedId}|${poolChart.interval}`} loading={poolChart.state === "loading"} />
+                    : poolChart.state === "ready"
+                      ? <ChartMessage>{chartEmptyCopy(chartInterval)}</ChartMessage>
+                      : poolChart.state === "unavailable" || poolChart.state === "missing"
+                        ? <ChartMessage>The pool chart is temporarily unavailable. It retries on its own.</ChartMessage>
+                        : <ChartMessage loading>Loading the pool chart…</ChartMessage>}
             <div className="panel-note chart-note">
               <div className="segmented" role="group" aria-label="Chart">
                 <button type="button" aria-pressed={chartView === "pool"} onClick={() => setChartView("pool")}>Pool price</button>
@@ -481,6 +517,9 @@ export default function SwapPage() {
                 : <>{`Prices from trades in this pool on ${networkLabel}.`}{selectedId && <> <Link href={`/pools/${selectedId}`}>Pool details</Link></>}</>}</span>
             </div>
           </section>
+
+          {/* Keyed by pool, so a switched pool starts on its newest swaps. */}
+          {poolChart.pool && <RecentSwaps key={selectedId} pool={poolChart.pool} swaps={poolChart.swaps} pageSize={5} titleId="pool-swaps-title" />}
 
           <section className="panel" aria-labelledby="pools-title">
             <div className="panel-head"><span className="panel-title" id="pools-title">{`${networkLabel} pools`}</span><span className="subtle"><span className={`dot ${networkState === "ready" ? "live" : ""}`} /> {lastUpdated}</span></div>
@@ -535,11 +574,11 @@ export default function SwapPage() {
               <p className="quote-alert-text"><AlertTriangle size={14} aria-hidden="true" /><span>{blockCopy
                 ? blockCopy
                 : zeroOut ? QUOTE_ZERO_OUT_COPY
-                : <>This swap moves the pool price by {percent(quote?.priceImpactBps ?? 0)}. You get noticeably less than the current price.</>}</span></p>
+                : <>This swap moves the pool price by {percent(quote?.curveImpactBps ?? 0)}. You get noticeably less than the current price.</>}</span></p>
               {maxHint && <button type="button" className="btn btn-ghost btn-sm" disabled={tx.busy || confirming} onClick={() => { const next = formatBaseAmount(maxHint, inputDecimals, inputDecimals); editInputs(() => { setAmount(next); setClampedAmount(next); }); }}>Swap the most: {maxText}</button>}
             </div>}
             <div className="quote-meta">
-              <div className="quote-meta-row"><span>Price impact</span><b className={`num ${impactHigh ? "down" : ""}`}>{quote ? quote.priceImpactBps === null ? `Checked by ${networkLabel}` : quote.priceImpactBps === 0 ? "Under 0.01%" : percent(quote.priceImpactBps) : "Not available"}</b></div>
+              <div className="quote-meta-row"><span>Price impact</span><b className={`num ${impactHigh ? "down" : ""}`}>{quote ? quote.curveImpactBps === null ? `Checked by ${networkLabel}` : quote.curveImpactBps === 0 ? "Under 0.01%" : percent(quote.curveImpactBps) : "Not available"}</b></div>
               <div className="quote-meta-row"><span>Minimum received</span><b className="num">{quote && !quote.blocked && outputAsset.decimals !== null ? `${formatVisibleAmount(quote.minOut, outputDecimals, 6)} ${shortDenom(denomOut)}` : "Not available"}</b></div>
               <div className="quote-meta-row"><span>Pool fee</span><b className="num">{quote ? `${formatVisibleAmount(quote.nativeAmmFee, inputDecimals, 6)} ${shortDenom(denomIn)}` : "Not available"}</b></div>
               <div className="quote-meta-row"><Link className="fee-link" href="/fees">Interface fee</Link><b>{feeLabel}</b></div>

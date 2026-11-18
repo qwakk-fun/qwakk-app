@@ -190,7 +190,8 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
           <kbd>⌘K</kbd>
         </form>
         <div className="topbar-actions">
-          {network && <span className="network-pill"><i className="live-dot" aria-hidden="true" /><span>{network.label}</span></span>}
+          {/* The TESTNET tag shows only on the testnet preset, and is all that stays on narrow screens. */}
+          {network && <span className={`network-pill ${network.id === "testnet" ? "is-testnet" : ""}`}><i className="live-dot" aria-hidden="true" /><span className="network-pill-label">{network.label}</span>{network.id === "testnet" && <span className="testnet-tag">TESTNET</span>}</span>}
           {actions.create_pool && <Link className="icon-btn" href="/pools?create=1" aria-label="Create a pool" onClick={openCreate}><Plus size={18} /></Link>}
           <button type="button" className={`btn ${walletAddress ? "btn-ghost" : "btn-primary"}`} onClick={() => void connectWallet()} disabled={isConnecting}>{walletAddress && <Wallet size={15} />}{walletLabel}</button>
           {walletAddress && <button type="button" className="icon-btn icon-btn-keep" onClick={disconnectWallet} aria-label="Disconnect wallet" title="Disconnect wallet"><LogOut size={16} /></button>}

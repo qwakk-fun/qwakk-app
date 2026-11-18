@@ -1,5 +1,5 @@
 import type { AmmParams, AmmPool, ChainQuote, QuoteFailure } from "@/lib/qwakk-amm-chain";
-import { constantProductOut, maxSwapInForImpact, maxTotalForSwapIn, priceImpactBps } from "@/lib/qwakk-amm-math";
+import { constantProductOut, curveImpactBps, maxSwapInForImpact, maxTotalForSwapIn, priceImpactBps } from "@/lib/qwakk-amm-math";
 import type { ServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
 
 /** 0.50%: the default price protection for a swap. */
@@ -10,7 +10,7 @@ export const MIN_SLIPPAGE_BPS = 1;
 export const MAX_SLIPPAGE_BPS = 500;
 /** Above 1.00% the trader is warned that the setting is loose. */
 export const SLIPPAGE_WARN_BPS = 100;
-/** Price impact from 1.00% upward is called out before signing. */
+/** Price impact (`curveImpactBps`) from 1.00% upward is called out before signing. */
 export const IMPACT_WARN_BPS = 100;
 /** Choices offered next to a custom value. */
 export const SLIPPAGE_PRESETS_BPS = [10, 50, 100] as const;
@@ -119,6 +119,11 @@ export type SwapQuote = {
   interfaceFee: { enabled: boolean; amount: string; denom: string; feeBps: number };
   /** Fee-inclusive impact against the pre-swap mid price. Null for stable pools, where the chain's own cap check is the guard. */
   priceImpactBps: number | null;
+  /**
+   * The price impact shown to the trader: how far the swap moves the price,
+   * without the swap fee or the rounding of a tiny output. Null for stable pools.
+   */
+  curveImpactBps: number | null;
   maxImpactBps: number;
   /** Largest total input that stays within the impact cap, in base units of denomIn. Null when unknown or uncapped. */
   maxAmountIn: string | null;
@@ -174,6 +179,8 @@ export function buildSwapQuote(input: { request: ExactInQuoteRequest; pool: AmmP
   }
 
   const priceImpact = constantProduct ? priceImpactBps(request.swapAmountIn, amountOut, reserveIn, reserveOut) : null;
+  const inAfterFee = /^\d+$/.test(fee) && BigInt(request.swapAmountIn) > BigInt(fee) ? BigInt(request.swapAmountIn) - BigInt(fee) : BigInt(0);
+  const curveImpact = constantProduct ? curveImpactBps(inAfterFee, reserveIn) : null;
   const maxSwapIn = constantProduct ? maxSwapInForImpact(reserveIn, reserveOut, params.maxSwapImpactBps, params.swapFeeBps) : null;
   const maxAmountIn = maxSwapIn === null ? null : maxTotalForSwapIn(maxSwapIn, request.interfaceFeeEnabled ? request.interfaceFeeBps : 0).toString();
   const overCap = chainSaysImpact || (params.maxSwapImpactBps > 0 && priceImpact !== null && priceImpact > params.maxSwapImpactBps);
@@ -202,6 +209,7 @@ export function buildSwapQuote(input: { request: ExactInQuoteRequest; pool: AmmP
     slippageBps: request.slippageBps,
     interfaceFee: { enabled: request.interfaceFeeEnabled, amount: request.interfaceFee, denom: request.denomIn, feeBps: request.interfaceFeeBps },
     priceImpactBps: priceImpact,
+    curveImpactBps: curveImpact,
     maxImpactBps: params.maxSwapImpactBps,
     maxAmountIn,
     blocked,

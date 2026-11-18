@@ -4,12 +4,14 @@
  * dApp browser that injects the same `window.qorex` provider
  * (docs.qorechain.io/qorex/dapp-browser), so the way in is to open Qwakk there.
  *
- * There is no documented deep link that opens a URL in the dApp browser. The
- * documented `qorex://` hosts are `auth-callback`, `connect?session=`,
- * `tx?request=` and `link?code=` (docs.qorechain.io/qorex/dapp-browser,
- * platform notes; docs.qorechain.io/dashboard/wallet), all tied to QoreChain
- * Dashboard sessions. Qwakk therefore links to the stores and lets the visitor
- * copy the page address instead of guessing a link format.
+ * `https://link.qore.network/browse?url=<encoded https address>` opens a page
+ * straight in that dApp browser (QoreChain, 2026-11-18; QoreX iOS 1.2.2
+ * release note "Links can now open a page directly in the QoreX browser").
+ * link.qore.network's apple-app-site-association lists `/browse*` for
+ * `3J8ZG52AM3.io.qorechain.qorex`, and its assetlinks.json verifies
+ * `network.qore.qorex` for all URLs. Without the app the same address shows
+ * QoreX's own "open this link in the QoreX app" page, so the sheet keeps the
+ * store links and the copy-and-paste route as a fallback.
  */
 
 /** From qorechain.io/qorex ("how to access"), checked 2026-11-15. */
@@ -61,4 +63,24 @@ export function qorexStoreLinks(platform: MobilePlatform) {
 /** The address to paste into the dApp browser: this page without its hash. */
 export function pageAddressForQoreX(location: Pick<Location, "origin" | "pathname" | "search">) {
   return `${location.origin}${location.pathname}${location.search}`;
+}
+
+/** QoreX's link that opens a page in the QoreX app's dApp browser. */
+export const QOREX_BROWSE_LINK = "https://link.qore.network/browse";
+
+/**
+ * The link that opens `pageAddress` in the QoreX app, or null when the address
+ * is not an https page: the dApp browser only connects https sites
+ * (docs.qorechain.io/qorex/dapp-browser), so a local http page gets the
+ * copy-and-paste route instead.
+ */
+export function qorexBrowseLink(pageAddress: string): string | null {
+  let page: URL;
+  try {
+    page = new URL(pageAddress);
+  } catch {
+    return null;
+  }
+  if (page.protocol !== "https:") return null;
+  return `${QOREX_BROWSE_LINK}?url=${encodeURIComponent(page.href)}`;
 }

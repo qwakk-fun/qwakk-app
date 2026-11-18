@@ -10,9 +10,11 @@ import {
   QOREX_ACCOUNT_CHANGED_COPY,
   QOREX_DECLINED_COPY,
   QOREX_LOCKED_COPY,
+  QOREX_LOCKED_MOBILE_COPY,
   QOREX_PENDING_COPY,
   WALLET_ACCOUNT_SWITCHED_COPY,
   isQuietWalletStop,
+  qorexLockedCopy,
   walletFailure,
 } from "../lib/qwakk-tx-copy";
 import { WALLET_ADDRESS_KEY } from "../lib/qwakk-wallet-session";
@@ -120,6 +122,42 @@ test("a locked QoreX stops after one silent getKey, with calm copy and no approv
   assert.equal(state.phase, "failed");
   assert.equal(state.message, QOREX_LOCKED_COPY);
   assert.equal(state.quiet, true);
+});
+
+/** QoreX 0.4.2 `requireUnlocked()`: `li(ai.unauthorized, "QoreX: wallet is locked")`, code 4100. */
+function lockedRefusal() {
+  return Object.assign(new Error("QoreX: wallet is locked"), { code: 4100 });
+}
+
+test("QoreX locking between getKey and signAndBroadcast is a calm locked stop, not a failed transaction", async () => {
+  const { provider, calls } = mockQoreX({ signError: lockedRefusal() });
+  installBrowser(provider);
+  const state = await quietly(run);
+  assert.deepEqual(calls, { enable: 0, getKey: 1, signAndBroadcast: 1, listAccounts: 0 });
+  assert.equal(state.phase, "failed");
+  assert.equal(state.message, QOREX_LOCKED_COPY);
+  assert.equal(state.quiet, true);
+  assert.equal(state.txhash, "");
+});
+
+test("the locked refusal is recognised by its message, whatever shape it arrives in, and code 4100 alone is not enough", () => {
+  assert.equal(walletFailure(lockedRefusal()).kind, "locked");
+  assert.equal(walletFailure({ message: "QoreX: wallet is locked", code: 4100 }).kind, "locked");
+  assert.equal(walletFailure("QoreX: wallet is locked").kind, "locked");
+  // Other QoreX 0.4.2 refusals share code 4100.
+  assert.notEqual(walletFailure(Object.assign(new Error("QoreX: unknown signer address"), { code: 4100 })).kind, "locked");
+  assert.notEqual(walletFailure(new Error("QoreX: wallet unlocked")).kind, "locked");
+});
+
+test("the locked copy points at the QoreX the visitor is using and never uses an em dash", () => {
+  assert.equal(qorexLockedCopy(false), QOREX_LOCKED_COPY);
+  assert.equal(qorexLockedCopy(true), QOREX_LOCKED_MOBILE_COPY);
+  assert.match(QOREX_LOCKED_COPY, /toolbar/);
+  assert.doesNotMatch(QOREX_LOCKED_MOBILE_COPY, /toolbar/);
+  for (const copy of [QOREX_LOCKED_COPY, QOREX_LOCKED_MOBILE_COPY]) {
+    assert.match(copy, /Nothing was sent\.$/);
+    assert.doesNotMatch(copy, /\u2014/);
+  }
 });
 
 test("an account switched inside QoreX is caught by the single getKey before anything is prepared", async () => {

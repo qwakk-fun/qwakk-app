@@ -96,6 +96,24 @@ export function priceImpactBps(amountIn: string | bigint, amountOut: string | bi
 }
 
 /**
+ * How far a swap moves the price along the pool curve, in bps rounded to the
+ * nearest: the pre-fee execution price against the pre-swap mid price,
+ * `1 - rIn / (rIn + inAfterFee)`. This is the price impact the trader is
+ * shown. Unlike `priceImpactBps` it leaves out the swap fee (shown on its own
+ * line) and the pool's rounding of a tiny output down to whole base units:
+ * neither moves the price, and on a 99-unit output the rounding alone reads
+ * as a 0.7% "impact". `priceImpactBps` stays the conservative cap guard.
+ */
+export function curveImpactBps(amountInAfterFee: string | bigint, reserveIn: string | bigint) {
+  const input = int(amountInAfterFee, "Amount in after fee");
+  const rIn = int(reserveIn, "Reserve in");
+  if (rIn === ZERO) return 10_000;
+  const total = rIn + input;
+  const impact = (input * BPS * BigInt(2) + total) / (BigInt(2) * total);
+  return Number(impact > BPS ? BPS : impact);
+}
+
+/**
  * The largest swap input (after the interface fee) whose fee-inclusive price
  * impact stays within `capBps` on an x*y=k pool. From
  * `1 - rIn(1-f) / (rIn + in(1-f)) <= c`:

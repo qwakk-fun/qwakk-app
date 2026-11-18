@@ -7,7 +7,8 @@
  * the indexer does not rewrite anything; it lists the affected pools in
  * indexer_state.stale_candle_pools and logs a warning. This script is the
  * owner's choice to rebuild them. Raw swaps (amounts, denoms, heights) are
- * never changed; only swaps.price_b_per_a and the pool's candles are rewritten.
+ * never changed; only swaps.price_b_per_a and the pool's candles of the
+ * intervals in CANDLE_INTERVALS are rewritten (retired 6h rows are kept).
  *
  * Usage, from qwakk-app (or /app in the indexer container):
  *   npx tsx indexer/rebuild-candles.ts --stale            dry run for the pools the indexer flagged
@@ -27,7 +28,7 @@
  */
 import { Pool } from "pg";
 
-import { applyTradeToCandles, chooseQuoteSide, compareDecimal, knownDecimals, swapTrade, type Candle } from "./market-math";
+import { applyTradeToCandles, CANDLE_INTERVALS, chooseQuoteSide, compareDecimal, knownDecimals, swapTrade, type Candle } from "./market-math";
 import { databaseNetworkCheck, resolveIndexerNetwork } from "./indexer-config";
 import { quoteRank } from "./token-registry";
 
@@ -88,7 +89,7 @@ async function rebuildPool(db: Pool, poolId: string, apply: boolean) {
     if (!samePrice(swap.price_b_per_a, trade.price)) priceUpdates.push({ id: swap.id, price: trade.price });
     if (trade.price !== null) applyTradeToCandles(candles, swap.executed_at, trade.price, trade.volumeQor, trade.volumeQuote);
   }
-  const existing = Number((await db.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM candles WHERE pool_id = $1", [poolId])).rows[0]?.count ?? 0);
+  const existing = Number((await db.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM candles WHERE pool_id = $1 AND interval = ANY($2)", [poolId, Object.keys(CANDLE_INTERVALS)])).rows[0]?.count ?? 0);
   const summary = { poolId, swaps: swaps.rowCount ?? 0, swapPricesChanged: priceUpdates.length, candlesBefore: existing, candlesAfter: candles.size };
   if (!apply) return { ...summary, status: "dry run" };
 
@@ -96,7 +97,8 @@ async function rebuildPool(db: Pool, poolId: string, apply: boolean) {
   try {
     await client.query("BEGIN");
     for (const update of priceUpdates) await client.query("UPDATE swaps SET price_b_per_a = $2 WHERE id = $1", [update.id, update.price]);
-    await client.query("DELETE FROM candles WHERE pool_id = $1", [poolId]);
+    // Only the intervals the indexer writes are rebuilt; rows of retired intervals (6h) are kept as they are.
+    await client.query("DELETE FROM candles WHERE pool_id = $1 AND interval = ANY($2)", [poolId, Object.keys(CANDLE_INTERVALS)]);
     for (const candle of candles.values()) {
       await client.query(
         `INSERT INTO candles (pool_id, interval, start_time, open, high, low, close, volume_qor, volume_quote, transactions)

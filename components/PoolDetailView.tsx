@@ -2,18 +2,19 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, PauseCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, PauseCircle } from "lucide-react";
 import { LiquidityPanel } from "./LiquidityPanel";
 import { QwakkHeader } from "./QwakkHeader";
 import { SiteFooter } from "./SiteFooter";
 import { TokenIcon } from "./TokenIcon";
 import { useFeatures } from "./useFeatures";
 import { useNetworkCopy } from "./NetworkContext";
-import { PoolChart, type PoolCandle } from "./PoolChart";
-import { formatTokenAmount, resolveUsableAsset } from "../lib/qwakk-asset-resolve";
-import { displaySymbol, formatBaseAmount, withAssetOverrides } from "../lib/qwakk-assets";
+import { ChartIntervalTabs } from "./ChartIntervalTabs";
+import { ChartMessage, PoolChart, type PoolCandle } from "./PoolChart";
+import { RecentSwaps, shortAddress, type PoolSwap } from "./RecentSwaps";
+import { formatBaseAmount, withAssetOverrides } from "../lib/qwakk-assets";
 import { BRAND } from "../lib/brand";
-import { CHART_INTERVALS, CHART_INTERVAL_LABELS, type ChartInterval } from "../lib/qwakk-chart";
+import { CHART_INTERVAL_LABELS, chartEmptyCopy, type ChartInterval } from "../lib/qwakk-chart";
 import { QUOTE_BLOCK_COPY } from "../lib/qwakk-tx-copy";
 import { formatQuotePrice, isLowLiquidity, lowLiquidityCopy, marketPrice, marketReserves, marketSides, marketVolume, pairLabel, priceUnit, type QuoteMarket } from "../lib/qwakk-market-view";
 
@@ -39,50 +40,14 @@ type Pool = QuoteMarket & {
 /** QoreChain AMM params report lp_token_decimals = 6 on Diana and mainnet. */
 const LP_TOKEN_DECIMALS = 6;
 
-type Swap = {
-  tx_hash: string;
-  executed_at: string;
-  sender: string | null;
-  denom_in: string;
-  amount_in: string;
-  denom_out: string;
-  amount_out: string;
-  price_b_per_a: string | number | null;
-};
-
-/** `quote_candles` are already in quote per base; the raw `candles` are not used. */
-type Detail = { pool: Pool; quote_candles?: PoolCandle[]; swaps: Swap[] };
-
-const SWAPS_PER_PAGE = 10;
-
-function shortAddress(value: string | null) {
-  if (!value) return "Unknown wallet";
-  return `${value.slice(0, 8)}…${value.slice(-5)}`;
-}
-
-function dateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unknown time";
-  return new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" }).format(date);
-}
-
-function symbolForDenom(pool: Pool, denom: string) {
-  return denom === pool.token_a ? pool.token_a_symbol : denom === pool.token_b ? pool.token_b_symbol : displaySymbol(denom);
-}
-
-/** Display only: an amount with its symbol, labeled as base units when the decimals are unknown. */
-function amountLabel(pool: Pool, denom: string, amount: string) {
-  const decimals = denom === pool.token_a ? pool.token_a_decimals : denom === pool.token_b ? pool.token_b_decimals : undefined;
-  const asset = resolveUsableAsset(denom, undefined, { symbol: symbolForDenom(pool, denom), decimals });
-  return formatTokenAmount(amount, asset.displayDecimals, symbolForDenom(pool, denom));
-}
+/** `quote_candles` are already in quote per base; the raw `candles` are not used. `interval` is the one these candles are for. */
+type Detail = { pool: Pool; quote_candles?: PoolCandle[]; swaps: PoolSwap[]; interval: ChartInterval };
 
 export function PoolDetailView({ poolId }: { poolId: string }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "missing" | "unavailable">("loading");
   // Same default as the swap page: 1m candles on a quiet pool are mostly empty.
   const [chartInterval, setChartInterval] = useState<ChartInterval>("1h");
-  const [swapPage, setSwapPage] = useState(1);
   // Each wallet action has its own switch (QWAKK_NATIVE_ACTIONS). The liquidity
   // panel shows only the parts whose switch is on (remove-only is a valid mode).
   const { actions } = useFeatures();
@@ -105,9 +70,9 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
         const response = await fetch(`/api/pools/${poolId}?interval=${chartInterval}`, { cache: "no-store" });
         if (response.status === 404) throw new Error("missing");
         if (!response.ok) throw new Error("unavailable");
-        const data = await response.json() as Detail;
+        const data = await response.json() as Omit<Detail, "interval">;
         // Curated symbols and decimals win over the indexed token record.
-        if (active) { setDetail({ ...data, pool: withAssetOverrides(data.pool) }); setState("ready"); }
+        if (active) { setDetail({ ...data, pool: withAssetOverrides(data.pool), interval: chartInterval }); setState("ready"); }
       } catch (error) {
         if (active) setState(error instanceof Error && error.message === "missing" ? "missing" : "unavailable");
       }
@@ -126,11 +91,9 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
   }
 
   const { pool, swaps } = detail;
-  // The table shows one page at a time. A refresh that shrinks the list keeps the page in range.
-  const swapPages = Math.max(1, Math.ceil(swaps.length / SWAPS_PER_PAGE));
-  const currentSwapPage = Math.min(swapPage, swapPages);
-  const visibleSwaps = swaps.slice((currentSwapPage - 1) * SWAPS_PER_PAGE, currentSwapPage * SWAPS_PER_PAGE);
   const candles = detail.quote_candles ?? [];
+  // A switched interval keeps the last chart on screen, dimmed, until its own candles land.
+  const chartLoading = detail.interval !== chartInterval;
   const { base, quote } = marketSides(pool);
   const reserves = marketReserves(pool, 6);
   const volume = marketVolume(pool);
@@ -172,32 +135,16 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
             <section className="panel" aria-labelledby="pool-chart-title">
               <div className="panel-head chart-head">
                 <div><span className="panel-title" id="pool-chart-title">{base.symbol} price in {quote.symbol}</span><span className="cell-sub">{CHART_INTERVAL_LABELS[chartInterval]}</span></div>
-                {!lowLiquidity && <div className="segmented interval-tabs" role="group" aria-label="Chart interval">{CHART_INTERVALS.map((option) => <button type="button" key={option} aria-pressed={option === chartInterval} onClick={() => setChartInterval(option)}>{option}</button>)}</div>}
+                {!lowLiquidity && <ChartIntervalTabs value={chartInterval} onChange={setChartInterval} />}
               </div>
               {/* Same rule as the swap page: a low-liquidity pool's price is not meaningful, so it is not charted. */}
               {lowLiquidity
-                ? <div className="chart-empty pool-chart">No chart for this pool: it holds too little to give a meaningful price.</div>
-                : <PoolChart candles={candles} unit={priceUnit(pool)} />}
+                ? <ChartMessage>No chart for this pool: it holds too little to give a meaningful price.</ChartMessage>
+                : candles.length > 0
+                  ? <PoolChart candles={candles} interval={detail.interval} unit={priceUnit(pool)} quoteSymbol={quote.symbol} resetKey={`${pool.id}|${detail.interval}`} loading={chartLoading} />
+                  : <ChartMessage loading={chartLoading}>{chartLoading ? "Loading the pool chart…" : chartEmptyCopy(chartInterval)}</ChartMessage>}
             </section>
-            <section className="panel swaps-table" aria-labelledby="swaps-title">
-              <div className="panel-head"><span className="panel-title" id="swaps-title">Recent swaps</span><span className="subtle">{swaps.length} indexed</span></div>
-              <div className="table">
-                <div className="table-row table-head"><span>Time</span><span>Sold</span><span>Bought</span><span className="hide-sm">Wallet</span><span aria-hidden="true" /></div>
-                {swaps.length === 0 && <div className="empty"><p>No swaps have been indexed for this pool yet.</p></div>}
-                {visibleSwaps.map((swap) => <div className="table-row" key={`${swap.tx_hash}-${swap.executed_at}`}>
-                  <span className="subtle">{dateTime(swap.executed_at)}</span>
-                  <span className="num">{amountLabel(pool, swap.denom_in, swap.amount_in)}</span>
-                  <span className="num">{amountLabel(pool, swap.denom_out, swap.amount_out)}</span>
-                  <span className="mono subtle hide-sm">{shortAddress(swap.sender)}</span>
-                  <a className="end subtle" href={`https://explore.qore.network/tx/${swap.tx_hash}`} target="_blank" rel="noreferrer" aria-label="Open transaction in the QoreChain explorer"><ExternalLink size={15} /></a>
-                </div>)}
-              </div>
-              {swapPages > 1 && <nav className="table-pages" aria-label="Recent swaps pages">
-                <button type="button" className="btn btn-ghost btn-sm" disabled={currentSwapPage <= 1} onClick={() => setSwapPage(currentSwapPage - 1)}><ChevronLeft size={15} aria-hidden="true" />Newer</button>
-                <span className="subtle num" aria-live="polite">Page {currentSwapPage} of {swapPages}</span>
-                <button type="button" className="btn btn-ghost btn-sm" disabled={currentSwapPage >= swapPages} onClick={() => setSwapPage(currentSwapPage + 1)}>Older<ChevronRight size={15} aria-hidden="true" /></button>
-              </nav>}
-            </section>
+            <RecentSwaps pool={pool} swaps={swaps} />
           </div>
           <aside className="panel" aria-labelledby="pool-info-title">
             <div className="pool-trade">{paused

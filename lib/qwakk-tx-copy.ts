@@ -115,11 +115,32 @@ export type WalletFailureKind = "declined" | "locked" | "pending" | "network" | 
 export type WalletFailure = { kind: WalletFailureKind; copy: string; code?: number; codespace?: string };
 
 /**
- * QoreX is locked. QoreX 0.3.9 `getKey`, `enable` and `signAndBroadcast`
- * check the lock first and reject with "QoreX: wallet is locked" without
- * opening a window, so the user unlocks from the toolbar. Nothing was sent.
+ * QoreX is locked. In QoreX 0.4.2 `getKey` and `signAndBroadcast` call
+ * `requireUnlocked()` before anything else and reject with
+ * `Error("QoreX: wallet is locked")`, `code` 4100, without opening a window
+ * (dist/background.js). Only connect requests open QoreX's unlock window
+ * today, so the user unlocks QoreX and presses the same button again.
+ * Nothing was sent.
+ *
+ * QoreX keeps the unlocked wallet only in its extension service worker's
+ * memory (no `chrome.storage.session`), and Chrome stops an idle extension
+ * service worker after about 30 seconds, so on desktop QoreX can be locked
+ * again well before its own auto-lock timer runs out.
  */
-export const QOREX_LOCKED_COPY = "QoreX is locked. Open QoreX from your browser toolbar, unlock it, then try again. Nothing was sent.";
+export const QOREX_LOCKED_COPY = "QoreX is locked. Unlock it from the QoreX icon in your browser toolbar, then press the button again. Nothing was sent.";
+/** The same stop inside the QoreX app's dApp browser, where there is no toolbar. */
+export const QOREX_LOCKED_MOBILE_COPY = "QoreX is locked. Unlock it in the QoreX app, then tap the button again. Nothing was sent.";
+/**
+ * QoreX's locked refusal shares code 4100 with six other refusals (unknown
+ * signer, wrong Solana account, missing ML-DSA key and more), so only its
+ * message, "QoreX: wallet is locked", identifies it.
+ */
+const QOREX_LOCKED_MESSAGE = /(?<!un)locked/;
+
+/** The locked copy for the QoreX the visitor is using. */
+export function qorexLockedCopy(mobile = currentMobilePlatform() !== null) {
+  return mobile ? QOREX_LOCKED_MOBILE_COPY : QOREX_LOCKED_COPY;
+}
 /** The user closed or declined the QoreX window ("QoreX: signature rejected", "QoreX: connection rejected"). */
 export const QOREX_DECLINED_COPY = "You declined the request in QoreX. Nothing was sent.";
 /**
@@ -148,8 +169,19 @@ export function walletFailure(error: unknown, network?: CopyNetwork | null): Wal
   return { ...failure, copy: networkCopy(failure.copy, network) };
 }
 
+/**
+ * The text of a wallet rejection. The extension rejects with an `Error`; a
+ * provider that rejects with a plain `{ message }` object is read the same way
+ * instead of turning into "[object Object]".
+ */
+function walletErrorText(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string") return (error as { message: string }).message;
+  return String(error);
+}
+
 function classifyWalletFailure(error: unknown, network: CopyNetwork | null): WalletFailure {
-  const raw = error instanceof Error ? error.message : String(error);
+  const raw = walletErrorText(error);
   const message = raw.toLowerCase();
 
   // CheckTx refusal: "Transaction rejected by the network (<codespace> <code>): <log>".
@@ -173,7 +205,7 @@ function classifyWalletFailure(error: unknown, network: CopyNetwork | null): Wal
     };
   }
   if (message.includes("rejected")) return { kind: "declined", copy: QOREX_DECLINED_COPY };
-  if (/(?<!un)locked/.test(message)) return { kind: "locked", copy: QOREX_LOCKED_COPY };
+  if (QOREX_LOCKED_MESSAGE.test(message)) return { kind: "locked", copy: qorexLockedCopy() };
   if (message.includes("already waiting for your answer") || message.includes("requests are waiting")) return { kind: "pending", copy: QOREX_PENDING_COPY };
   if (message.includes("changed while this request was waiting")) return { kind: "account", copy: QOREX_ACCOUNT_CHANGED_COPY };
   if (message.includes("active network") || message.includes("unsupported chain")) return { kind: "network", copy: qorexNetworkCopy(network) };

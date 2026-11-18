@@ -25,7 +25,7 @@ export type CuratedToken = {
  * match). Chain metadata alone already resolves it (symbol QWAKK, display
  * "Qwakk", 6 decimals); the entry pins those values like the other tokens.
  */
-export const QWAKK_TOKEN_ADDRESS: string | null = null;
+export const QWAKK_TOKEN_ADDRESS: string | null = "0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23";
 
 function qwakkEntry(address: string | null): Record<string, CuratedToken> {
   return address ? { [`erc20:${address.toLowerCase()}`]: { symbol: "QWAKK", name: "Qwakk", decimals: 6 } } : {};

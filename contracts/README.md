@@ -432,7 +432,9 @@ QOR, signed by QoreX.
 | Deploy dry run on Diana | `eth_estimateGas` of the deploy from the deployer: 379,212 gas, the same as Foundry's gas report (2026-11-18). |
 | Native dry runs on Diana | Signed hybrid and simulated (never broadcast, sequence unchanged): a MsgConvertERC20 with a `qor1` sender reached the EVM transfer, and a bank send of an `erc20:` coin reached the bank keeper (2026-11-18). |
 | On chain | **Deployed on 2026-11-18** at `0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23` (`qor15keu87ujut5f240ejzdeqpxxtu659m3r05j3gz`), block 10,322,273, 379,212 gas ([`7DAF1B36...10913`](https://explore.qore.network/tx/7DAF1B36430B7FD756561CF6ED5F0D86CE01214F5F8DC5D26990091EE8810913)). The CLI checked name, symbol, decimals, supply and the deployer's 1,000,000,000 QWAKK on chain. Expected bank denom: `erc20:0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23`. |
-| Registration | Requested from QoreChain on 2026-11-18. Not registered yet. |
+| Registration | **Registered on 2026-11-18** by testnet proposal 38 (passed, voting ended 18:09 UTC): token pair `erc20:0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23`, enabled, `OWNER_EXTERNAL`. |
+| Conversion and transfer | The whole supply was converted to bank coins ([`93FD678D...6F4E`](https://explore.qore.network/tx/93FD678D7957CBA9173AE9F2627D2216302A2B917A7F00F190F8EBD89F2D6F4E)) and sent to the owner's QoreX wallet `qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq` ([`A20C7053...E333`](https://explore.qore.network/tx/A20C70534AA1A922E61B0FAC2C3359607D9A308E38D6A5AF19684160B4F3E333)). |
+| Pool | QWAKK/QOR is pool 6, created with QoreX on 2026-11-18 with 200,000,000 QWAKK and 20,000 QOR (1 QWAKK = 0.0001 QOR) ([`C20F99E3...E8BE`](https://explore.qore.network/tx/C20F99E3D3A840F2AF25F5B4EF4DCA3CEC662024B5367C620B597C55FEECE8BE)). |
 
 ### How registration and conversion work
 

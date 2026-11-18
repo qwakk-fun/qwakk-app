@@ -99,14 +99,21 @@ Raw swaps and liquidity events are never deleted.
 | `QWAKK_RETENTION_SWAP_RAW_EVENT_DAYS` | `30` | `swaps.raw_event` of older swaps is emptied to `{}`. Amounts, denoms, sender and price stay. |
 | `QWAKK_RETENTION_LP_SNAPSHOT_DAYS` | `90` | LP snapshots older than this, only when no season is set (`QWAKK_POINTS_SEASON_START_HEIGHT` is 0 or unset). When a season start height is set, only snapshots below it are pruned, whether or not points are public, because scoring rebuilds the season from them either way. The latest snapshot of every position is always kept. |
 
-Setting any period to `0` keeps that data forever. The 1h, 6h and 1d candles
+Setting any period to `0` keeps that data forever. The 1h, 4h and 1d candles
 are not pruned; latest prices are read from 1h candles so they survive 1m
 pruning.
+
+4h candles replaced 6h. On every start, before the first sync, the indexer
+fills 4h candles that are missing from the stored 1h candles (open of the first
+hour, close of the last, high and low extremes, summed volume and trades), so
+history indexed before 4h existed gets charts without a reindex or manual SQL.
+Buckets that already have a 4h row are left untouched. Old 6h rows stay in the
+table, are no longer written or served, and `interval=6h` answers 400.
 
 ## Endpoints
 
 - `GET /markets`: every pool with quote-oriented prices, volume, TVL and `low_liquidity`.
-- `GET /pools/:id?interval=1m|5m|1h|6h|1d`: one pool, its candles (`candles` B per A, `quote_candles` quote per base) and its latest 60 swaps.
+- `GET /pools/:id?interval=1m|5m|1h|4h|1d`: one pool, its candles (`candles` B per A, `quote_candles` quote per base) and its latest 60 swaps.
 - `GET /positions/:address`: the address's open LP positions from indexed data:
 
 ```json

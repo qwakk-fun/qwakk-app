@@ -12,6 +12,12 @@ export const THEME = {
   grid: "#17181b",
   axis: "#2a2b30",
   text: "#a0a1a8",
+  /** Crosshair guides on --text-3: visible on the panel, quieter than the series. */
+  crosshair: "#6c6d74",
+  /** A bucket with no trades, drawn flat at the last price: --text-3 at 55%, so it reads as "no move", never as a gain or loss. */
+  idle: "rgba(108, 109, 116, 0.55)",
+  /** Volume bars: --text-2 at 22%. Neutral, because volume is not a gain or a loss. */
+  volume: "rgba(160, 161, 168, 0.22)",
   accent: "#ffd43b",
   accentWash: "rgba(255, 212, 59, 0.18)",
   accentClear: "rgba(255, 212, 59, 0)",

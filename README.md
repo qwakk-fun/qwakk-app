@@ -45,8 +45,8 @@ How it works:
   `max_swap_impact_bps` cap and re-quotes before the wallet opens.
 - Liquidity positions are read from the AMM LP balance query. The AMM keeps LP
   shares in its own store, not as bank tokens.
-- The indexer stores pools, swaps and 1m, 5m, 1h, 6h and 1d candles in
-  PostgreSQL. Pool pages chart 1m, 5m, 1h and 1d candles.
+- The indexer stores pools, swaps and 1m, 5m, 1h, 4h and 1d candles in
+  PostgreSQL. Pool pages chart 1m, 5m, 1h, 4h and 1d candles.
 - Native actions are prepared on the server (`/api/native-tx/prepare`): it
   builds the messages, simulates them against Diana and returns them for QoreX
   `signAndBroadcast` (QoreX 0.3.5 or newer). QoreX asks the user to approve,

@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { AreaSeries, ColorType, CrosshairMode, LineStyle, createChart, type IChartApi, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
+import { AreaSeries, CrosshairMode, LineStyle, createChart, type IChartApi, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
+import { chartBaseOptions } from "../lib/qwakk-chart-style";
 import { formatUsdPrice, type MarketPoint } from "../lib/qor-price";
 import { THEME } from "../lib/theme";
 
-const dateTime = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const dateTime = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 /**
  * Single-series QOR/USD area chart. The title outside names the series, so no
@@ -21,16 +22,15 @@ export function PriceChart({ points, dimmed = false, height = 360 }: { points: M
   useEffect(() => {
     const element = container.current;
     if (!element) return;
+    const base = chartBaseOptions(element);
     const instance = createChart(element, {
-      autoSize: true,
+      ...base,
       height,
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: THEME.text, fontFamily: "var(--font-geist-mono), ui-monospace, monospace", fontSize: 11 },
-      grid: { vertLines: { visible: false }, horzLines: { color: THEME.grid } },
-      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
-      timeScale: { borderColor: THEME.axis, timeVisible: true, secondsVisible: false },
+      rightPriceScale: { ...base.rightPriceScale, scaleMargins: { top: 0.12, bottom: 0.08 } },
+      // A single series: the guide is one vertical line snapping to the nearest point, the tooltip carries the value.
       crosshair: {
         mode: CrosshairMode.Magnet,
-        vertLine: { color: THEME.axis, width: 1, style: LineStyle.Solid, labelVisible: false },
+        vertLine: { color: THEME.crosshair, width: 1, style: LineStyle.Dashed, labelVisible: false },
         horzLine: { visible: false, labelVisible: false },
       },
       handleScroll: false,
