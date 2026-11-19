@@ -28,7 +28,7 @@
  * - QOR itself is the unit of account, so it has no position of its own.
  */
 
-import { dustThreshold } from "./market-math";
+import { dustThreshold, liquidityStatus, poolTvlInQuote, spotPriceInQuote } from "./market-math";
 
 export const QOR_DENOM = "uqor";
 export const QOR_DECIMALS = 6;
@@ -217,8 +217,12 @@ export type TokenPnl = {
   unknownCostAmount: string;
   /** Swap position no longer in the wallet (sent away, added to a pool, paid as a fee). Not a sale. */
   untrackedOutflowAmount: string;
+  /**
+   * The current QOR price, for display. With lowLiquidity true it comes from a pool the markets
+   * page flags as low liquidity and is NOT used: valueUqor and unrealizedPnlUqor are null.
+   */
   price: { qorPerToken: string | null; poolId: string; source: "last_trade" | "spot"; lowLiquidity: boolean } | null;
-  /** Whole held balance at the current price, uqor. Null without a price. */
+  /** Whole held balance at the current price, uqor. Null without a usable price. */
   valueUqor: string | null;
   /** Value minus cost of the known-cost part only, uqor. Null without a price or known-cost holdings. */
   unrealizedPnlUqor: string | null;
@@ -238,7 +242,7 @@ export type PnlTotals = {
   unrealizedPnlUqor: string;
   unrealizedPnlPercent: string | null;
   realizedPnlUqor: string;
-  /** Tokens held without a current QOR price; their value is not in the totals. */
+  /** Tokens held without a usable current QOR price (none, unknown decimals or a low-liquidity pool); not in the totals. */
   unpricedTokens: number;
   /**
    * complete: every holding and every sale has a known cost and every holding is priced.
@@ -297,8 +301,10 @@ export function valuePortfolio(input: {
     }
     const unknownHeld = held - knownHeld;
 
-    // Same rule as the markets page: a token without known decimals is unpriced.
-    const price = meta.decimals === null ? undefined : input.prices.get(denom);
+    // Same rules as the markets page: a token without known decimals is unpriced, and a
+    // low-liquidity pool's price is shown (price.lowLiquidity) but never used to value anything.
+    const shown = meta.decimals === null ? undefined : input.prices.get(denom);
+    const price = shown && !shown.lowLiquidity ? shown : undefined;
     const value = price && held > ZERO ? valueInUqor(held, price.ratio) : price ? ZERO : null;
     const knownValue = price ? valueInUqor(knownHeld, price.ratio) : null;
     const unrealized = knownValue !== null && knownHeld > ZERO ? knownValue - knownCost : null;
@@ -328,7 +334,7 @@ export function valuePortfolio(input: {
       averageCostQor: knownHeld > ZERO ? qorPerToken(knownCost, knownHeld, meta.decimals) : null,
       unknownCostAmount: unknownHeld.toString(),
       untrackedOutflowAmount: untrackedOutflow.toString(),
-      price: price ? { qorPerToken: qorPerToken(price.ratio.num, price.ratio.den, meta.decimals), poolId: price.poolId, source: price.source, lowLiquidity: price.lowLiquidity } : null,
+      price: shown ? { qorPerToken: qorPerToken(shown.ratio.num, shown.ratio.den, meta.decimals), poolId: shown.poolId, source: shown.source, lowLiquidity: shown.lowLiquidity } : null,
       valueUqor: value === null ? null : value.toString(),
       unrealizedPnlUqor: unrealized === null ? null : unrealized.toString(),
       unrealizedPnlPercent: unrealized === null ? null : pnlPercent(unrealized, knownCost),
@@ -361,15 +367,31 @@ export function valuePortfolio(input: {
   return { tokens: rows.map((row) => row.token), totals };
 }
 
-export type QorPoolRow = { id: string; tokenA: string; tokenB: string; reserveA: string | null; reserveB: string | null };
+export type QorPoolRow = {
+  id: string;
+  tokenA: string;
+  tokenB: string;
+  reserveA: string | null;
+  reserveB: string | null;
+  /** The markets page's low-liquidity flag for the pool's latest reserves. */
+  lowLiquidity?: boolean;
+};
 
 /**
  * The QOR pool that prices each token: among the pools pairing it with QOR,
- * the one holding the most QOR in its latest snapshot (lowest id on a tie).
- * Pools without a snapshot count as empty.
+ * a pool that is not low liquidity first, then the one holding the most QOR
+ * in its latest snapshot (lowest id on a tie). Pools without a snapshot count
+ * as empty.
  */
 export function chooseQorPools(pools: QorPoolRow[]) {
   const chosen = new Map<string, { pool: QorPoolRow; qorReserve: bigint }>();
+  const better = (pool: QorPoolRow, qorReserve: bigint, current: { pool: QorPoolRow; qorReserve: bigint }) => {
+    const healthy = pool.lowLiquidity !== true;
+    const currentHealthy = current.pool.lowLiquidity !== true;
+    if (healthy !== currentHealthy) return healthy;
+    if (qorReserve !== current.qorReserve) return qorReserve > current.qorReserve;
+    return Number(pool.id) < Number(current.pool.id);
+  };
   for (const pool of pools) {
     const qorSide = pool.tokenA === QOR_DENOM ? "a" : pool.tokenB === QOR_DENOM ? "b" : null;
     if (!qorSide || pool.tokenA === pool.tokenB) continue;
@@ -377,7 +399,7 @@ export function chooseQorPools(pools: QorPoolRow[]) {
     const raw = qorSide === "a" ? pool.reserveA : pool.reserveB;
     const qorReserve = DIGITS.test(raw ?? "") ? BigInt(raw as string) : ZERO;
     const current = chosen.get(token);
-    if (!current || qorReserve > current.qorReserve || (qorReserve === current.qorReserve && Number(pool.id) < Number(current.pool.id))) {
+    if (!current || better(pool, qorReserve, current)) {
       chosen.set(token, { pool, qorReserve });
     }
   }
@@ -400,8 +422,12 @@ export function ratioFromReserves(denom: string, reserves: ReservesRow | null) {
 /**
  * QOR price of `denom` at a past swap: the newer of the pool's last trade and
  * its last reserve snapshot at or before that time, else whichever exists.
+ * `poolUsable` says the pool was not low liquidity at that time (judged on that
+ * snapshot's reserves); when it was, or when no snapshot can tell, the price is
+ * unknown rather than taken from a dust pool.
  */
-export function historicalRatio(denom: string, trade: TradeRow | null, reserves: ReservesRow | null, snapshotIsNewer: boolean) {
+export function historicalRatio(denom: string, trade: TradeRow | null, reserves: ReservesRow | null, snapshotIsNewer: boolean, poolUsable: boolean) {
+  if (!poolUsable) return null;
   const fromTrade = ratioFromTrade(denom, trade);
   const fromReserves = ratioFromReserves(denom, reserves);
   return snapshotIsNewer ? fromReserves ?? fromTrade : fromTrade ?? fromReserves;
@@ -433,4 +459,31 @@ export function historyWindow(input: HistoryInput) {
     indexedHeight: input.indexedHeight,
     gap: gap ? { fromHeight: Number(gap[1]), toHeight: Number(gap[2]) } : null,
   };
+}
+
+export type QorPoolState = ReservesRow & { poolType: string; decimalsA: number | null; decimalsB: number | null; minTvl: string | null };
+
+/**
+ * The markets page's low-liquidity rule for a QOR pool at given reserves
+ * (indexer/market-math.ts liquidityStatus, QOR as the quote): unknown
+ * decimals, an empty or dust side, or a TVL under QOR's minimum. Anything it
+ * cannot read counts as low liquidity.
+ */
+export function qorPoolLowLiquidity(pool: QorPoolState) {
+  if (pool.decimalsA === null || pool.decimalsB === null) return true;
+  if (pool.tokenA !== QOR_DENOM && pool.tokenB !== QOR_DENOM) return true;
+  try {
+    const reserves = {
+      poolType: pool.poolType,
+      reserveA: pool.reserveA ?? "0",
+      reserveB: pool.reserveB ?? "0",
+      decimalsA: pool.decimalsA,
+      decimalsB: pool.decimalsB,
+      quoteSide: pool.tokenA === QOR_DENOM ? "a" as const : "b" as const,
+    };
+    const tvl = poolTvlInQuote(reserves, spotPriceInQuote(reserves));
+    return liquidityStatus(reserves, tvl, pool.minTvl).lowLiquidity;
+  } catch {
+    return true;
+  }
 }

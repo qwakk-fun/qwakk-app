@@ -287,9 +287,35 @@ export function splitDust(tokens: readonly PnlToken[]) {
   return { main, dust };
 }
 
-/** True when any held token's price comes from a low-liquidity pool. */
+/**
+ * True when the token's price comes from a pool the markets page flags as low
+ * liquidity. Such a price is shown with its "Small pool" tag but never values
+ * the holding: the API leaves it out of value, profit and loss and totals, and
+ * the page says so even if an older API still sent a value.
+ */
+export function isSmallPoolPrice(token: Pick<PnlToken, "price">) {
+  return token.price?.lowLiquidity === true;
+}
+
+/** True when any held token is left unpriced because its pool is too small. */
 export function hasLowLiquidityPrice(tokens: readonly PnlToken[]) {
-  return tokens.some((token) => token.price?.lowLiquidity === true && isPositiveAmount(token.held));
+  return tokens.some((token) => isSmallPoolPrice(token) && isPositiveAmount(token.held));
+}
+
+export const SMALL_POOL_COPY = "Pool too small to price";
+
+/** The Value cell: a QOR figure, or why there is none. */
+export function pnlValueCell(token: Pick<PnlToken, "price" | "valueUqor">): { uqor: string } | { text: string } {
+  if (isSmallPoolPrice(token)) return { text: SMALL_POOL_COPY };
+  return token.valueUqor !== null ? { uqor: token.valueUqor } : { text: "Not priced" };
+}
+
+/** The "On what you hold" cell: a signed QOR figure with its percent, or why there is none. */
+export function pnlUnrealizedCell(token: Pick<PnlToken, "price" | "held" | "unrealizedPnlUqor" | "unrealizedPnlPercent">): { uqor: string; percent: string | null } | { text: string } {
+  const held = isPositiveAmount(token.held);
+  if (held && isSmallPoolPrice(token)) return { text: SMALL_POOL_COPY };
+  if (token.unrealizedPnlUqor !== null && !isSmallPoolPrice(token)) return { uqor: token.unrealizedPnlUqor, percent: token.unrealizedPnlPercent };
+  return { text: !held ? "Nothing left" : token.price ? "Buy price unknown" : "Not counted" };
 }
 
 /** Fixed copy for every failed read: route, indexer or proxy text never reaches the page. */

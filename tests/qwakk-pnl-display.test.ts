@@ -11,6 +11,9 @@ import {
   formatTokenAmount,
   groupDigits,
   hasLowLiquidityPrice,
+  pnlUnrealizedCell,
+  pnlValueCell,
+  SMALL_POOL_COPY,
   parsePnlReport,
   pnlErrorKind,
   pnlHistoryLine,
@@ -154,6 +157,26 @@ test("puts small balances behind the toggle and spots low-liquidity prices", () 
   assert.equal(hasLowLiquidityPrice([token({ price: { qorPerToken: "2", poolId: "9", source: "spot", lowLiquidity: true } })]), true);
   // A sold-out token's thin pool does not move anything the wallet holds.
   assert.equal(hasLowLiquidityPrice([token({ held: "0", price: { qorPerToken: "2", poolId: "9", source: "spot", lowLiquidity: true } })]), false);
+});
+
+test("a small-pool price never shows a value or profit, even if an older API sent one", () => {
+  const thin = { qorPerToken: "1056524035921.81", poolId: "1", source: "last_trade", lowLiquidity: true };
+  // What the first live indexer sent for fETH: a value and a giant gain from the dust pool.
+  const live = token({ denom: FETH, decimals: 18, held: "350878407625571210", price: thin, valueUqor: "370711471342389022", unrealizedPnlUqor: "928058749555008", unrealizedPnlPercent: "4594808133.87" });
+  assert.deepEqual(pnlValueCell(live), { text: SMALL_POOL_COPY });
+  assert.deepEqual(pnlUnrealizedCell(live), { text: SMALL_POOL_COPY });
+  const fixed = token({ denom: FETH, decimals: 18, held: "350878407625571210", price: thin, valueUqor: null, unrealizedPnlUqor: null, unrealizedPnlPercent: null });
+  assert.deepEqual(pnlValueCell(fixed), { text: SMALL_POOL_COPY });
+  assert.deepEqual(pnlUnrealizedCell(fixed), { text: SMALL_POOL_COPY });
+  assert.deepEqual(pnlUnrealizedCell({ ...fixed, held: "0" }), { text: "Nothing left" });
+
+  const healthy = token();
+  assert.deepEqual(pnlValueCell(healthy), { uqor: healthy.valueUqor });
+  assert.deepEqual(pnlUnrealizedCell(healthy), { uqor: healthy.unrealizedPnlUqor, percent: healthy.unrealizedPnlPercent });
+  assert.deepEqual(pnlValueCell(token({ price: null, valueUqor: null })), { text: "Not priced" });
+  assert.deepEqual(pnlUnrealizedCell(token({ unrealizedPnlUqor: null })), { text: "Buy price unknown" });
+  assert.deepEqual(pnlUnrealizedCell(token({ price: null, unrealizedPnlUqor: null })), { text: "Not counted" });
+  assert.doesNotMatch(SMALL_POOL_COPY, /\u2014/);
 });
 
 test("maps every failure to fixed copy without em dashes", () => {

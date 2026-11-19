@@ -219,16 +219,24 @@ table, are no longer written or served, and `interval=6h` answers 400.
   - Swaps are the wallet's indexed `amm_swap` events (any interface,
     `MsgSwapExactIn` and `MsgSwapExactOut` alike, by executed amounts),
     replayed oldest first. QOR is the unit of account and has no row.
-  - A swap with QOR on one side costs or pays exactly its QOR side. A swap
-    between two other tokens is valued through the input token's QOR pool
-    price at that time (the newer of that pool's last trade and reserve
-    snapshot at or before the swap), else the output token's; with neither,
-    the bought side gets unknown cost and the sold side unknown proceeds.
-  - A token's QOR pool is the one pairing it with QOR that holds the most QOR
-    now. The current price is that pool's last trade, else its reserves
-    (`price.source`), as on the markets page. `lowLiquidity` uses the markets
-    page rule. No QOR pool, or unknown decimals: `price` and `valueUqor` are
-    `null` and the token counts in `totals.unpricedTokens`.
+  - A swap with QOR on one side costs or pays exactly its QOR side, even in a
+    low-liquidity pool: those are the amounts that really changed hands. A
+    swap between two other tokens is valued through the input token's QOR
+    pool price at that time (the newer of that pool's last trade and reserve
+    snapshot at or before the swap), else the output token's. That pool must
+    not have been low liquidity at the time, judged on its last snapshot at or
+    before the swap (no snapshot: not usable). With neither side usable, the
+    bought side gets unknown cost and the sold side unknown proceeds.
+  - A token's QOR pool is one pairing it with QOR that is not low liquidity
+    (the markets page rule: unknown decimals, an empty or dust side, or TVL
+    under 10 QOR), then the one holding the most QOR now. The current price is
+    that pool's last trade, else its reserves (`price.source`), as on the
+    markets page.
+  - `price.lowLiquidity: true` means only low-liquidity QOR pools exist for
+    the token. The price is returned for display only and is NOT used:
+    `valueUqor`, `unrealizedPnlUqor` and `unrealizedPnlPercent` are `null`, the
+    token is left out of every total and counts in `totals.unpricedTokens`.
+    No QOR pool, or unknown decimals: `price` is `null`, same treatment.
   - Selling takes from the known-cost and unknown-cost parts of the position
     in proportion. Realized PnL is booked only on the known-cost part with
     known proceeds; the rest is `realizedUnknownAmount`, including units sold

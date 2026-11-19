@@ -14,6 +14,8 @@ import {
   isPositiveAmount,
   pnlHistoryLine,
   pnlTone,
+  pnlUnrealizedCell,
+  pnlValueCell,
   splitDust,
   type PnlToken,
 } from "../lib/qwakk-pnl-display";
@@ -59,6 +61,8 @@ function TokenRow({ token, resolve }: { token: PnlToken; resolve: Resolve }) {
   const realizedUnknown = isPositiveAmount(token.realizedUnknownAmount);
   const outflow = isPositiveAmount(token.untrackedOutflowAmount);
   const amount = (value: string) => `${formatTokenAmount(value, decimals)} ${symbol}`;
+  const value = pnlValueCell(token);
+  const unrealized = pnlUnrealizedCell(token);
 
   return <li className="pnl-row">
     <span className="cell-main pnl-token">
@@ -77,13 +81,13 @@ function TokenRow({ token, resolve }: { token: PnlToken; resolve: Resolve }) {
     </span>
     <span className="pnl-cell pnl-value">
       <span className="pnl-label">Value</span>
-      {token.valueUqor !== null ? <span className="num">{formatQor(token.valueUqor)} QOR</span> : <span className="subtle">Not priced</span>}
+      {"uqor" in value ? <span className="num">{formatQor(value.uqor)} QOR</span> : <span className="subtle">{value.text}</span>}
     </span>
     <span className="pnl-cell pnl-unrealized">
       <span className="pnl-label">On what you hold</span>
-      {token.unrealizedPnlUqor !== null
-        ? <span className="pnl-change"><SignedQor uqor={token.unrealizedPnlUqor} /><PercentPill percent={token.unrealizedPnlPercent} /></span>
-        : <span className="subtle">{!held ? "Nothing left" : token.price ? "Buy price unknown" : "Not counted"}</span>}
+      {"uqor" in unrealized
+        ? <span className="pnl-change"><SignedQor uqor={unrealized.uqor} /><PercentPill percent={unrealized.percent} /></span>
+        : <span className="subtle">{unrealized.text}</span>}
     </span>
     <span className="pnl-cell pnl-realized">
       <span className="pnl-label">From sales</span>
@@ -158,7 +162,7 @@ export function ProfitLoss({ pnl }: { pnl: Pnl }) {
           <div>
             <dt>Value now</dt>
             <dd><span className="num">{formatQor(totals.valueUqor)} QOR</span></dd>
-            <dd className="cell-sub">Everything with a pool price</dd>
+            <dd className="cell-sub">Tokens with a big enough pool</dd>
           </div>
           <div>
             <dt>What you paid</dt>
@@ -171,12 +175,12 @@ export function ProfitLoss({ pnl }: { pnl: Pnl }) {
           <Info size={15} aria-hidden="true" />
           <p>{totals.coverage === "none"
             ? "None of your tokens has a known buy price yet, so there is no profit or loss to show."
-            : "Partial picture: some tokens have no known buy price or no QOR price yet, so they are left out of profit and loss. Value now still counts everything with a pool price."}
+            : "Partial picture: some tokens have no known buy price or no QOR price yet, so they are left out of profit and loss. Value now still counts every token with a big enough pool."}
           {report.history.gap && " Some older swap history is missing, so tokens bought back then have no known buy price."}</p>
         </div>}
         {lowLiquidity && <div className="pnl-note is-caution">
           <AlertTriangle size={15} aria-hidden="true" />
-          <p>Some prices come from small pools, so even one small trade can swing their value a lot.</p>
+          <p>Some tokens only trade in very small pools, where one tiny trade can move the price wildly. We show that price but leave those tokens out of Value now and profit and loss until their pool grows.</p>
         </div>}
 
         <div className="pnl-table">

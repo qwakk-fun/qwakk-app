@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  buildLedger, chooseQorPools, formatScaled, historicalRatio, historyWindow, pnlPercent, qorPerToken, swapValueUqor, valuePortfolio,
+  buildLedger, chooseQorPools, formatScaled, historicalRatio, historyWindow, pnlPercent, qorPerToken, qorPoolLowLiquidity, swapValueUqor, valuePortfolio,
   type CostBasisSwap, type LedgerEntry, type TokenMeta, type TokenPrice,
 } from "../indexer/cost-basis";
 
@@ -22,8 +22,8 @@ const meta = new Map<string, TokenMeta>([
   [FUSD, { symbol: "fUSD", decimals: 6 }],
 ]);
 
-function price(denom: string, num: number | bigint, den: number | bigint, source: TokenPrice["source"] = "last_trade"): [string, TokenPrice] {
-  return [denom, { ratio: { num: BigInt(num), den: BigInt(den) }, poolId: "1", source, lowLiquidity: false }];
+function price(denom: string, num: number | bigint, den: number | bigint, source: TokenPrice["source"] = "last_trade", lowLiquidity = false): [string, TokenPrice] {
+  return [denom, { ratio: { num: BigInt(num), den: BigInt(den) }, poolId: "1", source, lowLiquidity }];
 }
 
 function portfolio(ledger: Map<string, LedgerEntry>, balances: Record<string, string>, prices: Array<[string, TokenPrice]> = []) {
@@ -255,16 +255,65 @@ test("picks the QOR pool with the deepest QOR reserve per token", () => {
   assert.equal(pools.get(X)?.id, "2");
   assert.equal(pools.get(FUSD)?.id, "6", "lowest id on a tie");
   assert.equal(pools.has(FETH), false, "no QOR route");
+
+  const healthyFirst = chooseQorPools([
+    { id: "1", tokenA: FETH, tokenB: QOR, reserveA: "969699", reserveB: u(900000), lowLiquidity: true },
+    { id: "8", tokenA: FETH, tokenB: QOR, reserveA: "1000000000000000000", reserveB: u(20), lowLiquidity: false },
+  ]);
+  assert.equal(healthyFirst.get(FETH)?.id, "8", "a healthy pool beats a deeper low-liquidity one");
+  const onlyDust = chooseQorPools([{ id: "1", tokenA: FETH, tokenB: QOR, reserveA: "969699", reserveB: "1031359", lowLiquidity: true }]);
+  assert.equal(onlyDust.get(FETH)?.lowLiquidity, true, "still chosen, so its price can be shown as unused");
 });
 
 test("takes the newer of the last trade and the reserve snapshot for a past price", () => {
   const trade = { denomIn: QOR, amountIn: u(2), denomOut: X, amountOut: u(1) };
   const reserves = { tokenA: X, tokenB: QOR, reserveA: u(10), reserveB: u(30) };
-  assert.deepEqual(historicalRatio(X, trade, reserves, false), { num: BigInt(u(2)), den: BigInt(u(1)) });
-  assert.deepEqual(historicalRatio(X, trade, reserves, true), { num: BigInt(u(30)), den: BigInt(u(10)) });
-  assert.deepEqual(historicalRatio(X, null, reserves, false), { num: BigInt(u(30)), den: BigInt(u(10)) });
-  assert.equal(historicalRatio(X, null, { ...reserves, reserveA: "0" }, false), null);
-  assert.equal(historicalRatio(X, null, null, false), null);
+  assert.deepEqual(historicalRatio(X, trade, reserves, false, true), { num: BigInt(u(2)), den: BigInt(u(1)) });
+  assert.deepEqual(historicalRatio(X, trade, reserves, true, true), { num: BigInt(u(30)), den: BigInt(u(10)) });
+  assert.deepEqual(historicalRatio(X, null, reserves, false, true), { num: BigInt(u(30)), den: BigInt(u(10)) });
+  assert.equal(historicalRatio(X, null, { ...reserves, reserveA: "0" }, false, true), null);
+  assert.equal(historicalRatio(X, null, null, false, true), null);
+  assert.equal(historicalRatio(X, trade, reserves, false, false), null, "a pool that was low liquidity then prices nothing");
+});
+
+test("a low-liquidity price is shown but never values a holding or enters the totals", () => {
+  // The live case: fETH's only QOR pool is dust and quotes about 1e12 QOR per fETH.
+  const ledger = buildLedger([buy(FETH, "878407625571210", "20197987"), buy(X, u(10), u(10))]);
+  const { tokens, totals } = portfolio(ledger, { [FETH]: "350878407625571210", [X]: u(10) }, [price(FETH, 1031359, 969699, "last_trade", true), price(X, 2, 1)]);
+  const feth = tokens.find((token) => token.denom === FETH)!;
+  assert.equal(feth.price?.lowLiquidity, true);
+  assert.equal(feth.price?.qorPerToken, "1063586741865.259219613508934215", "kept for display");
+  assert.equal(feth.valueUqor, null);
+  assert.equal(feth.unrealizedPnlUqor, null);
+  assert.equal(feth.unrealizedPnlPercent, null);
+  assert.equal(feth.averageCostQor, "22993.865731602311575393", "the executed cost is untouched");
+  assert.equal(totals.unpricedTokens, 1);
+  assert.equal(totals.valueUqor, u(20), "only X counts");
+  assert.equal(totals.costBasisUqor, u(10));
+  assert.equal(totals.unrealizedPnlUqor, u(10));
+  assert.equal(totals.unrealizedPnlPercent, "100");
+  assert.equal(totals.coverage, "partial");
+  assert.deepEqual(tokens.map((token) => token.denom), [X, FETH], "unpriced rows sort last");
+});
+
+test("a swap made directly in a dust QOR pool keeps its executed QOR cost", () => {
+  // Real amounts at a silly price: 50 QOR for 1 base unit. Honest, so it stays.
+  const ledger = buildLedger([buy(FETH, "1", u(50))]);
+  assert.equal(ledger.get(FETH)!.knownCost, BigInt(u(50)));
+});
+
+test("applies the markets page's low-liquidity rule to QOR pools", () => {
+  const pool = (reserveA: string, reserveB: string, decimalsA: number | null = 18) =>
+    qorPoolLowLiquidity({ poolType: "constant_product", tokenA: FETH, tokenB: QOR, reserveA, reserveB, decimalsA, decimalsB: 6, minTvl: "10" });
+  // Live pool 1 (fETH/QOR): 969699 fETH base units is far below one millionth of an 18-decimal token.
+  assert.equal(pool("969699", "1031359"), true);
+  assert.equal(pool("1000000000000000000", u(6000)), false);
+  assert.equal(pool("1000000000000000000", u(4)), true, "TVL 8 QOR is under the 10 QOR minimum");
+  assert.equal(pool("1000000000000000000", "0"), true);
+  assert.equal(pool("1000000000000000000", null as unknown as string), true);
+  assert.equal(pool("1000000000000000000", u(6000), null), true, "unknown decimals");
+  // Live pool 2 (QOR/fUSD) is healthy.
+  assert.equal(qorPoolLowLiquidity({ poolType: "constant_product", tokenA: FUSD, tokenB: QOR, reserveA: "451451509", reserveB: "10059913737", decimalsA: 6, decimalsB: 6, minTvl: "10" }), false);
 });
 
 test("reports where indexed history starts and any pruned gap", () => {

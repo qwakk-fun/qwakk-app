@@ -6,10 +6,10 @@
  */
 
 import {
-  buildLedger, chooseQorPools, historicalRatio, historyWindow, isRatio, ratioFromReserves, ratioFromTrade, valuePortfolio, QOR_DENOM,
+  buildLedger, chooseQorPools, historicalRatio, historyWindow, isRatio, qorPoolLowLiquidity, ratioFromReserves, ratioFromTrade, valuePortfolio, QOR_DENOM,
   type CostBasisSwap, type Ratio, type TokenMeta, type TokenPrice,
 } from "./cost-basis";
-import { knownDecimals, liquidityStatus, poolTvlInQuote, spotPriceInQuote, type QuoteSide } from "./market-math";
+import { knownDecimals } from "./market-math";
 import { minTvlFor } from "./token-registry";
 
 /** indexer_state key holding the first block a fresh database indexed. Older databases do not have it. */
@@ -23,15 +23,6 @@ export type WalletPnlDeps = {
   /** Live bank balances, base units by denom (readBankBalances in production). */
   bankBalances: (address: string) => Promise<Map<string, string>>;
 };
-
-/** Market math on stored values; a value it cannot read exactly becomes null instead of failing the response. */
-function exact<T>(compute: () => T): T | null {
-  try {
-    return compute();
-  } catch {
-    return null;
-  }
-}
 
 /** Swaps replayed per wallet. A wallet above this answers 422 instead of a partial replay. */
 export const PNL_MAX_SWAPS = 50_000;
@@ -97,7 +88,7 @@ async function pnlHistory(deps: WalletPnlDeps) {
  * exact out); balances are read live from the bank module.
  */
 export async function walletPnl(address: string, deps: WalletPnlDeps) {
-  const [swaps, balances, qorPools, history] = await Promise.all([
+  const [swaps, balances, qorPools, history, tokens] = await Promise.all([
     deps.query<{ executed_at: string; denom_in: string; amount_in: string; denom_out: string; amount_out: string }>(
       `SELECT executed_at::text, denom_in, amount_in::text, denom_out, amount_out::text
        FROM swaps WHERE sender = $1 ORDER BY height ASC, id ASC LIMIT $2`,
@@ -112,11 +103,32 @@ export async function walletPnl(address: string, deps: WalletPnlDeps) {
       [QOR_DENOM],
     ),
     pnlHistory(deps),
+    // Every token row: the table is small, and pool liquidity needs both sides' decimals.
+    deps.query<{ denom: string; symbol: string; decimals: number | null }>("SELECT denom, symbol, decimals FROM tokens"),
   ]);
   if (swaps.rows.length > PNL_MAX_SWAPS) throw new PnlTooLarge();
 
-  const pools = chooseQorPools(qorPools.rows.map((row) => ({ id: row.id, tokenA: row.token_a, tokenB: row.token_b, reserveA: row.reserve_a, reserveB: row.reserve_b })));
-  const poolRows = new Map(qorPools.rows.map((row) => [row.id, row]));
+  const meta = new Map<string, TokenMeta>(tokens.rows.map((row) => [row.denom, { symbol: row.symbol, decimals: knownDecimals(row.decimals) }]));
+  const poolType = new Map(qorPools.rows.map((row) => [row.id, row.pool_type]));
+  /** The markets page's low-liquidity rule for a QOR pool at the given reserves. */
+  const lowLiquidityAt = (poolId: string, tokenA: string, tokenB: string, reserveA: string | null, reserveB: string | null) => qorPoolLowLiquidity({
+    poolType: poolType.get(poolId) ?? "constant_product",
+    tokenA,
+    tokenB,
+    reserveA,
+    reserveB,
+    decimalsA: meta.get(tokenA)?.decimals ?? null,
+    decimalsB: meta.get(tokenB)?.decimals ?? null,
+    minTvl: minTvlFor(QOR_DENOM),
+  });
+  const pools = chooseQorPools(qorPools.rows.map((row) => ({
+    id: row.id,
+    tokenA: row.token_a,
+    tokenB: row.token_b,
+    reserveA: row.reserve_a,
+    reserveB: row.reserve_b,
+    lowLiquidity: lowLiquidityAt(row.id, row.token_a, row.token_b, row.reserve_a, row.reserve_b),
+  })));
   const denoms = new Set<string>([...balances.keys(), ...swaps.rows.flatMap((row) => [row.denom_in, row.denom_out])]);
   denoms.add(QOR_DENOM);
 
@@ -134,8 +146,7 @@ export async function walletPnl(address: string, deps: WalletPnlDeps) {
   }
 
   const relevantPools = [...denoms].flatMap((denom) => pools.get(denom)?.id ?? []);
-  const [tokens, latestTrades, pastPrices] = await Promise.all([
-    deps.query<{ denom: string; symbol: string; decimals: number | null }>("SELECT denom, symbol, decimals FROM tokens WHERE denom = ANY($1)", [[...denoms]]),
+  const [latestTrades, pastPrices] = await Promise.all([
     deps.query<{ pool_id: string; denom_in: string | null; amount_in: string | null; denom_out: string | null; amount_out: string | null }>(
       `SELECT q.id::text AS pool_id, t.denom_in, t.amount_in::text, t.denom_out, t.amount_out::text
        FROM unnest($1::bigint[]) AS q(id)
@@ -162,7 +173,6 @@ export async function walletPnl(address: string, deps: WalletPnlDeps) {
     ) : Promise.resolve({ rows: [] }),
   ]);
 
-  const meta = new Map<string, TokenMeta>(tokens.rows.map((row) => [row.denom, { symbol: row.symbol, decimals: knownDecimals(row.decimals) }]));
   const trade = (row: { denom_in: string | null; amount_in: string | null; denom_out: string | null; amount_out: string | null }) =>
     row.denom_in && row.amount_in && row.denom_out && row.amount_out ? { denomIn: row.denom_in, amountIn: row.amount_in, denomOut: row.denom_out, amountOut: row.amount_out } : null;
 
@@ -172,7 +182,10 @@ export async function walletPnl(address: string, deps: WalletPnlDeps) {
     const row = pool ? past.get(lookupKey(pool.id, at)) : undefined;
     if (!pool || !row) return null;
     const reserves = row.reserve_a !== null && row.reserve_b !== null ? { tokenA: pool.tokenA, tokenB: pool.tokenB, reserveA: row.reserve_a, reserveB: row.reserve_b } : null;
-    return historicalRatio(denom, trade(row), reserves, row.snapshot_newer === true);
+    // The pool must not have been low liquidity at that time, judged on its last snapshot then.
+    // Without a snapshot nothing can tell, so the price stays unknown.
+    const usable = reserves !== null && !lowLiquidityAt(pool.id, pool.tokenA, pool.tokenB, reserves.reserveA, reserves.reserveB);
+    return historicalRatio(denom, trade(row), reserves, row.snapshot_newer === true, usable);
   };
 
   const replay: CostBasisSwap[] = swaps.rows.map((row) => {
@@ -193,21 +206,12 @@ export async function walletPnl(address: string, deps: WalletPnlDeps) {
   for (const denom of denoms) {
     const pool = pools.get(denom);
     if (!pool) continue;
-    const row = poolRows.get(pool.id);
     const reserves = { tokenA: pool.tokenA, tokenB: pool.tokenB, reserveA: pool.reserveA, reserveB: pool.reserveB };
     const fromTrade = ratioFromTrade(denom, lastTrade.get(pool.id) ?? null);
     const ratio = fromTrade ?? ratioFromReserves(denom, reserves);
     if (!isRatio(ratio)) continue;
-    const decimalsA = meta.get(pool.tokenA)?.decimals ?? null;
-    const decimalsB = meta.get(pool.tokenB)?.decimals ?? null;
-    let lowLiquidity = true;
-    if (decimalsA !== null && decimalsB !== null && row) {
-      const quoteSide: QuoteSide = pool.tokenA === QOR_DENOM ? "a" : "b";
-      const poolReserves = { poolType: row.pool_type, reserveA: pool.reserveA ?? "0", reserveB: pool.reserveB ?? "0", decimalsA, decimalsB, quoteSide };
-      const tvl = exact(() => poolTvlInQuote(poolReserves, exact(() => spotPriceInQuote(poolReserves))));
-      lowLiquidity = exact(() => liquidityStatus(poolReserves, tvl, minTvlFor(QOR_DENOM)).lowLiquidity) ?? true;
-    }
-    prices.set(denom, { ratio, poolId: pool.id, source: fromTrade ? "last_trade" : "spot", lowLiquidity });
+    // A low-liquidity pool's price is reported for display but never values anything (valuePortfolio).
+    prices.set(denom, { ratio, poolId: pool.id, source: fromTrade ? "last_trade" : "spot", lowLiquidity: pool.lowLiquidity !== false });
   }
 
   const { tokens: pnlTokens, totals } = valuePortfolio({ ledger: buildLedger(replay), balances, prices, meta });
