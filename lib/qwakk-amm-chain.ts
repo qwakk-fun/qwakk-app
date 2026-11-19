@@ -181,6 +181,40 @@ export async function readQuoteExactIn(poolId: string, denomIn: string, amountIn
   return { ok: false, failure: "unavailable" };
 }
 
+export type ChainExactOutQuote =
+  | { ok: true; amountIn: string; fee: string }
+  | { ok: false; failure: QuoteFailure };
+
+/**
+ * The chain's own exact-out quote: `GET /qorechain/amm/v1/quote/exact_out`
+ * with `pool_id`, `denom_out` and `amount_out` (SDK 0.8.2
+ * `QueryQuoteExactOutRequest`), answered as `{ amount_in, fee, impact_bps }`.
+ * Checked live on Diana pool 2 on 2026-11-19: `amount_in` is the input that
+ * reaches MsgSwapExactOut, swap fee included. A refusal is a 400 with
+ * "insufficient liquidity", "impact ... exceeds max_swap_impact_bps",
+ * "pool not found", "invalid token denoms" or "invalid amount".
+ */
+export async function readQuoteExactOut(poolId: string, denomOut: string, amountOut: string): Promise<ChainExactOutQuote> {
+  const query = new URLSearchParams({ pool_id: poolId, denom_out: denomOut, amount_out: amountOut });
+  let result: { status: number; body: unknown };
+  try {
+    result = await getJson(`/qorechain/amm/v1/quote/exact_out?${query}`);
+  } catch {
+    return { ok: false, failure: "unavailable" };
+  }
+  const body = (result.body && typeof result.body === "object" ? result.body : {}) as { amount_in?: unknown; fee?: unknown; message?: unknown };
+  if (result.status === 200) {
+    const amountIn = integerText(body.amount_in);
+    if (amountIn === null || amountIn === "0") return { ok: false, failure: "unavailable" };
+    return { ok: true, amountIn, fee: integerText(body.fee) ?? "0" };
+  }
+  if (result.status >= 400 && result.status < 500 && typeof body.message === "string") {
+    console.warn("QoreChain exact-out quote refused", body.message);
+    return { ok: false, failure: classifyQuoteError(body.message) };
+  }
+  return { ok: false, failure: "unavailable" };
+}
+
 /** Bank balances as a denom to base-unit map. */
 export async function readBalances(address: string): Promise<Map<string, bigint>> {
   const { status, body } = await getJson(`/cosmos/bank/v1beta1/balances/${encodeURIComponent(address)}?pagination.limit=200`);

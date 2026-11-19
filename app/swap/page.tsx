@@ -23,7 +23,7 @@ import { useWalletBalances } from "../../components/useWalletBalances";
 import { formatBaseAmount, formatVisibleAmount, toBaseAmount } from "../../lib/qwakk-assets";
 import { CHART_INTERVAL_LABELS, chartEmptyCopy, type ChartInterval } from "../../lib/qwakk-chart";
 import { formatQuotePrice, isLowLiquidity, localLiquidityReason, lowLiquidityCopy, marketChange, marketPrice, marketSides, marketVolume, priceUnit, type QuoteMarket } from "../../lib/qwakk-market-view";
-import { DEFAULT_SLIPPAGE_BPS, IMPACT_WARN_BPS, NETWORK_FEE_RESERVE_UQOR, SLIPPAGE_PRESETS_BPS, SLIPPAGE_WARN_BPS, coversSpend, parseSlippagePercent, quoteKey, requoteDecision, type SwapQuote } from "../../lib/qwakk-quote";
+import { DEFAULT_SLIPPAGE_BPS, IMPACT_WARN_BPS, NETWORK_FEE_RESERVE_UQOR, SLIPPAGE_PRESETS_BPS, SLIPPAGE_WARN_BPS, coversSpend, parseSlippagePercent, quoteKey, requoteDecision, requoteExactOutDecision, type SwapQuote } from "../../lib/qwakk-quote";
 import { QUOTE_BLOCK_COPY, QUOTE_FAILURE_COPY, QUOTE_ZERO_OUT_COPY, assetDecimalsUnknownCopy } from "../../lib/qwakk-tx-copy";
 import { MARKET_RANGES, MARKET_RANGE_LABELS, formatChange, formatUsdPrice, type MarketRange } from "../../lib/qor-price";
 
@@ -44,6 +44,9 @@ type Quote = SwapQuote;
 type QuoteEntry = { key: string; data: Quote };
 
 type FeeConfig = { enabled: boolean; feeBps: number };
+/** Which amount the trader typed last. That side is fixed; the other one is quoted. */
+type FixedSide = "in" | "out";
+type QuoteParams = { poolId: string; denomIn: string; slippageBps: number } & ({ amountIn: string } | { amountOut: string });
 type NetworkState = "checking" | "ready" | "unavailable";
 type QuoteState = "idle" | "loading" | "ready" | "unavailable";
 
@@ -65,6 +68,11 @@ function poolAmount(value: number | null, symbol: string) {
   return `${value >= 100_000 ? poolFigureCompact.format(value) : poolFigure.format(value)} ${symbol}`;
 }
 
+/** QoreChain quotes exact out (a fixed receive amount) only on constant-product pools. */
+function supportsExactOut(pool?: RawPool) {
+  return !pool || (pool.pool_type ?? pool.type ?? "constant_product") === "constant_product";
+}
+
 function poolKind(pool: RawPool) {
   const kind = (pool.pool_type ?? pool.type ?? "liquidity_pool").replace(/_/g, " ");
   return pool.status === "paused" ? `${kind}, paused` : kind;
@@ -84,8 +92,10 @@ function percent(bps: number) {
  * the route's own `error` field, or a fixed line when the network, a proxy or
  * a non-JSON body gets in the way. Browser and parser text never surfaces.
  */
-async function requestQuote(params: { poolId: string; denomIn: string; amountIn: string; slippageBps: number }, signal?: AbortSignal): Promise<Quote> {
-  const query = new URLSearchParams({ poolId: params.poolId, denomIn: params.denomIn, amountIn: params.amountIn, slippageBps: String(params.slippageBps) });
+async function requestQuote(params: QuoteParams, signal?: AbortSignal): Promise<Quote> {
+  const query = new URLSearchParams({ poolId: params.poolId, denomIn: params.denomIn, slippageBps: String(params.slippageBps) });
+  if ("amountOut" in params) query.set("amountOut", params.amountOut);
+  else query.set("amountIn", params.amountIn);
   let response: Response;
   try {
     response = await fetch(`/api/swap-quote?${query}`, { cache: "no-store", signal });
@@ -143,6 +153,9 @@ export default function SwapPage() {
   // second tap mid-turn carries on from wherever the arrows are.
   const [flipTurns, setFlipTurns] = useState(0);
   const [amount, setAmount] = useState("1");
+  // Typed in "You receive": the trader fixes what they get and the pay side is quoted (exact out).
+  const [receiveAmount, setReceiveAmount] = useState("");
+  const [fixedSide, setFixedSide] = useState<FixedSide>("in");
   const [slippageChoice, setSlippageChoice] = useState<string>(String(DEFAULT_SLIPPAGE_BPS));
   const [customSlippage, setCustomSlippage] = useState("");
   const [quoteEntry, setQuoteEntry] = useState<QuoteEntry | null>(null);
@@ -157,7 +170,7 @@ export default function SwapPage() {
   // Low-liquidity pools stay out of the picker unless asked for (or opened by link).
   const { markets } = useMarkets(30_000);
   const [showLowLiquidity, setShowLowLiquidity] = useState(false);
-  // The amount the trader set from the pool's one-swap limit, so the note can say so.
+  // The amount the trader set from the pool's one-swap limit ("in:1.5" or "out:1.5"), so the note can say so.
   const [clampedAmount, setClampedAmount] = useState("");
   const [range, setRange] = useState<MarketRange>("7");
   // The pair bar, chart and recent swaps follow the selected pool (indexer data, as on the pool page).
@@ -242,15 +255,25 @@ export default function SwapPage() {
   const selectedTooThin = selectedLowReason === "dust_reserve" || selectedLowReason === "empty";
   // Price protection: a preset, or a custom percent from 0.01% to 5%.
   const slippageBps = slippageChoice === "custom" ? parseSlippagePercent(customSlippage) : Number(slippageChoice);
-  const amountCheck = checkAmount(amount, denomIn ? inputAsset.decimals : 6, inputAsset.symbol);
+  // Exact out only where QoreChain quotes it: constant-product pools (the server checks again).
+  const exactOutSupported = supportsExactOut(selectedPool);
+  // A pool without exact-out quotes always quotes from the pay side, even if it became the selection on its own.
+  const exactOut = fixedSide === "out" && exactOutSupported;
+  // The typed side: what the trader pays (exact in) or receives (exact out), in base units.
+  const amountCheck = exactOut
+    ? checkAmount(receiveAmount, denomOut ? outputAsset.decimals : 6, outputAsset.symbol)
+    : checkAmount(amount, denomIn ? inputAsset.decimals : 6, inputAsset.symbol);
   // Display decimals. Unknown output decimals block the swap below, so these only shape text.
   const inputDecimals = inputAsset.decimals ?? 0;
   const outputDecimals = outputAsset.decimals ?? 0;
   const decimalsKnown = inputAsset.decimals !== null && outputAsset.decimals !== null;
   const amountBase = amountCheck.base;
   const amountError = amountCheck.error;
+  const quoteParams = (base: string, bps: number): QuoteParams => exactOut
+    ? { poolId: selectedId, denomIn, amountOut: base, slippageBps: bps }
+    : { poolId: selectedId, denomIn, amountIn: base, slippageBps: bps };
   const currentKey = selectedPool && denomIn && amountCheck.base && slippageBps !== null
-    ? quoteKey({ poolId: selectedId, denomIn, amountIn: amountCheck.base, slippageBps })
+    ? quoteKey(quoteParams(amountCheck.base, slippageBps))
     : "";
   // A quote is used only for the exact inputs it was made for, so a switched
   // direction, pool, amount or protection never signs against an old minimum.
@@ -330,9 +353,12 @@ export default function SwapPage() {
 
       setQuoteState("loading");
       setQuoteError("");
-      const key = quoteKey({ poolId: selectedId, denomIn, amountIn: amountBase, slippageBps });
+      const params: QuoteParams = exactOut
+        ? { poolId: selectedId, denomIn, amountOut: amountBase, slippageBps }
+        : { poolId: selectedId, denomIn, amountIn: amountBase, slippageBps };
+      const key = quoteKey(params);
       try {
-        const data = await requestQuote({ poolId: selectedId, denomIn, amountIn: amountBase, slippageBps }, controller.signal);
+        const data = await requestQuote(params, controller.signal);
         setQuoteEntry({ key, data });
         setQuoteState("ready");
       } catch (error) {
@@ -347,7 +373,7 @@ export default function SwapPage() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [amountBase, amountError, denomIn, denomOut, selectedId, selectedPool, slippageBps, quoteVersion]);
+  }, [amountBase, amountError, denomIn, denomOut, exactOut, selectedId, selectedPool, slippageBps, quoteVersion]);
 
   // Keep the quote current while it is on screen, but not while the trader
   // reviews it or a transaction is running: the reviewed numbers stay put.
@@ -361,6 +387,7 @@ export default function SwapPage() {
   function selectPool(pool: RawPool) {
     setSelectedPoolId(poolId(pool));
     setReversed(false);
+    if (!supportsExactOut(pool)) setFixedSide("in");
     setReviewed(null);
     setReviewNotice("");
     // The list is below the swap card on phones, so bring the card back into view.
@@ -377,14 +404,45 @@ export default function SwapPage() {
     setReviewNotice("");
   }
 
+  /** Typing in one amount fixes that side; the other side is quoted. */
+  function typeAmount(side: FixedSide, next: string) {
+    editInputs(() => {
+      setFixedSide(side);
+      if (side === "in") setAmount(next);
+      else setReceiveAmount(next);
+      setClampedAmount("");
+    });
+  }
+
+  /**
+   * Switches the tokens. The typed number stays with its token, as on other
+   * DEXes: 10 QOR paid becomes 10 QOR received, and the other side is quoted.
+   * A pool without exact-out quotes keeps the number on the pay side.
+   */
+  function flipTokens() {
+    setFlipTurns((turns) => turns + 1);
+    editInputs(() => {
+      setReversed((current) => !current);
+      setClampedAmount("");
+      if (exactOut) {
+        setAmount(receiveAmount);
+        setFixedSide("in");
+      } else if (exactOutSupported) {
+        setReceiveAmount(amount);
+        setFixedSide("out");
+      }
+    });
+  }
+
   /**
    * Re-quotes at sign time. The swap is signed only if the fresh quote still
-   * guarantees at least the minimum the trader reviewed; otherwise the new
-   * numbers go back on screen for another review.
+   * guarantees at least the minimum the trader reviewed (exact in), or still
+   * delivers the same amount for no more than the reviewed maximum (exact
+   * out); otherwise the new numbers go back on screen for another review.
    */
   async function confirmSwap() {
     if (!reviewed || !reviewedQuote || !selectedPool || confirming || tx.busy || slippageBps === null || !amountCheck.base || !decimalsKnown || !networkReady || selectedTooThin) return;
-    const params = { poolId: selectedId, denomIn, amountIn: amountCheck.base, slippageBps };
+    const params = quoteParams(amountCheck.base, slippageBps);
     // The inputs must still be exactly the ones the trader reviewed.
     if (quoteKey(params) !== reviewed.key) {
       setReviewed(null);
@@ -401,6 +459,17 @@ export default function SwapPage() {
       return;
     }
     setQuoteEntry({ key: quoteKey(params), data: fresh });
+    if (exactOut) {
+      if (requoteExactOutDecision(reviewedQuote, fresh) === "review") {
+        setConfirming(false);
+        setReviewed(fresh.blocked || fresh.mode !== "exact_out" ? null : { key: reviewed.key, data: fresh });
+        setReviewNotice(fresh.blocked ? QUOTE_BLOCK_COPY[fresh.blocked] : "The price moved since you reviewed it. Check the new maximum, then confirm again.");
+        return;
+      }
+      setConfirming(false);
+      void tx.run({ kind: "swap", mode: "exact_out", poolId: selectedId, denomIn, amountIn: fresh.totalAmountIn, denomOut, amountOut: fresh.amountOut, maxIn: fresh.maxIn });
+      return;
+    }
     // Never sign with a minimum of nothing.
     if (!fresh.blocked && fresh.minOut === "0") {
       setConfirming(false);
@@ -420,24 +489,36 @@ export default function SwapPage() {
     void tx.run({ kind: "swap", poolId: selectedId, denomIn, amountIn: amountCheck.base, denomOut, minOut: fresh.minOut });
   }
 
-  // Unknown output decimals get their own state, so it never looks like a quote that is still loading.
+  // The quoted side. Unknown decimals get their own state, so it never looks like a quote that is still loading.
   // A non-zero amount never shows as 0 (formatVisibleAmount adds digits or shows "< 0.0…1").
-  const output = quote && outputAsset.decimals === null ? "Unknown" : quote ? formatVisibleAmount(quote.amountOut, outputDecimals, 6) : quoteState === "loading" ? "…" : "0.0";
+  const quotedAsset = exactOut ? inputAsset : outputAsset;
+  const quotedDenom = exactOut ? denomIn : denomOut;
+  const quotedAmount = quote ? exactOut ? quote.totalAmountIn : quote.amountOut : "";
+  const quotedText = quote && quotedAsset.decimals !== null ? formatVisibleAmount(quotedAmount, exactOut ? inputDecimals : outputDecimals, 6) : "";
+  const quotedPlaceholder = quote && quotedAsset.decimals === null ? "Unknown" : quoteState === "loading" ? "…" : "0.0";
+  const payText = exactOut ? quotedText : amount;
+  const receiveText = exactOut ? receiveAmount : quotedText;
   // Quote errors and review notices are fixed copy (ours or the route's); copy() names this deployment's network in them.
-  const outputHint = quoteState === "unavailable" ? copy(quoteError) : !selectedPool ? (hiddenPools > 0 ? "Pick a pool to get a quote." : copy("A quote appears once QoreChain Diana has a pool.")) : denomOut && outputAsset.decimals === null ? assetDecimalsUnknownCopy(outputAsset.symbol) : quote?.source === "estimate" ? copy("Estimated from pool reserves. The QoreChain Diana quote service did not answer.") : copy(`Quoted by QoreChain Diana in ${shortDenom(denomOut)}`);
-  const enoughBalance = balances && amountCheck.base ? coversSpend({ balances, spend: [{ denom: denomIn, amount: amountCheck.base }] }) : null;
+  const quotedHint = quoteState === "unavailable" ? copy(quoteError) : !selectedPool ? (hiddenPools > 0 ? "Pick a pool to get a quote." : copy("A quote appears once QoreChain Diana has a pool.")) : quotedDenom && quotedAsset.decimals === null ? assetDecimalsUnknownCopy(quotedAsset.symbol) : quote?.source === "estimate" ? copy("Estimated from pool reserves. The QoreChain Diana quote service did not answer.") : copy(`Quoted by QoreChain Diana in ${shortDenom(quotedDenom)}`);
+  // Exact out: the balance must cover the most the swap can take (interface fee plus maxIn).
+  const spendAmount = exactOut ? quote && !quote.blocked && quote.mode === "exact_out" ? quote.maxTotalIn : "" : amountCheck.base;
+  const enoughBalance = balances && spendAmount ? coversSpend({ balances, spend: [{ denom: denomIn, amount: spendAmount }] }) : null;
   // The shown impact leaves out the pool fee (its own row) and the rounding of a tiny output, which do not move the price.
   const impactHigh = quote?.curveImpactBps !== null && quote?.curveImpactBps !== undefined && quote.curveImpactBps >= IMPACT_WARN_BPS;
-  const maxHint = quote?.blocked === "impact" && quote.maxAmountIn && quote.maxAmountIn !== "0" ? quote.maxAmountIn : "";
-  const maxText = maxHint ? `${formatVisibleAmount(maxHint, inputDecimals, 6)} ${shortDenom(denomIn)}` : "";
+  // Over the impact cap: the largest amount on the typed side that fits (pay in, or receive out).
+  const maxLimit = quote?.blocked !== "impact" ? "" : quote.mode === "exact_out" ? quote.maxAmountOut ?? "" : quote.maxAmountIn ?? "";
+  const maxHint = maxLimit && maxLimit !== "0" ? maxLimit : "";
+  const maxDecimals = exactOut ? outputDecimals : inputDecimals;
+  const maxText = maxHint ? `${formatVisibleAmount(maxHint, maxDecimals, 6)} ${shortDenom(exactOut ? denomOut : denomIn)}` : "";
   // A blocked swap that the pool's one-swap limit explains says so plainly, with the largest amount it takes.
   const blockCopy = quote?.blocked === "impact" && maxText
-    ? `This pool is too small for that amount: the most you can swap here in one go is about ${maxText}.`
+    ? exactOut ? `This pool is too small for that amount: the most you can receive here in one go is about ${maxText}.` : `This pool is too small for that amount: the most you can swap here in one go is about ${maxText}.`
     : quote?.blocked ? copy(QUOTE_BLOCK_COPY[quote.blocked]) : "";
   const zeroOut = Boolean(quote && !quote.blocked && quote.minOut === "0");
-  const clamped = Boolean(clampedAmount) && amount === clampedAmount;
+  const clamped = Boolean(clampedAmount) && clampedAmount === `${fixedSide}:${exactOut ? receiveAmount : amount}`;
   const canReview = Boolean(networkReady && quote && !quote.blocked && !zeroOut && !selectedTooThin && enoughBalance !== false && decimalsKnown);
   const inputHint = `Enter ${shortDenom(denomIn || "uqor")}. Converted to the on-chain unit for you.`;
+  const receiveHint = `Enter ${shortDenom(denomOut || "uqor")}. You get exactly this amount, and what you pay is quoted.`;
   // The quote comes from the same server fee configuration that prepares the transaction.
   const feeSource = quote?.interfaceFee ?? (feeConfig && feeConfig !== "unknown" ? feeConfig : null);
   const feeLabel = feeSource ? (feeSource.enabled && feeSource.feeBps > 0 ? `${(feeSource.feeBps / 100).toFixed(2)}%` : "None") : feeConfig === "unknown" ? "Shown with the quote" : "Checking…";
@@ -551,20 +632,23 @@ export default function SwapPage() {
           <div className="panel-head"><span className="panel-title" id="quote-title">{nativeActions ? "Swap" : "Quote"}</span><span className="kicker">Native AMM</span></div>
           <div className="panel-body">
             <div className="quote-field">
-              <span className="quote-field-top"><span>You pay</span>{quickAmounts.length > 0 && <span className="quick-amounts" role="group" aria-label="Quick amounts">{quickAmounts.map((option) => <button type="button" key={option.label} aria-pressed={amount === option.value} disabled={tx.busy || confirming} onClick={() => editInputs(() => { setAmount(option.value); setClampedAmount(""); })}>{option.label}</button>)}</span>}</span>
-              <span className="quote-field-row"><input aria-label={`Amount in ${shortDenom(denomIn || "uqor")}`} className={amountSize(amount)} inputMode="decimal" value={amount} disabled={tx.busy || confirming} onChange={(event) => { const next = event.target.value; editInputs(() => { setAmount(next); setClampedAmount(""); }); }} /><span className="token-chip"><TokenIcon denom={denomIn || "uqor"} size="small" />{shortDenom(denomIn || "uqor")}</span></span>
-              <span className="quote-hint">{inputHint}</span>
+              <span className="quote-field-top"><span>You pay</span>{quickAmounts.length > 0 && <span className="quick-amounts" role="group" aria-label="Quick amounts">{quickAmounts.map((option) => <button type="button" key={option.label} aria-pressed={!exactOut && amount === option.value} disabled={tx.busy || confirming} onClick={() => typeAmount("in", option.value)}>{option.label}</button>)}</span>}</span>
+              <span className="quote-field-row"><input aria-label={`Amount to pay in ${shortDenom(denomIn || "uqor")}`} className={[exactOut && quoteState === "loading" ? "is-pending" : "", amountSize(payText || (exactOut ? quotedPlaceholder : "")) ?? ""].filter(Boolean).join(" ") || undefined} inputMode="decimal" placeholder={exactOut ? quotedPlaceholder : "0.0"} value={payText} disabled={tx.busy || confirming} onChange={(event) => typeAmount("in", event.target.value)} /><span className="token-chip"><TokenIcon denom={denomIn || "uqor"} size="small" />{shortDenom(denomIn || "uqor")}</span></span>
+              <span className={`quote-hint ${exactOut && quoteState === "unavailable" ? "is-error" : ""}`} aria-live="polite">{exactOut ? quotedHint : inputHint}</span>
               {walletAddress && enoughBalance === false && <>
-                <span className="quote-hint is-error">{denomIn === "uqor" ? "Not enough QOR for this amount plus the network fee." : `Not enough ${shortDenom(denomIn)} for this amount, or not enough QOR for the network fee.`}</span>
+                <span className="quote-hint is-error">{exactOut
+                  ? denomIn === "uqor" ? "Not enough QOR for the most this swap can cost plus the network fee." : `Not enough ${shortDenom(denomIn)} for the most this swap can cost, or not enough QOR for the network fee.`
+                  : denomIn === "uqor" ? "Not enough QOR for this amount plus the network fee." : `Not enough ${shortDenom(denomIn)} for this amount, or not enough QOR for the network fee.`}</span>
                 <FaucetHint />
               </>}
-              {clamped && <span className="quote-hint">Set to the most this pool takes in one swap. A bigger amount would move its price past the chain&apos;s limit.</span>}
+              {clamped && !exactOut && <span className="quote-hint">Set to the most this pool takes in one swap. A bigger amount would move its price past the chain&apos;s limit.</span>}
             </div>
-            <button type="button" className="quote-switch" aria-label="Switch tokens" disabled={!selectedPool || tx.busy || confirming} style={{ "--flip": `${flipTurns * 180}deg` } as CSSProperties} onClick={() => { setFlipTurns((turns) => turns + 1); editInputs(() => setReversed((current) => !current)); }}><ArrowDownUp size={18} aria-hidden="true" /></button>
+            <button type="button" className="quote-switch" aria-label="Switch tokens" disabled={!selectedPool || tx.busy || confirming} style={{ "--flip": `${flipTurns * 180}deg` } as CSSProperties} onClick={flipTokens}><ArrowDownUp size={18} aria-hidden="true" /></button>
             <div className="quote-field">
               <span className="quote-field-top"><span>You receive</span></span>
-              <span className="quote-field-row"><output aria-live="polite" title={output} className={[quoteState === "loading" ? "is-pending" : "", amountSize(output) ?? ""].filter(Boolean).join(" ") || undefined}>{output}</output>{denomOut ? <span className="token-chip"><TokenIcon denom={denomOut} size="small" />{shortDenom(denomOut)}</span> : <span className="token-chip subtle">Select a pool</span>}</span>
-              <span className={`quote-hint ${quoteState === "unavailable" ? "is-error" : ""}`}>{outputHint}</span>
+              <span className="quote-field-row"><input aria-label={`Amount to receive in ${shortDenom(denomOut || "uqor")}`} title={receiveText || undefined} className={[!exactOut && quoteState === "loading" ? "is-pending" : "", amountSize(receiveText || (exactOut ? "" : quotedPlaceholder)) ?? ""].filter(Boolean).join(" ") || undefined} inputMode="decimal" placeholder={exactOut ? "0.0" : quotedPlaceholder} value={receiveText} disabled={!denomOut || !exactOutSupported || tx.busy || confirming} onChange={(event) => typeAmount("out", event.target.value)} />{denomOut ? <span className="token-chip"><TokenIcon denom={denomOut} size="small" />{shortDenom(denomOut)}</span> : <span className="token-chip subtle">Select a pool</span>}</span>
+              <span className={`quote-hint ${!exactOut && quoteState === "unavailable" ? "is-error" : ""}`} aria-live="polite">{exactOut ? receiveHint : quotedHint}</span>
+              {clamped && exactOut && <span className="quote-hint">Set to the most this pool pays out in one swap. A bigger amount would move its price past the chain&apos;s limit.</span>}
             </div>
             {/* One notice slot under the amounts: a too-thin pool, a blocked quote (with the largest amount the pool takes), nothing to receive, or a high price impact. */}
             {selectedLow && <div className="quote-alert">
@@ -575,11 +659,13 @@ export default function SwapPage() {
                 ? blockCopy
                 : zeroOut ? QUOTE_ZERO_OUT_COPY
                 : <>This swap moves the pool price by {percent(quote?.curveImpactBps ?? 0)}. You get noticeably less than the current price.</>}</span></p>
-              {maxHint && <button type="button" className="btn btn-ghost btn-sm" disabled={tx.busy || confirming} onClick={() => { const next = formatBaseAmount(maxHint, inputDecimals, inputDecimals); editInputs(() => { setAmount(next); setClampedAmount(next); }); }}>Swap the most: {maxText}</button>}
+              {maxHint && <button type="button" className="btn btn-ghost btn-sm" disabled={tx.busy || confirming} onClick={() => { const next = formatBaseAmount(maxHint, maxDecimals, maxDecimals); typeAmount(fixedSide, next); setClampedAmount(`${fixedSide}:${next}`); }}>{exactOut ? "Receive the most" : "Swap the most"}: {maxText}</button>}
             </div>}
             <div className="quote-meta">
               <div className="quote-meta-row"><span>Price impact</span><b className={`num ${impactHigh ? "down" : ""}`}>{quote ? quote.curveImpactBps === null ? `Checked by ${networkLabel}` : quote.curveImpactBps === 0 ? "Under 0.01%" : percent(quote.curveImpactBps) : "Not available"}</b></div>
-              <div className="quote-meta-row"><span>Minimum received</span><b className="num">{quote && !quote.blocked && outputAsset.decimals !== null ? `${formatVisibleAmount(quote.minOut, outputDecimals, 6)} ${shortDenom(denomOut)}` : "Not available"}</b></div>
+              {exactOut
+                ? <div className="quote-meta-row"><span>Maximum you pay</span><b className="num">{quote && !quote.blocked && quote.mode === "exact_out" && inputAsset.decimals !== null ? `${formatVisibleAmount(quote.maxTotalIn, inputDecimals, 6)} ${shortDenom(denomIn)}` : "Not available"}</b></div>
+                : <div className="quote-meta-row"><span>Minimum received</span><b className="num">{quote && !quote.blocked && outputAsset.decimals !== null ? `${formatVisibleAmount(quote.minOut, outputDecimals, 6)} ${shortDenom(denomOut)}` : "Not available"}</b></div>}
               <div className="quote-meta-row"><span>Pool fee</span><b className="num">{quote ? `${formatVisibleAmount(quote.nativeAmmFee, inputDecimals, 6)} ${shortDenom(denomIn)}` : "Not available"}</b></div>
               <div className="quote-meta-row"><Link className="fee-link" href="/fees">Interface fee</Link><b>{feeLabel}</b></div>
               <div className="quote-meta-row"><label htmlFor="slippage">Price protection</label><select id="slippage" value={slippageChoice} disabled={tx.busy || confirming} onChange={(event) => { const next = event.target.value; editInputs(() => setSlippageChoice(next)); }}>{SLIPPAGE_PRESETS_BPS.map((value) => <option key={value} value={String(value)}>{percent(value)}</option>)}<option value="custom">Custom</option></select></div>
@@ -592,7 +678,9 @@ export default function SwapPage() {
                 ? <TxProgress state={tx.state} onDone={() => { tx.reset(); setReviewed(null); setReviewNotice(""); }} />
                 : reviewedQuote
                   ? <div className="review">
-                    <p className="review-line">You pay <b>{formatVisibleAmount(reviewedQuote.totalAmountIn, inputDecimals, 6)} {shortDenom(denomIn)}</b> and receive at least <b>{formatVisibleAmount(reviewedQuote.minOut, outputDecimals, 6)} {shortDenom(denomOut)}</b>.{reviewedQuote.interfaceFee.enabled && reviewedQuote.interfaceFee.amount !== "0" && <> This includes a <b>{formatVisibleAmount(reviewedQuote.interfaceFee.amount, inputDecimals, 6)} {shortDenom(denomIn)}</b> interface fee.</>}</p>
+                    {reviewedQuote.mode === "exact_out"
+                      ? <p className="review-line">You receive exactly <b>{formatVisibleAmount(reviewedQuote.amountOut, outputDecimals, 6)} {shortDenom(denomOut)}</b> and pay about <b>{formatVisibleAmount(reviewedQuote.totalAmountIn, inputDecimals, 6)} {shortDenom(denomIn)}</b>, never more than <b>{formatVisibleAmount(reviewedQuote.maxTotalIn, inputDecimals, 6)} {shortDenom(denomIn)}</b>.{reviewedQuote.interfaceFee.enabled && reviewedQuote.interfaceFee.amount !== "0" && <> This includes a <b>{formatVisibleAmount(reviewedQuote.interfaceFee.amount, inputDecimals, 6)} {shortDenom(denomIn)}</b> interface fee.</>}</p>
+                      : <p className="review-line">You pay <b>{formatVisibleAmount(reviewedQuote.totalAmountIn, inputDecimals, 6)} {shortDenom(denomIn)}</b> and receive at least <b>{formatVisibleAmount(reviewedQuote.minOut, outputDecimals, 6)} {shortDenom(denomOut)}</b>.{reviewedQuote.interfaceFee.enabled && reviewedQuote.interfaceFee.amount !== "0" && <> This includes a <b>{formatVisibleAmount(reviewedQuote.interfaceFee.amount, inputDecimals, 6)} {shortDenom(denomIn)}</b> interface fee.</>}</p>}
                     {reviewNotice && <p className="quote-hint is-error" role="alert">{copy(reviewNotice)}</p>}
                     <div className="review-actions">
                       <button type="button" className="btn btn-ghost btn-lg" disabled={confirming} onClick={() => { setReviewed(null); setReviewNotice(""); }}>Edit</button>

@@ -30,7 +30,11 @@ export const QUOTE_FAILURE_COPY = {
   pool_paused: "This pool is paused right now.",
   invalid: "QoreChain Diana could not quote this swap. Check the amount.",
   unavailable: "The QoreChain Diana quote service is temporarily unavailable.",
+  exact_out_unsupported: "This pool cannot quote a fixed receive amount. Enter what you pay instead.",
 } as const;
+
+/** An exact-out amount the pool cannot pay out at all (at or above its whole reserve). */
+export const EXACT_OUT_TOO_LARGE_COPY = "The pool does not hold that much to pay out. Enter a smaller amount to receive.";
 
 /** Why a quote that was produced cannot be signed. */
 export const QUOTE_BLOCK_COPY = {
@@ -107,6 +111,7 @@ export const PREPARE_GUARD_COPY = {
   quote_unavailable: "QoreChain Diana's quote service is not answering, so this swap is on hold. Try again shortly.",
   wrong_network: "Qwakk is connected to the wrong QoreChain network, so wallet actions are paused. Try again later.",
   unreachable: "QoreChain Diana could not be reached. Try again shortly.",
+  exact_out_unsupported: "This pool cannot quote a fixed receive amount. Enter what you pay instead.",
 } as const;
 
 export type PrepareGuardKey = keyof typeof PREPARE_GUARD_COPY;

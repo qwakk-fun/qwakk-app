@@ -11,7 +11,9 @@
  *      back through the keeper's `amm_swap`, `amm_liquidity_added` and
  *      `amm_liquidity_removed` events.
  *   3. The interface fee MsgSend and MsgSwapExactIn together in one
- *      transaction, as Qwakk sends them.
+ *      transaction, as Qwakk sends them. The same for exact-out swaps:
+ *      QoreChain's `QuoteExactOut` against local math, then the fee MsgSend
+ *      and MsgSwapExactOut in one transaction, and that `maxIn` is enforced.
  *   4. That minOut, minLpOut and the withdrawal minimums are enforced, the
  *      5% impact cap, and duplicate pool detection.
  *
@@ -27,6 +29,8 @@
  *                          past the bank step. Checks it cannot fund are SKIP.
  *   --amount-in <base>     Swap input per direction, in base units (default:
  *                          0.5% of the input reserve, capped at half the balance).
+ *   --amount-out <base>    Exact-out output per direction, in base units
+ *                          (default: 0.25% of the output reserve).
  *   --fee-bps <n>          Interface fee to model, 0 to 30 (default: 10).
  *   --treasury <qor1...>   Fee recipient (default: QWAKK_TREASURY_ADDRESS, else
  *                          the address itself, which simulates the same shape).
@@ -39,8 +43,8 @@
 import { amm, qorechainRegistry, type EncodeObject } from "@qorechain/sdk";
 
 import { QORECHAIN_REST_URL } from "../lib/qorechain-endpoints";
-import { readAmmParams, readAmmPool, readAmmPoolByDenoms, readBalances, readLpBalance, readQuoteExactIn, type AmmPool } from "../lib/qwakk-amm-chain";
-import { ceilDiv, constantProductOut, maxSwapInForImpact, priceImpactBps } from "../lib/qwakk-amm-math";
+import { readAmmParams, readAmmPool, readAmmPoolByDenoms, readBalances, readLpBalance, readQuoteExactIn, readQuoteExactOut, type AmmPool } from "../lib/qwakk-amm-chain";
+import { ceilDiv, constantProductIn, constantProductOut, maxSwapInForImpact, priceImpactBps } from "../lib/qwakk-amm-math";
 import { applySlippage, expectedLpForDeposit, expectedWithdrawal, matchingDeposit } from "../lib/qwakk-liquidity-math";
 import { encodedMessagesForAction } from "../lib/qwakk-native-actions";
 import {
@@ -55,7 +59,7 @@ import {
   simulatedOutcome,
   type ChainEvent,
 } from "../lib/qwakk-native-tx";
-import { buildExactInQuoteRequest, buildSwapQuote } from "../lib/qwakk-quote";
+import { buildExactInQuoteRequest, buildExactOutQuoteRequest, buildExactOutSwapQuote, buildSwapQuote } from "../lib/qwakk-quote";
 import { MAX_QWAKK_INTERFACE_FEE_BPS } from "../lib/qwakk-swap-route";
 
 type Status = "PASS" | "WARN" | "FAIL" | "SKIP" | "INFO";
@@ -181,6 +185,75 @@ async function checkSwapDirection(pool: AmmPool, address: string, balances: Map<
   const feeOk = sent?.get("recipient") === fee.recipient && sent?.get("amount") === `${request.interfaceFee}${denomIn}`;
   const combinedOut = simulatedOutcome(combined.events).swap?.amountOut;
   record(`swap ${label}: fee MsgSend + swap in one tx`, feeOk && combinedOut === outcome.swap.amountOut ? "PASS" : "FAIL", `fee transfer ${sent?.get("amount") ?? "missing"} to ${sent?.get("recipient") ?? "?"}, swap out ${combinedOut ?? "missing"}`);
+}
+
+/**
+ * Exact out: QoreChain's QuoteExactOut against local x*y=k math, then keyless
+ * simulations of MsgSwapExactOut alone, with `maxIn` one unit short, and with
+ * the interface fee MsgSend in one transaction exactly as the prepare route
+ * builds it.
+ */
+async function checkExactOutDirection(pool: AmmPool, address: string, forward: boolean, fee: { enabled: true; recipient: string; feeBps: number }, amountArg: string | undefined) {
+  const params = await readAmmParams();
+  if (pool.poolType !== "constant_product") {
+    record("exact out", "SKIP", `${pool.poolType} pools have no exact-out quote`);
+    return;
+  }
+  const denomIn = forward ? pool.tokenA : pool.tokenB;
+  const denomOut = forward ? pool.tokenB : pool.tokenA;
+  const reserveIn = BigInt(forward ? pool.reserveA : pool.reserveB);
+  const reserveOut = BigInt(forward ? pool.reserveB : pool.reserveA);
+  const label = `exact out ${denomIn}->${denomOut}`;
+  let amountOut = amountArg ? BigInt(amountArg) : reserveOut / BigInt(400);
+  if (amountOut <= BigInt(0)) amountOut = BigInt(1);
+
+  const request = buildExactOutQuoteRequest({ poolId: pool.id, denomIn, amountOut: amountOut.toString(), slippageBps: 50, fee });
+  const chain = await readQuoteExactOut(pool.id, denomOut, request.amountOut);
+  if (!chain.ok) {
+    record(`${label}: QuoteExactOut`, "FAIL", `quote refused (${chain.failure})`);
+    return;
+  }
+  const local = constantProductIn(amountOut, reserveIn, reserveOut, params.swapFeeBps);
+  record(`${label}: QuoteExactOut vs local x*y=k`, local ? diffStatus(BigInt(chain.amountIn), BigInt(local.amountIn)) : "FAIL", `out ${amountOut}: chain in ${chain.amountIn} fee ${chain.fee}, local in ${local?.amountIn ?? "none"} fee ${local?.fee ?? "none"}`);
+  const quote = buildExactOutSwapQuote({ request, pool, params, chain });
+  record(`${label}: Qwakk quote`, quote.blocked ? "WARN" : "PASS", `total ${quote.totalAmountIn} (interface fee ${quote.interfaceFee.amount}, AMM ${quote.swapAmountIn}), maxIn ${quote.maxIn}, most paid ${quote.maxTotalIn} at 0.50%${quote.blocked ? `, blocked: ${quote.blocked}` : ""}`);
+  if (quote.blocked) return;
+  const backIn = await readQuoteExactIn(pool.id, denomIn, quote.swapAmountIn);
+  record(`${label}: QuoteExactIn of the quoted input`, backIn.ok && BigInt(backIn.amountOut) >= amountOut ? "PASS" : "FAIL", backIn.ok ? `exact in ${quote.swapAmountIn} gives ${backIn.amountOut}, wanted ${amountOut}` : `refused (${backIn.failure})`);
+
+  const swapOut = (maxIn: string) => amm.swapExactOut({ sender: address, poolId: pool.id, denomIn, tokenOut: { denom: denomOut, amount: amountOut.toString() }, maxIn });
+  const alone = await simulate([swapOut(quote.maxIn)]);
+  if (lacksFunds(alone)) {
+    record(`${label}: simulate`, "SKIP", `the address does not hold ${quote.maxIn} ${denomIn}`);
+    return;
+  }
+  if (!alone.ok) {
+    record(`${label}: simulate`, "FAIL", short(alone.message));
+    return;
+  }
+  gasNote(label, alone);
+  const outcome = simulatedOutcome(alone.events).swap;
+  record(`${label}: amm_swap event`, outcome && outcome.amountOut === amountOut.toString() && outcome.amountIn === chain.amountIn && outcome.denomIn === denomIn && outcome.denomOut === denomOut ? "PASS" : "FAIL", outcome ? `event in ${outcome.amountIn} ${outcome.denomIn}, out ${outcome.amountOut} ${outcome.denomOut}; quote in ${chain.amountIn}` : "no readable amm_swap event");
+
+  const short1 = await simulate([swapOut((BigInt(chain.amountIn) - BigInt(1)).toString())]);
+  const shortReason = short1.ok ? "accepted" : classifySimulationError(short1.message);
+  record(`${label}: maxIn enforced`, shortReason === "price_moved" ? "PASS" : short1.ok ? "FAIL" : "WARN", short1.ok ? "a maxIn 1 below the input was accepted" : `maxIn - 1 refused as ${shortReason}: ${short(short1.message, 70)}`);
+
+  const combined = await simulate(encodedMessagesForActionAsEncodeObjects(address, { kind: "swap", mode: "exact_out", poolId: pool.id, denomIn, amountIn: quote.totalAmountIn, denomOut, amountOut: amountOut.toString(), maxIn: quote.maxIn }, fee));
+  if (lacksFunds(combined)) {
+    record(`${label}: fee MsgSend + MsgSwapExactOut in one tx`, "SKIP", `the address does not hold ${quote.maxTotalIn} ${denomIn}`);
+    return;
+  }
+  if (!combined.ok) {
+    record(`${label}: fee MsgSend + MsgSwapExactOut in one tx`, "FAIL", short(combined.message));
+    return;
+  }
+  gasNote(`fee + ${label}`, combined);
+  const transfer = combined.events.find((candidate) => candidate.type === "transfer" && candidate.attributes.some((attribute) => attribute.key === "msg_index" && attribute.value === "0"));
+  const sent = transfer ? new Map(transfer.attributes.map((attribute) => [attribute.key, attribute.value])) : null;
+  const feeOk = quote.interfaceFee.amount === "0" ? !transfer : sent?.get("recipient") === fee.recipient && sent?.get("amount") === `${quote.interfaceFee.amount}${denomIn}`;
+  const combinedSwap = simulatedOutcome(combined.events).swap;
+  record(`${label}: fee MsgSend + MsgSwapExactOut in one tx`, feeOk && combinedSwap?.amountOut === amountOut.toString() ? "PASS" : "FAIL", `fee transfer ${sent?.get("amount") ?? "none"} to ${sent?.get("recipient") ?? "?"}, swap in ${combinedSwap?.amountIn ?? "missing"} out ${combinedSwap?.amountOut ?? "missing"}`);
 }
 
 const registry = qorechainRegistry();
@@ -340,6 +413,8 @@ async function main() {
   if (!address || !/^qor1[0-9a-z]{20,}$/i.test(address)) throw new Error("--address <qor1...> is required");
   const amountArg = argument("--amount-in");
   if (amountArg && !/^\d+$/.test(amountArg)) throw new Error("--amount-in must be base units");
+  const amountOutArg = argument("--amount-out");
+  if (amountOutArg && !/^\d+$/.test(amountOutArg)) throw new Error("--amount-out must be base units");
   const feeBps = Number(argument("--fee-bps") ?? "10");
   if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_QWAKK_INTERFACE_FEE_BPS) throw new Error(`--fee-bps must be 0 to ${MAX_QWAKK_INTERFACE_FEE_BPS}`);
   const treasury = argument("--treasury") ?? process.env.QWAKK_TREASURY_ADDRESS?.trim() ?? address;
@@ -364,6 +439,8 @@ async function main() {
   const fee = { enabled: true as const, recipient: treasury, feeBps };
   await checkSwapDirection(pool, address, balances, true, fee, amountArg);
   await checkSwapDirection(pool, address, balances, false, fee, amountArg);
+  await checkExactOutDirection(pool, address, true, fee, amountOutArg);
+  await checkExactOutDirection(pool, address, false, fee, amountOutArg);
   await checkImpactCap(pool, address);
   await checkLiquidity(pool, address, balances, lpBalance);
   await checkDuplicatePool(pool, address);

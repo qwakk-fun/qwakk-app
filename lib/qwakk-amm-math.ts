@@ -77,6 +77,27 @@ export function constantProductOut(amountIn: string | bigint, reserveIn: string 
 }
 
 /**
+ * Exact-out input of an x*y=k pool: the smallest input that pays out exactly
+ * `amountOut`, with the swap fee taken from the input.
+ * `inAfterFee = ceil(reserveIn * out / (reserveOut - out))`,
+ * `amountIn = ceil(inAfterFee * 10000 / (10000 - swapFeeBps))`,
+ * `fee = amountIn - inAfterFee`. This reproduces QoreChain Diana's own
+ * `QuoteExactOut` to the unit (pool 2, 2026-11-19: 10 fUSD out quoted
+ * 230624132 uqor in with fee 691873; 10 QOR out quoted 446588 fUSD base units
+ * in with fee 1340). Null when the pool cannot pay out that much.
+ */
+export function constantProductIn(amountOut: string | bigint, reserveIn: string | bigint, reserveOut: string | bigint, swapFeeBps: number): { amountIn: string; fee: string } | null {
+  const output = int(amountOut, "Amount out");
+  const rIn = int(reserveIn, "Reserve in");
+  const rOut = int(reserveOut, "Reserve out");
+  const feeBps = bps(swapFeeBps, "Swap fee");
+  if (output === ZERO || rIn === ZERO || output >= rOut || feeBps === BPS) return null;
+  const inAfterFee = ceilDiv(rIn * output, rOut - output);
+  const amountIn = ceilDiv(inAfterFee * BPS, BPS - feeBps);
+  return { amountIn: amountIn.toString(), fee: (amountIn - inAfterFee).toString() };
+}
+
+/**
  * Price impact in bps: how much worse the effective price `out / in` is than
  * the pre-swap mid price `reserveOut / reserveIn`, rounded up. The swap fee is
  * part of the effective price, so this is never lower than the chain's own
@@ -150,6 +171,25 @@ export function maxTotalForSwapIn(maxSwapIn: bigint, feeBps: number) {
   const fee = bps(feeBps, "Interface fee");
   let total = (maxSwapIn * BPS) / (BPS - fee);
   while (total > ZERO && total - interfaceFeeFor(total, feeBps) > maxSwapIn) total -= ONE;
+  return total;
+}
+
+/**
+ * The smallest total input whose swap leg (total minus the rounded-down
+ * interface fee) is exactly `swapIn`. Used for exact-out swaps, so the
+ * interface fee is the same one an exact-in swap of that total would pay:
+ * `total - interfaceFeeFor(total, feeBps) === swapIn`. That total always
+ * exists, because the swap leg grows by 0 or 1 per unit of total.
+ */
+export function totalForSwapIn(swapIn: string | bigint, feeBps: number) {
+  const target = int(swapIn, "Swap amount");
+  const fee = bps(feeBps, "Interface fee");
+  if (target === ZERO) return ZERO;
+  if (fee === BPS) throw new Error("Interface fee must be below 10000 bps");
+  const leg = (total: bigint) => total - interfaceFeeFor(total, feeBps);
+  let total = ceilDiv(target * BPS, BPS - fee);
+  while (leg(total) < target) total += ONE;
+  while (total > ONE && leg(total - ONE) >= target) total -= ONE;
   return total;
 }
 

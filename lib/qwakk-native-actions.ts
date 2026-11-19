@@ -7,10 +7,24 @@ import type { ServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
 import { buildLiquidityRoute } from "@/lib/qwakk-liquidity-route";
 import { encodeAsAny, isAllowedMessageSet } from "@/lib/qwakk-native-tx";
 import { buildCreatePoolPlan } from "@/lib/qwakk-pool-route";
-import { buildQwakkSwapRoute } from "@/lib/qwakk-swap-route";
+import { buildQwakkExactOutSwapRoute, buildQwakkSwapRoute } from "@/lib/qwakk-swap-route";
+
+/** Exact in: the trader fixes what they pay (`amountIn`, interface fee included) and is protected by `minOut`. */
+export type ExactInSwapAction = { kind: "swap"; mode?: "exact_in"; poolId: string; denomIn: string; amountIn: string; denomOut: string; minOut: string };
+/**
+ * Exact out: the trader fixes what they receive (`amountOut`). `amountIn` is
+ * the quoted total, interface fee included, and `maxIn` the most the AMM leg
+ * may take (MsgSwapExactOut `max_in`).
+ */
+export type ExactOutSwapAction = { kind: "swap"; mode: "exact_out"; poolId: string; denomIn: string; amountIn: string; denomOut: string; amountOut: string; maxIn: string };
+export type SwapAction = ExactInSwapAction | ExactOutSwapAction;
+
+export function isExactOutSwap(action: NativeAction): action is ExactOutSwapAction {
+  return action.kind === "swap" && action.mode === "exact_out";
+}
 
 export type NativeAction =
-  | { kind: "swap"; poolId: string; denomIn: string; amountIn: string; denomOut: string; minOut: string }
+  | SwapAction
   | { kind: "create_pool"; poolType: "constant_product" | "stable_swap"; denomA: string; amountA: string; denomB: string; amountB: string; amplificationCoefficient?: number }
   | { kind: "add_liquidity"; poolId: string; denomA: string; amountA: string; denomB: string; amountB: string; minLpOut: string }
   | { kind: "remove_liquidity"; poolId: string; lpAmount: string; minAmountA: string; minAmountB: string };
@@ -26,6 +40,9 @@ export function parseNativeAction(value: unknown): NativeAction {
   const input = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
   switch (input.kind) {
     case "swap":
+      if (input.mode === "exact_out") {
+        return { kind: "swap", mode: "exact_out", poolId: text(input.poolId), denomIn: text(input.denomIn), amountIn: text(input.amountIn), denomOut: text(input.denomOut), amountOut: text(input.amountOut), maxIn: text(input.maxIn) };
+      }
       return { kind: "swap", poolId: text(input.poolId), denomIn: text(input.denomIn), amountIn: text(input.amountIn), denomOut: text(input.denomOut), minOut: text(input.minOut) };
     case "create_pool":
       return {
@@ -47,6 +64,30 @@ export function parseNativeAction(value: unknown): NativeAction {
 }
 
 /**
+ * Server-side check of an exact-out swap against QoreChain's own
+ * QuoteExactOut `amount_in` for the same output, run by the prepare route
+ * before anything is built. The interface fee is taken from the client's
+ * quoted total, so the swap leg that total implies (total minus the fee the
+ * server recomputes) must cover the chain's input. Otherwise a client could
+ * send a smaller total with a padded `maxIn` and let the AMM take the rest,
+ * paying a smaller fee than an exact-in swap of the same size.
+ *
+ * No tolerance: an honest client re-quotes right before it asks to prepare.
+ * If the price moved against it in between, the trader is asked to review
+ * the new quote ("price_moved"), which is also what the chain itself does
+ * once the input passes `maxIn`.
+ *
+ * "ok" also covers input the builder will reject with its own message.
+ */
+export function exactOutQuoteCheck(action: ExactOutSwapAction, fee: ServerQwakkFeeConfig, chainAmountIn: string): "ok" | "price_moved" {
+  if (!/^\d+$/.test(action.amountIn) || !/^\d+$/.test(chainAmountIn)) return "ok";
+  const feeBps = fee.enabled ? fee.feeBps : 0;
+  const total = BigInt(action.amountIn);
+  const swapLeg = total - (total * BigInt(feeBps)) / BigInt(10_000);
+  return swapLeg >= BigInt(chainAmountIn) ? "ok" : "price_moved";
+}
+
+/**
  * Turns an action into native messages for the sender to sign. A swap carries
  * Qwakk's disclosed interface fee as a separate transfer only when a treasury is
  * configured; the quote route splits the input the same way.
@@ -54,6 +95,18 @@ export function parseNativeAction(value: unknown): NativeAction {
 export function messagesForAction(sender: string, action: NativeAction, fee: ServerQwakkFeeConfig): EncodeObject[] {
   switch (action.kind) {
     case "swap":
+      if (action.mode === "exact_out") {
+        return buildQwakkExactOutSwapRoute({
+          sender,
+          poolId: action.poolId,
+          denomIn: action.denomIn,
+          amountIn: action.amountIn,
+          denomOut: action.denomOut,
+          amountOut: action.amountOut,
+          maxIn: action.maxIn,
+          fee: fee.enabled ? { recipient: fee.recipient, feeBps: fee.feeBps } : null,
+        }).messages;
+      }
       if (fee.enabled) {
         return buildQwakkSwapRoute({ sender, ...action, fee: { recipient: fee.recipient, feeBps: fee.feeBps } }).messages;
       }

@@ -1,9 +1,9 @@
 import { nativeActionAllowed, nativeActionsEnabled } from "@/lib/features";
-import { readAmmParams, readAmmPool, readAmmPoolByDenoms, readBalances, readQuoteExactIn, type ChainQuote } from "@/lib/qwakk-amm-chain";
+import { readAmmParams, readAmmPool, readAmmPoolByDenoms, readBalances, readQuoteExactIn, readQuoteExactOut, type ChainExactOutQuote, type ChainQuote } from "@/lib/qwakk-amm-chain";
 import { checkChainId } from "@/lib/qwakk-chain-guard";
 import { getServerQwakkFeeConfig, type ServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
 import { alignDepositToPool } from "@/lib/qwakk-liquidity-route";
-import { encodedMessagesForAction, interfaceFeeInMessages, parseNativeAction, type NativeAction } from "@/lib/qwakk-native-actions";
+import { encodedMessagesForAction, exactOutQuoteCheck, interfaceFeeInMessages, parseNativeAction, type NativeAction } from "@/lib/qwakk-native-actions";
 import { isBlocked, nativeBlocklist } from "@/lib/qwakk-native-guards";
 import { prepareWalletTx, type SimulationFailure } from "@/lib/qwakk-native-tx";
 import { getQwakkNetwork, requiresChainQuote } from "@/lib/qwakk-network";
@@ -11,7 +11,7 @@ import { createPoolPrecheck } from "@/lib/qwakk-pool-route";
 import { buildExactInQuoteRequest } from "@/lib/qwakk-quote";
 import { PREPARE_GUARD_COPY, SIMULATION_FAILURE_COPY, networkCopy, type PrepareGuardKey } from "@/lib/qwakk-tx-copy";
 
-type PrecheckFailure = SimulationFailure | Extract<PrepareGuardKey, "blocked" | "quote_unavailable">;
+type PrecheckFailure = SimulationFailure | Extract<PrepareGuardKey, "blocked" | "quote_unavailable" | "exact_out_unsupported">;
 
 function json(body: unknown, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -25,6 +25,7 @@ function refused(failure: PrecheckFailure) {
   if (failure === "blocked" || failure === "quote_unavailable") {
     return json({ error: copy(PREPARE_GUARD_COPY[failure]), failure }, failure === "blocked" ? 403 : 503);
   }
+  if (failure === "exact_out_unsupported") return json({ error: copy(PREPARE_GUARD_COPY[failure]), failure }, 422);
   return json({ error: copy(SIMULATION_FAILURE_COPY[failure]), failure }, 422);
 }
 
@@ -33,11 +34,11 @@ function guard(key: Extract<PrepareGuardKey, "action_disabled" | "wrong_network"
 }
 
 /**
- * On mainnet a swap is prepared only when QoreChain's own QuoteExactIn answers
- * for the amount that reaches the AMM; Qwakk's local x*y=k estimate is never
+ * On mainnet a swap is prepared only when QoreChain's own QuoteExactIn (or
+ * QuoteExactOut for an exact-out swap) answers for the amount at the AMM; Qwakk's local x*y=k estimate is never
  * enough to sign against there. Chain refusals map to the matching copy.
  */
-function chainQuoteFailure(quote: ChainQuote): PrecheckFailure | null {
+function chainQuoteFailure(quote: ChainQuote | ChainExactOutQuote): PrecheckFailure | null {
   if (quote.ok) return null;
   switch (quote.failure) {
     case "pool_not_found": return "pool_not_found";
@@ -75,7 +76,19 @@ async function precheck(action: NativeAction, fee: ServerQwakkFeeConfig): Promis
   if (action.kind === "swap") {
     const pair = (action.denomIn === pool.tokenA && action.denomOut === pool.tokenB) || (action.denomIn === pool.tokenB && action.denomOut === pool.tokenA);
     if (!pair) return { failure: "pool_not_found" };
-    if (requiresChainQuote(getQwakkNetwork())) {
+    if (action.mode === "exact_out") {
+      // QoreChain quotes exact out only on constant-product pools.
+      if (pool.poolType !== "constant_product") return { failure: "exact_out_unsupported" };
+      // Input the builder rejects is rejected again, with a 400, below.
+      if (!/^\d+$/.test(action.amountOut) || BigInt(action.amountOut) <= BigInt(0)) return { action };
+      // On every network: the interface fee is set from the client's quoted
+      // total, so the chain's own QuoteExactOut must back that total. Without
+      // it the fee basis cannot be checked, so the swap waits.
+      const chainQuote = await readQuoteExactOut(action.poolId, action.denomOut, action.amountOut);
+      if (!chainQuote.ok) return { failure: chainQuoteFailure(chainQuote) ?? "quote_unavailable" };
+      const checked = exactOutQuoteCheck(action, fee, chainQuote.amountIn);
+      if (checked !== "ok") return { failure: checked };
+    } else if (requiresChainQuote(getQwakkNetwork())) {
       // The same split the quote route and the swap builder use. Input the split
       // rejects is rejected again, with a 400, by the swap builder below.
       let request;
@@ -111,7 +124,8 @@ async function precheck(action: NativeAction, fee: ServerQwakkFeeConfig): Promis
  * sender and the interface fee taken from server configuration (capped at
  * 30 bps). Before that the route checks the action's own switch, the live
  * chain id of the configured endpoints and the operator blocklist; on mainnet
- * a swap also needs QoreChain's own quote. They are checked against the live
+ * a swap also needs QoreChain's own quote, and an exact-out swap needs it on
+ * every network, so its fee basis matches the chain. They are checked against the live
  * pool and AMM params, simulated against the configured network (QoreChain
  * Diana by default) so a failing action is explained before the wallet
  * opens, and checked against the wallet's balance including the network fee

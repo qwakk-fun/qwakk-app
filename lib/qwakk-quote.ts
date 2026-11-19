@@ -1,5 +1,5 @@
-import type { AmmParams, AmmPool, ChainQuote, QuoteFailure } from "@/lib/qwakk-amm-chain";
-import { constantProductOut, curveImpactBps, maxSwapInForImpact, maxTotalForSwapIn, priceImpactBps } from "@/lib/qwakk-amm-math";
+import type { AmmParams, AmmPool, ChainExactOutQuote, ChainQuote, QuoteFailure } from "@/lib/qwakk-amm-chain";
+import { constantProductIn, constantProductOut, curveImpactBps, maxSwapInForImpact, maxTotalForSwapIn, priceImpactBps, totalForSwapIn } from "@/lib/qwakk-amm-math";
 import type { ServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
 
 /** 0.50%: the default price protection for a swap. */
@@ -104,16 +104,31 @@ export function parseSlippagePercent(text: string): number | null {
 
 export type QuoteBlock = "impact" | "paused" | "disabled" | "too_small";
 
+/** Which side the trader typed: "exact_in" fixes what they pay, "exact_out" fixes what they receive. */
+export type SwapMode = "exact_in" | "exact_out";
+
 export type SwapQuote = {
+  mode: SwapMode;
   poolId: string;
   poolType: string;
   denomIn: string;
   denomOut: string;
+  /** Quoted total input, interface fee included. Exact out: what the trader pays at the quoted price. */
   totalAmountIn: string;
+  /** The part of the total that reaches the AMM. */
   swapAmountIn: string;
+  /** Exact out: the amount the trader typed, received exactly. */
   amountOut: string;
-  /** "0" when the quote is blocked. A blocked quote can never be signed. */
+  /** "0" when the quote is blocked. A blocked quote can never be signed. Exact out: the typed output. */
   minOut: string;
+  /**
+   * Price protection on the AMM leg: exact in, the swap leg itself; exact out,
+   * MsgSwapExactOut's `maxIn` (the quoted swap leg plus the slippage setting,
+   * rounded up). "0" when blocked.
+   */
+  maxIn: string;
+  /** The most the trader can pay: interface fee plus `maxIn`. "0" when blocked. */
+  maxTotalIn: string;
   nativeAmmFee: string;
   slippageBps: number;
   interfaceFee: { enabled: boolean; amount: string; denom: string; feeBps: number };
@@ -127,15 +142,17 @@ export type SwapQuote = {
   maxImpactBps: number;
   /** Largest total input that stays within the impact cap, in base units of denomIn. Null when unknown or uncapped. */
   maxAmountIn: string | null;
+  /** Exact out: the largest output that stays within the impact cap, in base units of denomOut. Null otherwise. */
+  maxAmountOut: string | null;
   blocked: QuoteBlock | null;
-  /** "chain" is QoreChain's QuoteExactIn. "estimate" is local x*y=k math, used only if the quote service is down. */
+  /** "chain" is QoreChain's QuoteExactIn (QuoteExactOut for exact out). "estimate" is local x*y=k math, used only if the quote service is down. */
   source: "chain" | "estimate";
   reserveIn: string;
   reserveOut: string;
 };
 
 export class QuoteError extends Error {
-  constructor(readonly failure: QuoteFailure | "pair") {
+  constructor(readonly failure: QuoteFailure | "pair" | "exact_out_unsupported") {
     super(failure);
   }
 }
@@ -197,6 +214,7 @@ export function buildSwapQuote(input: { request: ExactInQuoteRequest; pool: AmmP
           : null;
 
   return {
+    mode: "exact_in",
     poolId: request.poolId,
     poolType: pool.poolType,
     denomIn: request.denomIn,
@@ -205,6 +223,8 @@ export function buildSwapQuote(input: { request: ExactInQuoteRequest; pool: AmmP
     swapAmountIn: request.swapAmountIn,
     amountOut,
     minOut: blocked ? "0" : minOut,
+    maxIn: blocked ? "0" : request.swapAmountIn,
+    maxTotalIn: blocked ? "0" : request.totalAmountIn,
     nativeAmmFee: fee,
     slippageBps: request.slippageBps,
     interfaceFee: { enabled: request.interfaceFeeEnabled, amount: request.interfaceFee, denom: request.denomIn, feeBps: request.interfaceFeeBps },
@@ -212,6 +232,7 @@ export function buildSwapQuote(input: { request: ExactInQuoteRequest; pool: AmmP
     curveImpactBps: curveImpact,
     maxImpactBps: params.maxSwapImpactBps,
     maxAmountIn,
+    maxAmountOut: null,
     blocked,
     source,
     reserveIn,
@@ -219,9 +240,160 @@ export function buildSwapQuote(input: { request: ExactInQuoteRequest; pool: AmmP
   };
 }
 
+export type ExactOutQuoteInput = {
+  poolId: string;
+  denomIn: string;
+  /** The output the trader typed, in base units of the pool's other token. */
+  amountOut: string;
+  slippageBps?: number;
+  fee: ServerQwakkFeeConfig;
+};
+
+export type ExactOutQuoteRequest = {
+  poolId: string;
+  denomIn: string;
+  amountOut: string;
+  interfaceFeeBps: number;
+  interfaceFeeEnabled: boolean;
+  slippageBps: number;
+};
+
+/** Validates an exact-out quote request. The interface fee is set once the chain has quoted the swap leg. */
+export function buildExactOutQuoteRequest(input: ExactOutQuoteInput): ExactOutQuoteRequest {
+  if (!isPositiveInteger(input.poolId)) throw new Error("A valid pool ID is required");
+  if (!isValidDenom(input.denomIn)) throw new Error("A valid input denom is required");
+  if (!isPositiveInteger(input.amountOut)) throw new Error("Receive amount must be a positive integer");
+
+  const slippageBps = input.slippageBps ?? DEFAULT_SLIPPAGE_BPS;
+  if (!isValidSlippageBps(slippageBps)) throw new Error(SLIPPAGE_RANGE_ERROR);
+
+  return {
+    poolId: input.poolId,
+    denomIn: input.denomIn,
+    amountOut: BigInt(input.amountOut).toString(),
+    interfaceFeeBps: input.fee.feeBps,
+    interfaceFeeEnabled: input.fee.enabled,
+    slippageBps,
+  };
+}
+
+/**
+ * MsgSwapExactOut's `maxIn`: the quoted swap leg plus the slippage setting,
+ * rounded up so the protection is never tighter than the setting.
+ */
+export function calculateMaximumIn(amountIn: string, slippageBps: number) {
+  if (!isPositiveInteger(amountIn)) throw new Error("Quoted input must be a positive integer");
+  if (!isValidSlippageBps(slippageBps)) throw new Error(SLIPPAGE_RANGE_ERROR);
+  const scaled = BigInt(amountIn) * BigInt(10_000 + slippageBps);
+  return ((scaled + BigInt(9_999)) / BigInt(10_000)).toString();
+}
+
+/**
+ * Exact-out quote. The swap leg comes from QoreChain's own `QuoteExactOut`
+ * (`/qorechain/amm/v1/quote/exact_out`). Qwakk's interface fee is then set on
+ * the quoted input, exactly as an exact-in swap of the same total would pay:
+ * the total is the smallest one whose swap leg after the rounded-down fee is
+ * the quoted leg (`totalForSwapIn`). It is never charged on the slippage
+ * padding. `maxIn` pads only the AMM leg, so the most the trader can pay is
+ * the fee plus `maxIn`.
+ *
+ * Only constant-product pools quote exact out. QoreChain's stable-swap pools
+ * do not, so those refuse here with `exact_out_unsupported`.
+ */
+export function buildExactOutSwapQuote(input: { request: ExactOutQuoteRequest; pool: AmmPool; params: AmmParams; chain: ChainExactOutQuote; allowEstimate?: boolean }): SwapQuote {
+  const { request, pool, params, chain } = input;
+  const allowEstimate = input.allowEstimate ?? true;
+  const forward = request.denomIn === pool.tokenA;
+  if (!forward && request.denomIn !== pool.tokenB) throw new QuoteError("pair");
+  if (pool.poolType !== "constant_product") throw new QuoteError("exact_out_unsupported");
+  const denomOut = forward ? pool.tokenB : pool.tokenA;
+  const reserveIn = forward ? pool.reserveA : pool.reserveB;
+  const reserveOut = forward ? pool.reserveB : pool.reserveA;
+
+  let swapAmountIn: string;
+  let fee: string;
+  let source: SwapQuote["source"] = "chain";
+  let chainSaysImpact = false;
+  if (chain.ok) {
+    swapAmountIn = chain.amountIn;
+    fee = chain.fee;
+  } else if (allowEstimate && (chain.failure === "unavailable" || chain.failure === "impact_too_high")) {
+    const estimate = constantProductIn(request.amountOut, reserveIn, reserveOut, params.swapFeeBps);
+    if (!estimate) throw new QuoteError("insufficient_liquidity");
+    swapAmountIn = estimate.amountIn;
+    fee = estimate.fee;
+    source = "estimate";
+    chainSaysImpact = chain.failure === "impact_too_high";
+  } else {
+    throw new QuoteError(chain.failure);
+  }
+  if (!isPositiveInteger(swapAmountIn)) throw new QuoteError("unavailable");
+
+  const interfaceFeeBps = request.interfaceFeeEnabled ? request.interfaceFeeBps : 0;
+  const total = totalForSwapIn(swapAmountIn, interfaceFeeBps);
+  const interfaceFee = total - BigInt(swapAmountIn);
+
+  const priceImpact = priceImpactBps(swapAmountIn, request.amountOut, reserveIn, reserveOut);
+  const inAfterFee = /^\d+$/.test(fee) && BigInt(swapAmountIn) > BigInt(fee) ? BigInt(swapAmountIn) - BigInt(fee) : BigInt(0);
+  const curveImpact = curveImpactBps(inAfterFee, reserveIn);
+  const maxSwapIn = maxSwapInForImpact(reserveIn, reserveOut, params.maxSwapImpactBps, params.swapFeeBps);
+  const maxAmountIn = maxSwapIn === null ? null : maxTotalForSwapIn(maxSwapIn, interfaceFeeBps).toString();
+  const maxAmountOut = maxSwapIn === null ? null : constantProductOut(maxSwapIn, reserveIn, reserveOut, params.swapFeeBps).amountOut;
+  const overCap = chainSaysImpact || (params.maxSwapImpactBps > 0 && priceImpact > params.maxSwapImpactBps);
+
+  const blocked: QuoteBlock | null = !params.enabled
+    ? "disabled"
+    : pool.status !== "active"
+      ? "paused"
+      : overCap
+        ? "impact"
+        : null;
+  const maxIn = blocked ? "0" : calculateMaximumIn(swapAmountIn, request.slippageBps);
+
+  return {
+    mode: "exact_out",
+    poolId: request.poolId,
+    poolType: pool.poolType,
+    denomIn: request.denomIn,
+    denomOut,
+    totalAmountIn: total.toString(),
+    swapAmountIn,
+    amountOut: request.amountOut,
+    minOut: blocked ? "0" : request.amountOut,
+    maxIn,
+    maxTotalIn: blocked ? "0" : (interfaceFee + BigInt(maxIn)).toString(),
+    nativeAmmFee: fee,
+    slippageBps: request.slippageBps,
+    interfaceFee: { enabled: request.interfaceFeeEnabled, amount: interfaceFee.toString(), denom: request.denomIn, feeBps: request.interfaceFeeBps },
+    priceImpactBps: priceImpact,
+    curveImpactBps: curveImpact,
+    maxImpactBps: params.maxSwapImpactBps,
+    maxAmountIn,
+    maxAmountOut: maxAmountOut === "0" ? null : maxAmountOut,
+    blocked,
+    source,
+    reserveIn,
+    reserveOut,
+  };
+}
+
+/**
+ * Sign-time check for an exact-out swap: the trader reviewed the most they
+ * can pay (`reviewedMaxTotalIn`). A fresh quote may be signed only if it
+ * delivers the same output for no more than that; otherwise the new numbers
+ * go back to the trader for review.
+ */
+export function requoteExactOutDecision(reviewed: Pick<SwapQuote, "amountOut" | "maxTotalIn">, fresh: Pick<SwapQuote, "mode" | "amountOut" | "maxTotalIn" | "blocked">): "sign" | "review" {
+  if (fresh.blocked || fresh.mode !== "exact_out" || fresh.amountOut !== reviewed.amountOut) return "review";
+  if (!isPositiveInteger(fresh.maxTotalIn) || !isPositiveInteger(reviewed.maxTotalIn)) return "review";
+  return BigInt(fresh.maxTotalIn) <= BigInt(reviewed.maxTotalIn) ? "sign" : "review";
+}
+
 /** Identifies the inputs a quote was made for, so a quote is never signed against other inputs. */
-export function quoteKey(input: { poolId: string; denomIn: string; amountIn: string; slippageBps: number }) {
-  return `${input.poolId}|${input.denomIn}|${input.amountIn}|${input.slippageBps}`;
+export function quoteKey(input: { poolId: string; denomIn: string; slippageBps: number } & ({ amountIn: string } | { amountOut: string })) {
+  return "amountOut" in input
+    ? `${input.poolId}|${input.denomIn}|out:${input.amountOut}|${input.slippageBps}`
+    : `${input.poolId}|${input.denomIn}|${input.amountIn}|${input.slippageBps}`;
 }
 
 /**

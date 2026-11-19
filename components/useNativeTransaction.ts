@@ -22,6 +22,8 @@ export type TxState = {
   interfaceFee: { denom: string; amount: string } | null;
   /** What QoreChain's keeper reported when it simulated this transaction. */
   simulated: SimulatedOutcome | null;
+  /** True for a swap with a fixed receive amount, protected by a maximum input instead of a minimum output. */
+  exactOut: boolean;
   /**
    * The action stopped in the wallet before anything was sent (locked,
    * declined, a request already open, account changed). Shown as a calm notice.
@@ -41,7 +43,7 @@ type Prepared = {
 };
 type Status = { state?: "pending" | "included"; success?: boolean; code?: number; codespace?: string };
 
-const IDLE: TxState = { phase: "idle", message: "", txhash: "", fee: "", keySetup: false, interfaceFee: null, simulated: null, quiet: false };
+const IDLE: TxState = { phase: "idle", message: "", txhash: "", fee: "", keySetup: false, interfaceFee: null, simulated: null, exactOut: false, quiet: false };
 const CONFIRM_ATTEMPTS = 30;
 const SUCCESS_COPY = "Confirmed on QoreChain Diana.";
 
@@ -67,7 +69,7 @@ export async function executeNativeAction(action: NativeAction, setState: Dispat
   if (support.state === "outdated") return fail(QOREX_OUTDATED_COPY);
   const wallet = support.wallet;
 
-  setState({ ...IDLE, phase: "preparing" });
+  setState({ ...IDLE, phase: "preparing", exactOut: action.kind === "swap" && action.mode === "exact_out" });
   // The chain id comes from the server's network setting, never a constant.
   network = (await loadFeatures())?.network ?? null;
   if (!network) return fail(NETWORK_UNKNOWN_COPY);

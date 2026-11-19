@@ -88,3 +88,85 @@ export function buildQwakkSwapRoute(input: SwapRouteInput): QwakkSwapRoute {
     messages,
   };
 }
+
+/**
+ * The most MsgSwapExactOut's `maxIn` may sit above the quoted swap leg. It
+ * matches Qwakk's widest price protection (5.00%, `MAX_SLIPPAGE_BPS` in
+ * lib/qwakk-quote.ts) and keeps the interface fee tied to what the AMM
+ * really takes: a tiny quoted total with a huge `maxIn` is refused here.
+ */
+export const MAX_EXACT_OUT_PADDING_BPS = 500;
+
+export type ExactOutSwapRouteInput = {
+  sender: string;
+  poolId: string;
+  denomIn: string;
+  /** The quoted total input, interface fee included, in the native integer denom. */
+  amountIn: string;
+  denomOut: string;
+  /** The output the trader receives exactly. */
+  amountOut: string;
+  /** Price protection on the AMM leg: the most MsgSwapExactOut may take. */
+  maxIn: string;
+  /** Null when no treasury is configured: then no interface fee is charged. */
+  fee: QwakkFeeConfig | null;
+};
+
+export type QwakkExactOutSwapRoute = {
+  /** The quoted AMM leg: the quoted total minus the interface fee. */
+  swapAmount: string;
+  maxIn: string;
+  interfaceFee: { denom: string; amount: string };
+  /** Fee transfer first, then MsgSwapExactOut. Both are signed in one transaction. */
+  messages: EncodeObject[];
+};
+
+/**
+ * Exact-out route. The interface fee is the one an exact-in swap of the quoted
+ * total pays (rounded down, in the trader's favour), so it is set on the
+ * quoted input and never on the slippage padding. MsgSwapExactOut then takes
+ * at most `maxIn` for exactly `amountOut`. Like the exact-in route it never
+ * signs, broadcasts or receives user funds.
+ */
+export function buildQwakkExactOutSwapRoute(input: ExactOutSwapRouteInput): QwakkExactOutSwapRoute {
+  const feeBps = input.fee ? input.fee.feeBps ?? DEFAULT_QWAKK_INTERFACE_FEE_BPS : 0;
+  if (!validateAddress(input.sender)) throw new Error("A valid sender address is required");
+  if (input.fee && !validateAddress(input.fee.recipient)) throw new Error("A valid Qwakk treasury address is required");
+  if (!/^\d+$/.test(input.poolId) || BigInt(input.poolId) <= BigInt(0)) throw new Error("A valid pool ID is required");
+  if (!input.denomIn || !input.denomOut || input.denomIn === input.denomOut) throw new Error("Use two different native token denoms");
+  if (!isPositiveInteger(input.amountIn)) throw new Error("Swap amount must be a positive integer");
+  if (!isPositiveInteger(input.amountOut)) throw new Error("Receive amount must be a positive integer");
+  if (!isPositiveInteger(input.maxIn)) throw new Error("A maximum input is required");
+  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_QWAKK_INTERFACE_FEE_BPS) throw new Error(`Interface fee must be between 0 and ${MAX_QWAKK_INTERFACE_FEE_BPS} bps`);
+
+  const totalAmount = BigInt(input.amountIn);
+  const interfaceFee = (totalAmount * BigInt(feeBps)) / BigInt(10_000);
+  const swapAmount = totalAmount - interfaceFee;
+  if (swapAmount <= BigInt(0)) throw new Error("Swap amount is too small after the interface fee");
+  const maxIn = BigInt(input.maxIn);
+  const ceiling = (swapAmount * BigInt(10_000 + MAX_EXACT_OUT_PADDING_BPS) + BigInt(9_999)) / BigInt(10_000);
+  if (maxIn < swapAmount || maxIn > ceiling) throw new Error("The maximum input does not match the quote");
+
+  const messages: EncodeObject[] = [];
+  if (input.fee && interfaceFee > BigInt(0)) {
+    messages.push(bank.send({
+      fromAddress: input.sender,
+      toAddress: input.fee.recipient,
+      amount: [{ denom: input.denomIn, amount: interfaceFee.toString() }],
+    }));
+  }
+  messages.push(amm.swapExactOut({
+    sender: input.sender,
+    poolId: input.poolId,
+    denomIn: input.denomIn,
+    tokenOut: { denom: input.denomOut, amount: input.amountOut },
+    maxIn: maxIn.toString(),
+  }));
+
+  return {
+    swapAmount: swapAmount.toString(),
+    maxIn: maxIn.toString(),
+    interfaceFee: { denom: input.denomIn, amount: interfaceFee.toString() },
+    messages,
+  };
+}

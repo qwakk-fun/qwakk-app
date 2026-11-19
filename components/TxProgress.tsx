@@ -42,7 +42,8 @@ export function TxProgress({ state, onDone }: { state: TxState; onDone: () => vo
     </ol>}
     {state.phase === "signing" && <p className="subtle">After you approve, QoreX signs and sends the transaction, then waits for a block.</p>}
     {state.phase === "signing" && state.keySetup && <p className="subtle">First time on {networkLabel}: QoreX also registers your quantum-safe key in a separate transaction with its own network fee.</p>}
-    {state.phase === "signing" && state.simulated?.swap && amountText(state.simulated.swap.amountOut, state.simulated.swap.denomOut) && <p className="subtle">Simulated on {networkLabel} just now: {amountText(state.simulated.swap.amountOut, state.simulated.swap.denomOut)} out. Your minimum still applies when the swap lands.</p>}
+    {state.phase === "signing" && !state.exactOut && state.simulated?.swap && amountText(state.simulated.swap.amountOut, state.simulated.swap.denomOut) && <p className="subtle">Simulated on {networkLabel} just now: {amountText(state.simulated.swap.amountOut, state.simulated.swap.denomOut)} out. Your minimum still applies when the swap lands.</p>}
+    {state.phase === "signing" && state.exactOut && state.simulated?.swap && amountText(state.simulated.swap.amountIn, state.simulated.swap.denomIn) && <p className="subtle">Simulated on {networkLabel} just now: {amountText(state.simulated.swap.amountIn, state.simulated.swap.denomIn)} into the pool. Your maximum still applies when the swap lands.</p>}
     {state.phase === "signing" && state.interfaceFee && <p className="subtle">{interfaceFeeTransferCopy(amountText(state.interfaceFee.amount, state.interfaceFee.denom) ?? `${state.interfaceFee.amount} ${displaySymbol(state.interfaceFee.denom)} base units`, BRAND.name)}</p>}
     {state.phase === "signing" && state.fee && <p className="subtle">Estimated network fee {formatBaseAmount(state.fee, 6, 6)} QOR. QoreX shows the final fee.</p>}
     <div className="tx-actions">

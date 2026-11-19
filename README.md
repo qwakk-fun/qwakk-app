@@ -43,6 +43,13 @@ How it works:
 - Swap quotes use the native AMM quote endpoint (`/qorechain/amm/v1/quote/exact_in`).
   Qwakk adds price impact, blocks swaps above the chain's
   `max_swap_impact_bps` cap and re-quotes before the wallet opens.
+- Typing in "You receive" makes an exact-out swap: the quote comes from
+  `/qorechain/amm/v1/quote/exact_out` (constant-product pools only) and the
+  transaction is the interface fee `MsgSend` plus `MsgSwapExactOut` with a
+  `max_in` cap. The fee is charged on the quoted input, never on the price
+  protection padding. Checked by keyless simulation on Diana pool 2 on
+  19 November 2026 (`npm run verify:amm`); a QoreX-signed exact-out swap
+  through the interface is not verified yet.
 - Liquidity positions are read from the AMM LP balance query. The AMM keeps LP
   shares in its own store, not as bank tokens.
 - The indexer stores pools, swaps and 1m, 5m, 1h, 4h and 1d candles in

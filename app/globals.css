@@ -671,8 +671,9 @@ a.table-row:active, button.table-row:active { background: rgba(255, 255, 255, 0.
 .quote-field-row input, .quote-field-row output { flex: 1; width: 100%; min-width: 0; height: 40px; border: 0; outline: 0; background: transparent; font-size: var(--fs-4xl); font-weight: 600; letter-spacing: var(--track-display); line-height: 40px; font-variant-numeric: tabular-nums; caret-color: var(--accent); }
 .quote-field-row input::placeholder { color: var(--text-3); }
 .quote-field-row output { overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; transition: opacity var(--dur-base) var(--ease-standard); }
-/* While a fresh quote is on its way the figure dims instead of jumping. */
-.quote-field-row output.is-pending { opacity: 0.45; }
+.quote-field-row input { text-overflow: ellipsis; transition: opacity var(--dur-base) var(--ease-standard); }
+/* While a fresh quote is on its way the quoted figure dims instead of jumping. */
+.quote-field-row output.is-pending, .quote-field-row input.is-pending { opacity: 0.45; }
 /* Long amounts shrink instead of hiding digits behind an ellipsis. */
 .quote-field-row .is-long { font-size: var(--fs-3xl); }
 .quote-field-row .is-xlong { font-size: var(--fs-2xl); letter-spacing: var(--track-title); }
