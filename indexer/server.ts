@@ -13,6 +13,7 @@ import {
 import { minTvlFor, quoteRank, resolveTokenInfo, type DenomMetadata } from "./token-registry";
 import { chainGuard, evaluateIndexerHealth, freshStartHeight, healthConfig, lpSnapshotRule, resolveIndexerNetwork, retentionConfig, type SyncState } from "./indexer-config";
 import { positionBalances } from "./positions";
+import { HISTORY_START_KEY, PnlTooLarge, readBankBalances, walletPnl, type WalletPnlDeps } from "./wallet-pnl";
 import { describePointsConfig, loadPointsConfig } from "./points-config";
 import { formatPoints, scoreSeason, type ScoringInput } from "./points-scoring";
 
@@ -485,6 +486,8 @@ async function syncBlocks(status: ChainStatus) {
     const firstPool = await db.query<{ height: string | null }>("SELECT MIN(created_height)::text AS height FROM pools");
     const start = freshStartHeight({ configured: START_HEIGHT, currentHeight, earliestHeight: earliest, firstPoolHeight: firstPool.rows[0]?.height ? Number(firstPool.rows[0].height) : null });
     console.log(`Fresh database: indexing starts after block ${start}`);
+    // Where indexed history begins, for readers that must say older activity is missing (wallet PnL).
+    await setState(HISTORY_START_KEY, String(start + 1));
     await saveIndexedHeight(start);
     return;
   }
@@ -879,6 +882,12 @@ async function addressPositions(address: string) {
   };
 }
 
+const pnlDeps: WalletPnlDeps = {
+  query: async <R>(text: string, params?: unknown[]) => ({ rows: (await db.query(text, params)).rows as R[] }),
+  getState,
+  bankBalances: (address) => readBankBalances(REST_URL, address),
+};
+
 function exact<T>(compute: () => T): T | null {
   try {
     return compute();
@@ -1165,6 +1174,17 @@ const server = createServer(async (request, response) => {
       const address = positionsMatch[1].toLowerCase();
       if (!isQorAddress(address)) return writeJson(response, 400, { error: "A valid QoreChain address is required" });
       return writeJson(response, 200, await addressPositions(address));
+    }
+    const pnlMatch = url.pathname.match(/^\/pnl\/([0-9a-zA-Z]+)$/);
+    if (pnlMatch) {
+      const address = pnlMatch[1].toLowerCase();
+      if (!isQorAddress(address)) return writeJson(response, 400, { error: "A valid QoreChain address is required" });
+      try {
+        return writeJson(response, 200, await walletPnl(address, pnlDeps));
+      } catch (error) {
+        if (error instanceof PnlTooLarge) return writeJson(response, 422, { error: "This wallet has too many swaps to summarize" });
+        throw error;
+      }
     }
     if (url.pathname === "/markets") return writeJson(response, 200, { markets: await marketList() });
     const detailMatch = url.pathname.match(/^\/pools\/(\d+)$/);

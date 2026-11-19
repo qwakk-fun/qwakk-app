@@ -423,7 +423,7 @@ and rate limits `/api/*` per client IP with in-memory token buckets
 | `positions` | `/api/positions` | 5 | 4 |
 | `tx-status` | `/api/native-tx/status` | 30 | 40 |
 | `quote` | `/api/swap-quote` | 30 | 30 |
-| `chain-read` | `/api/account`, `/api/transactions`, `/api/native/*` | 40 | 60 |
+| `chain-read` | `/api/account`, `/api/transactions`, `/api/pnl`, `/api/native/*` | 40 | 60 |
 | `api` | every other `/api/*` route | 120 | 240 |
 
 `/api/health` is never limited. Network, markets and activity are also served

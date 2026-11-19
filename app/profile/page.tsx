@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, ExternalLink, Wallet } from "lucide-react";
 import { FaucetHint } from "../../components/FaucetHint";
+import { ProfitLoss } from "../../components/ProfitLoss";
 import { QwakkHeader } from "../../components/QwakkHeader";
 import { SiteFooter } from "../../components/SiteFooter";
 import { TokenIcon } from "../../components/TokenIcon";
 import { useAssets } from "../../components/useAssets";
+import { usePnl } from "../../components/usePnl";
 import { useQorMarket } from "../../components/useQorMarket";
 import { formatBaseAmount, type ResolvedAsset } from "../../lib/qwakk-assets";
 import { formatUsdCompact } from "../../lib/qor-price";
@@ -119,6 +121,8 @@ export default function Profile() {
     };
   }, [loadBalances, loadTransactions, loadPositions]);
 
+  // Profit and loss reloads itself after the wallet's own confirmed swaps and on a wallet change.
+  const pnl = usePnl(address);
   const resolveAsset = useAssets([...balances.map((balance) => balance.denom), ...transactions.map((transaction) => transaction.denom)]);
   const qorBalance = balances.find((balance) => balance.denom === "uqor");
   const market = useQorMarket("1");
@@ -147,9 +151,9 @@ export default function Profile() {
         <section className="page-head">
           <div>
             <h1>Portfolio</h1>
-            <p>Balances, pool shares and recent activity for your QoreChain wallet.</p>
+            <p>Balances, profit and loss, pool shares and recent activity for your QoreChain wallet.</p>
           </div>
-          {address && <button type="button" className="btn btn-ghost btn-sm" onClick={() => { void loadBalances(address); void loadPositions(address); void loadTransactions(address); }} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>}
+          {address && <button type="button" className="btn btn-ghost btn-sm" onClick={() => { void loadBalances(address); void loadPositions(address); void loadTransactions(address); pnl.reload(); }} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>}
         </section>
 
         {!address ? <section className="panel empty">
@@ -164,6 +168,8 @@ export default function Profile() {
           </section>
 
           {!loading && !error && lowOnQor && <FaucetHint lead="This wallet is low on QOR, and every swap or pool action pays its network fee in QOR." className="faucet-hint-panel" />}
+
+          <ProfitLoss pnl={pnl} />
 
           <div className="portfolio-sections">
             <section className="panel assets-table" aria-labelledby="assets-title">

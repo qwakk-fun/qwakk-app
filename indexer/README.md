@@ -52,6 +52,11 @@ node's earliest kept block.
   example a token's registration), set `QWAKK_INDEXER_START_HEIGHT` to that
   block on the first start only.
 
+A fresh database records its first indexed block in
+`indexer_state.history_start_height`. Databases created before that key
+existed do not have it; readers fall back to the earliest stored swap or
+liquidity event (see `GET /pnl/:address`).
+
 Far behind the tip, the indexer finds AMM blocks with the RPC `tx_search` and
 reads only those. Before trusting the search it checks that it finds an AMM
 event already known to the database; otherwise it scans every block.
@@ -148,6 +153,109 @@ table, are no longer written or served, and `interval=6h` answers 400.
   `incomplete` when an event did not carry an LP amount; read that pool from
   the chain. Positions opened while the indexer was not indexing (for example
   inside a pruned gap) only appear once they have an indexed event.
+- `GET /pnl/:address`: per-token cost basis and profit and loss of a wallet,
+  in QOR, with the average-cost method (engine: `cost-basis.ts`, queries: `wallet-pnl.ts`). The web app
+  serves it as `GET /api/pnl?address=qor1...` (same body; 400 bad address,
+  422 more than 50,000 swaps, 503 unavailable, always fixed copy).
+
+```json
+{
+  "address": "qor1...",
+  "method": "average_cost",
+  "unit": { "denom": "uqor", "symbol": "QOR", "decimals": 6 },
+  "history": {
+    "fromHeight": 9000001,
+    "fromTime": "2026-11-12T08:14:03.512Z",
+    "source": "indexer_start",
+    "indexedHeight": 9300000,
+    "gap": null
+  },
+  "swapsCounted": 3,
+  "totals": {
+    "valueUqor": "300000000",
+    "costBasisUqor": "200000000",
+    "unrealizedPnlUqor": "100000000",
+    "unrealizedPnlPercent": "50",
+    "realizedPnlUqor": "50000000",
+    "unpricedTokens": 0,
+    "coverage": "complete"
+  },
+  "tokens": [
+    {
+      "denom": "erc20:0x97143b771d34ddb9130b807b135ae675a5a963ca",
+      "symbol": "fUSD",
+      "decimals": 6,
+      "held": "200000000",
+      "bought": "250000000",
+      "sold": "50000000",
+      "buys": 2,
+      "sells": 1,
+      "costBasisAmount": "200000000",
+      "costBasisUqor": "200000000",
+      "averageCostQor": "1",
+      "unknownCostAmount": "0",
+      "untrackedOutflowAmount": "0",
+      "price": { "qorPerToken": "1.5", "poolId": "2", "source": "last_trade", "lowLiquidity": false },
+      "valueUqor": "300000000",
+      "unrealizedPnlUqor": "100000000",
+      "unrealizedPnlPercent": "50",
+      "realizedPnlUqor": "50000000",
+      "realizedUnknownAmount": "0",
+      "costCoverage": "complete",
+      "dust": false
+    }
+  ]
+}
+```
+
+  Units: token amounts (`held`, `bought`, `sold`, `*Amount`) are base-unit
+  integer strings (divide by `10^decimals`); `*Uqor` are signed uqor integer
+  strings (divide by `10^6` for QOR); `averageCostQor` and
+  `price.qorPerToken` are QOR per whole token; `*Percent` are percent with 2
+  decimals, truncated. `decimals` is `null` for an unknown token: its amounts
+  are raw base units and it is unpriced.
+
+  Method and edge cases:
+  - Swaps are the wallet's indexed `amm_swap` events (any interface,
+    `MsgSwapExactIn` and `MsgSwapExactOut` alike, by executed amounts),
+    replayed oldest first. QOR is the unit of account and has no row.
+  - A swap with QOR on one side costs or pays exactly its QOR side. A swap
+    between two other tokens is valued through the input token's QOR pool
+    price at that time (the newer of that pool's last trade and reserve
+    snapshot at or before the swap), else the output token's; with neither,
+    the bought side gets unknown cost and the sold side unknown proceeds.
+  - A token's QOR pool is the one pairing it with QOR that holds the most QOR
+    now. The current price is that pool's last trade, else its reserves
+    (`price.source`), as on the markets page. `lowLiquidity` uses the markets
+    page rule. No QOR pool, or unknown decimals: `price` and `valueUqor` are
+    `null` and the token counts in `totals.unpricedTokens`.
+  - Selling takes from the known-cost and unknown-cost parts of the position
+    in proportion. Realized PnL is booked only on the known-cost part with
+    known proceeds; the rest is `realizedUnknownAmount`, including units sold
+    beyond the swap position (bought before indexed history, faucet,
+    transfers, LP withdrawals).
+  - Holdings are the live bank balance. Units held beyond the swap position
+    are `unknownCostAmount`, never part of PnL. When less is held than the swap
+    position (sent away, added to a pool, paid as the Qwakk fee), the held part
+    keeps the average cost and the rest is `untrackedOutflowAmount`, not a sale.
+  - `unrealizedPnlUqor` is value minus cost of `costBasisAmount` only. Totals
+    sum priced tokens; `totals.unrealizedPnlPercent` is over
+    `totals.costBasisUqor`.
+  - `costCoverage` and `totals.coverage`: `complete` (every holding and sale
+    has a known cost, and in totals every holding is priced), `partial`, or
+    `none` (nothing with a known cost, including an empty wallet).
+  - `history.fromHeight` is the first indexed block (`source`
+    `indexer_start`), or on older databases the earliest stored event
+    (`earliest_event`, a conservative bound). `fromTime` is the time of the
+    earliest stored event. `gap` is a pruned range the indexer skipped.
+    Activity outside indexed history shows up only as unknown cost.
+  - The Qwakk interface fee is a separate bank transfer, not part of the swap
+    event, and is not in the cost basis (0.10 percent of a Qwakk swap by
+    default: a QOR fee on a buy is left out of the cost, a token fee on a sell
+    shows as untracked outflow). The AMM's own fee is already inside the swap
+    amounts.
+  - `dust`: a held balance below one millionth of a token (at least 1000
+    base units), the pools' dust rule. It is still counted.
 - `GET /points/...`: only while `QWAKK_POINTS_ENABLED` is on.
 
 ## Rebuilding candles
