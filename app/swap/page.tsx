@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowDownUp, Layers } from "lucide-react";
+import { AlertTriangle, ArrowDownUp, Layers, Search } from "lucide-react";
 import { FaucetHint } from "../../components/FaucetHint";
 import { useNetworkCopy } from "../../components/NetworkContext";
 import { ChartIntervalTabs } from "../../components/ChartIntervalTabs";
@@ -26,6 +26,8 @@ import { formatQuotePrice, isLowLiquidity, localLiquidityReason, lowLiquidityCop
 import { DEFAULT_SLIPPAGE_BPS, IMPACT_WARN_BPS, NETWORK_FEE_RESERVE_UQOR, SLIPPAGE_PRESETS_BPS, SLIPPAGE_WARN_BPS, coversSpend, parseSlippagePercent, quoteKey, requoteDecision, requoteExactOutDecision, type SwapQuote } from "../../lib/qwakk-quote";
 import { QUOTE_BLOCK_COPY, QUOTE_FAILURE_COPY, QUOTE_ZERO_OUT_COPY, assetDecimalsUnknownCopy } from "../../lib/qwakk-tx-copy";
 import { MARKET_RANGES, MARKET_RANGE_LABELS, formatChange, formatUsdPrice, type MarketRange } from "../../lib/qor-price";
+import { BRAND } from "../../lib/brand";
+import { SELECT_POOL_EVENT, searchEmptyCopy, searchPools, type SearchEntry } from "../../lib/qwakk-search";
 
 type RawPool = {
   id?: string | number;
@@ -170,6 +172,8 @@ export default function SwapPage() {
   // Low-liquidity pools stay out of the picker unless asked for (or opened by link).
   const { markets } = useMarkets(30_000);
   const [showLowLiquidity, setShowLowLiquidity] = useState(false);
+  // Filters the pool picker with the same matcher as the top bar search.
+  const [poolQuery, setPoolQuery] = useState("");
   // The amount the trader set from the pool's one-swap limit ("in:1.5" or "out:1.5"), so the note can say so.
   const [clampedAmount, setClampedAmount] = useState("");
   const [range, setRange] = useState<MarketRange>("7");
@@ -225,6 +229,19 @@ export default function SwapPage() {
     [pools, showLowLiquidity, lowLiquidityById, selectedPoolId],
   );
   const hiddenPools = pools.length - listedPools.length;
+  const searchEntry = useCallback((pool: RawPool): SearchEntry => ({
+    id: poolId(pool),
+    tokens: [poolDenom(pool, "a"), poolDenom(pool, "b")].map((denom) => {
+      const asset = resolveAsset(denom);
+      return { denom, symbol: asset.symbol, name: asset.name };
+    }),
+  }), [resolveAsset]);
+  const pickerPools = useMemo(
+    () => poolQuery.trim() ? searchPools(listedPools, poolQuery, searchEntry).map((match) => match.item) : listedPools,
+    [listedPools, poolQuery, searchEntry],
+  );
+  // A search that only finds hidden low-liquidity pools says so, instead of claiming the token is not listed.
+  const hiddenPickerMatches = poolQuery.trim() && !showLowLiquidity ? searchPools(pools.filter((pool) => !listedPools.includes(pool)), poolQuery, searchEntry).length : 0;
   const selectedPool = useMemo(
     () => pools.find((pool) => poolId(pool) === selectedPoolId) ?? listedPools[0],
     [pools, listedPools, selectedPoolId],
@@ -383,6 +400,22 @@ export default function SwapPage() {
     const timer = window.setInterval(() => setQuoteVersion((value) => value + 1), QUOTE_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [hasQuote, reviewing, tx.busy, confirming]);
+
+  // The search dialog opens a pool here without leaving the page (a same-page link keeps this page mounted).
+  useEffect(() => {
+    const onSelect = (event: Event) => {
+      const id = String((event as CustomEvent<string>).detail ?? "");
+      const pool = pools.find((candidate) => poolId(candidate) === id);
+      if (!pool) return;
+      setSelectedPoolId(id);
+      setReversed(false);
+      if (!supportsExactOut(pool)) setFixedSide("in");
+      setReviewed(null);
+      setReviewNotice("");
+    };
+    window.addEventListener(SELECT_POOL_EVENT, onSelect);
+    return () => window.removeEventListener(SELECT_POOL_EVENT, onSelect);
+  }, [pools]);
 
   function selectPool(pool: RawPool) {
     setSelectedPoolId(poolId(pool));
@@ -604,7 +637,10 @@ export default function SwapPage() {
 
           <section className="panel" aria-labelledby="pools-title">
             <div className="panel-head"><span className="panel-title" id="pools-title">{`${networkLabel} pools`}</span><span className="subtle"><span className={`dot ${networkState === "ready" ? "live" : ""}`} /> {lastUpdated}</span></div>
-            {listedPools.length ? <div className="table">{listedPools.map((pool, index) => {
+            {pools.length > 0 && <div className="picker-search">
+              <label className="search"><Search size={16} aria-hidden="true" /><input type="search" value={poolQuery} onChange={(event) => setPoolQuery(event.target.value)} placeholder="Token, pool # or address" aria-label="Filter pools by token name, symbol, pool number or contract address" autoComplete="off" spellCheck={false} /></label>
+            </div>}
+            {pickerPools.length ? <div className="table">{pickerPools.map((pool, index) => {
               const id = poolId(pool) || String(index + 1);
               const tokenA = poolDenom(pool, "a");
               const tokenB = poolDenom(pool, "b");
@@ -613,7 +649,16 @@ export default function SwapPage() {
                 <span className="cell-main"><span className="pair-icons"><TokenIcon denom={tokenA} size="regular" /><TokenIcon denom={tokenB} size="regular" /></span><span><b>{shortDenom(tokenA)} / {shortDenom(tokenB)}</b><small>{poolKind(pool)}{lowLiquidityById.has(id) && <span className="low-tag">Low liquidity</span>}</small></span></span>
                 <span className="subtle mono">#{id}</span>
               </button>;
-            })}</div> : hiddenPools > 0 ? <div className="empty">
+            })}</div> : listedPools.length > 0 && poolQuery.trim() ? hiddenPickerMatches > 0 ? <div className="empty">
+              <span className="empty-icon"><Layers size={18} /></span>
+              <h3>Only low-liquidity pools match</h3>
+              <p>{hiddenPickerMatches === 1 ? "One pool matches, but it holds too little to trade at a fair price." : `${hiddenPickerMatches} pools match, but each holds too little to trade at a fair price.`}</p>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowLowLiquidity(true)}>Show low-liquidity pools</button>
+            </div> : <div className="empty">
+              <span className="empty-icon"><Search size={18} /></span>
+              <h3>{searchEmptyCopy(poolQuery, BRAND.name).title}</h3>
+              <p>{searchEmptyCopy(poolQuery, BRAND.name).body}</p>
+            </div> : hiddenPools > 0 ? <div className="empty">
               <span className="empty-icon"><Layers size={18} /></span>
               <h3>Only low-liquidity pools are open</h3>
               <p>{hiddenPools === 1 ? "One pool is open, but it holds too little to trade at a fair price." : `${hiddenPools} pools are open, but each holds too little to trade at a fair price.`}</p>

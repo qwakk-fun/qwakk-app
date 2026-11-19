@@ -4,25 +4,8 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { Check, Copy, ExternalLink, X } from "lucide-react";
 import { BRAND } from "../lib/brand";
 import { pageAddressForQoreX, qorexBrowseLink, qorexStoreLinks, type MobilePlatform } from "../lib/qwakk-mobile-wallet";
+import { DISMISS_SHARE, EXIT_EASE, EXIT_FALLBACK_MS, exitDuration, projectedTravel, rubberband } from "../lib/qwakk-sheet-motion";
 import { useFeatures } from "./useFeatures";
-
-/** A dragged sheet dismisses when its projected resting point passes this share of its height. */
-const DISMISS_SHARE = 0.4;
-/** The exit normally ends on transitionend; this is the backstop (hidden tab, no transition). */
-const EXIT_FALLBACK_MS = 450;
-/** Initial slope of the exit curve below, used to match the sheet's speed to the finger's. */
-const EXIT_EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
-const EXIT_EASE_SLOPE = 4;
-
-/** Where a flick comes to rest, given its velocity in px/ms (UIScrollView-style deceleration). */
-function projectedTravel(velocity: number, rate = 0.998) {
-  return (velocity * rate) / (1 - rate);
-}
-
-/** Progressive resistance past an edge: the further the drag, the less the sheet follows. */
-function rubberband(overshoot: number, dimension: number, constant = 0.55) {
-  return (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
-}
 
 type Drag = { id: number; startY: number; lastY: number; lastT: number; velocity: number };
 
@@ -124,7 +107,7 @@ export function QoreXMobileSheet({ platform, onClose }: { platform: MobilePlatfo
     if (event.type !== "pointercancel" && offset + projectedTravel(velocity) > height * DISMISS_SHARE) {
       // Leave at the finger's speed: the exit curve starts EXIT_EASE_SLOPE times faster than its average.
       const remaining = height + 24 - offset;
-      const duration = Math.min(400, Math.max(160, velocity > 0 ? (EXIT_EASE_SLOPE * remaining) / velocity : 360));
+      const duration = exitDuration(remaining, velocity);
       element.style.transition = `transform ${Math.round(duration)}ms ${EXIT_EASE}`;
       element.style.transform = `translateY(${height + 24}px)`;
       requestClose();

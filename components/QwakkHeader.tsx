@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeftRight, BookOpen, Compass, House, Layers, LogOut, Plus, Search, Trophy, Wallet } from "lucide-react";
@@ -15,6 +15,7 @@ import { storeWalletAddress } from "../lib/qwakk-wallet-session";
 import { BrandMark } from "./BrandMark";
 import { LiveTicker } from "./LiveTicker";
 import { QoreXMobileSheet } from "./QoreXMobileSheet";
+import { SearchDialog } from "./SearchDialog";
 import { loadFeatures, useFeatures } from "./useFeatures";
 import { useWalletSession } from "./useWalletSession";
 
@@ -31,8 +32,6 @@ const NAV_ITEMS = [
 
 const QOREX_INSTALL_URL = "https://chromewebstore.google.com/detail/qorex/cflpnggbnnifibblifgbeobogdpfjpcg";
 
-/** The pools list listens for this event so typing in the top bar filters it in place. */
-export const SEARCH_EVENT = "qwakk:search";
 /** Opens the pool creation form when the pools page is already showing. */
 export const CREATE_EVENT = "qwakk:request-create";
 
@@ -54,7 +53,6 @@ function walletConnectionMessage(error: unknown, network: CopyNetwork) {
 
 export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (address: string) => void; page?: Page }) {
   const router = useRouter();
-  const searchInput = useRef<HTMLInputElement>(null);
   const { address: walletAddress, disconnect } = useWalletSession();
   const [isConnecting, setIsConnecting] = useState(false);
   const [notice, setNotice] = useState("");
@@ -64,6 +62,10 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
   const closeMobileWallet = useCallback(() => setMobileWallet(null), []);
   const { actions, points, network } = useFeatures();
   const [quacking, setQuacking] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const closeSearch = useCallback(() => setSearchOpen(false), []);
+  // "⌘K" on Apple devices, "Ctrl K" elsewhere. Read after mount so the server render stays the same.
+  const [shortcut, setShortcut] = useState("⌘K");
 
   // Easter egg: the duck says "wak wak" and shakes its head.
   function quackLogo() {
@@ -79,19 +81,18 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
     return () => window.removeEventListener("qwakk:request-connect", requestConnect);
   });
 
-  // Cmd+K or Ctrl+K focuses search from anywhere.
+  // Cmd+K or Ctrl+K opens search from anywhere.
   useEffect(() => {
-    if (page === "pools" && searchInput.current) searchInput.current.value = new URLSearchParams(window.location.search).get("q") ?? "";
-    const focusSearch = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    const timer = window.setTimeout(() => { if (!/mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)) setShortcut("Ctrl K"); }, 0);
+    const openSearch = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        searchInput.current?.focus();
-        searchInput.current?.select();
+        setSearchOpen(true);
       }
     };
-    window.addEventListener("keydown", focusSearch);
-    return () => window.removeEventListener("keydown", focusSearch);
-  }, [page]);
+    window.addEventListener("keydown", openSearch);
+    return () => { window.clearTimeout(timer); window.removeEventListener("keydown", openSearch); };
+  }, []);
 
   async function connectWallet() {
     if (walletAddress) {
@@ -153,17 +154,6 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
     window.dispatchEvent(new Event(CREATE_EVENT));
   }
 
-  function search(value: string) {
-    if (page === "pools") window.dispatchEvent(new CustomEvent(SEARCH_EVENT, { detail: value }));
-  }
-
-  function submitSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const value = searchInput.current?.value.trim() ?? "";
-    if (page === "pools") return search(value);
-    router.push(value ? `/pools?q=${encodeURIComponent(value)}` : "/pools");
-  }
-
   const walletLabel = walletAddress ? `${walletAddress.slice(0, 7)}…${walletAddress.slice(-4)}` : isConnecting ? "Connecting…" : "Connect wallet";
 
   return <>
@@ -184,12 +174,14 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
     <header className="topbar">
       <div className="topbar-inner">
         <Link className={`brand topbar-brand ${quacking ? "is-quacking" : ""}`} href="/" aria-label={`${BRAND.name} home`} onClick={quackLogo}><BrandMark size={28} /><span>{BRAND.name}</span></Link>
-        <form className="top-search" role="search" action="/pools" onSubmit={submitSearch}>
+        {/* Looks like a field, opens the search dialog. Phones get the icon button in the actions instead. */}
+        <button type="button" className="top-search" aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" onClick={() => setSearchOpen(true)}>
           <Search size={16} aria-hidden="true" />
-          <input ref={searchInput} name="q" type="search" placeholder="Search pools and tokens" aria-label="Search pools and tokens" autoComplete="off" onChange={(event) => search(event.target.value.trim())} />
-          <kbd>⌘K</kbd>
-        </form>
+          <span className="top-search-label">Search tokens, pools or paste an address</span>
+          <kbd aria-hidden="true">{shortcut}</kbd>
+        </button>
         <div className="topbar-actions">
+          <button type="button" className="icon-btn top-search-icon" aria-haspopup="dialog" aria-label="Search tokens and pools" onClick={() => setSearchOpen(true)}><Search size={18} aria-hidden="true" /></button>
           {/* The TESTNET tag shows only on the testnet preset, and is all that stays on narrow screens. */}
           {network && <span className={`network-pill ${network.id === "testnet" ? "is-testnet" : ""}`}><i className="live-dot" aria-hidden="true" /><span className="network-pill-label">{network.label}</span>{network.id === "testnet" && <span className="testnet-tag">TESTNET</span>}</span>}
           {actions.create_pool && <Link className="icon-btn" href="/pools?create=1" aria-label="Create a pool" onClick={openCreate}><Plus size={18} /></Link>}
@@ -201,5 +193,6 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
     </header>
     {notice && <div className="toast" role="status"><span>{notice}</span>{needsQoreX && <a href={QOREX_INSTALL_URL} target="_blank" rel="noreferrer">Install QoreX</a>}<button type="button" onClick={() => { setNotice(""); setNeedsQoreX(false); }} aria-label="Dismiss notice">×</button></div>}
     {mobileWallet && <QoreXMobileSheet platform={mobileWallet} onClose={closeMobileWallet} />}
+    {searchOpen && <SearchDialog onClose={closeSearch} />}
   </>;
 }

@@ -151,3 +151,29 @@ export function formatChartVolume(value: number) {
   if (!Number.isFinite(value)) return "";
   return Math.abs(value) >= 1_000 ? volumeCompact.format(value) : volumeSmall.format(value);
 }
+
+/** One sparkline point: bucket start in seconds and its closing price. */
+export type SparkPoint = { time: number; price: number };
+
+/**
+ * The last `hours` of a pool's price for a sparkline, from its 1h
+ * `quote_candles`: one point per hour, quiet hours held at the last price.
+ * Fewer than two points (no trade yet, or a first trade this hour) is no line.
+ */
+export function sparkPoints(candles: ChartCandleInput[], hours = 24, nowMs = Date.now()): SparkPoint[] {
+  const bars = buildChartSlots(candles, "1h", nowMs).filter(isChartBar).slice(-(hours + 1));
+  return bars.length < 2 ? [] : bars.map((bar) => ({ time: bar.time, price: bar.close }));
+}
+
+/** A sparkline and whether the pool traded in the window, so "no trades" is said only when it is true. */
+export type SparkSummary = { points: SparkPoint[]; traded: boolean };
+
+/** `sparkPoints` plus `traded`: some 1h candle overlaps the last `hours` (its bucket ends after the cutoff). */
+export function sparkSummary(candles: ChartCandleInput[], hours = 24, nowMs = Date.now()): SparkSummary {
+  const cutoff = nowMs - hours * 3_600_000;
+  const traded = candles.some((candle) => {
+    const start = new Date(candle.start_time).getTime();
+    return Number.isFinite(start) && start + 3_600_000 > cutoff;
+  });
+  return { points: sparkPoints(candles, hours, nowMs), traded };
+}

@@ -10,6 +10,8 @@ import { TokenIcon } from "./TokenIcon";
 import { useFeatures } from "./useFeatures";
 import { useNetworkCopy } from "./NetworkContext";
 import { ChartIntervalTabs } from "./ChartIntervalTabs";
+import { FavoriteButton } from "./FavoriteButton";
+import { useFavorites } from "./useFavorites";
 import { ChartMessage, PoolChart, type PoolCandle } from "./PoolChart";
 import { RecentSwaps, shortAddress, type PoolSwap } from "./RecentSwaps";
 import { formatBaseAmount, withAssetOverrides } from "../lib/qwakk-assets";
@@ -55,6 +57,7 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
   const nativeActions = actions.swap;
   const liquidityActions = actions.add_liquidity || actions.remove_liquidity;
   const [walletAddress, setWalletAddress] = useState("");
+  const favorites = useFavorites();
 
   useEffect(() => {
     const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qwakk-wallet-address") ?? "");
@@ -112,7 +115,7 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
         <section className="pool-head">
           <div className="cell-main">
             <span className="coin-avatar is-large"><TokenIcon denom={base.denom} size="avatar" /><span className="coin-badge"><TokenIcon denom={quote.denom} size="small" /></span></span>
-            <div><span className="kicker">Pool #{pool.id}</span><h1>{pairLabel(pool, " / ")}</h1></div>
+            <div><span className="kicker">Pool #{pool.id}</span><div className="pool-head-title"><h1>{pairLabel(pool, " / ")}</h1><FavoriteButton favorites={favorites} poolId={pool.id} pair={pairLabel(pool)} /></div></div>
           </div>
           {lowLiquidity
             ? <div className="pool-head-price"><span className="stat-label">Latest price</span><strong className="is-muted">Not shown</strong><span className="subtle">Too little liquidity</span></div>

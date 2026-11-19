@@ -6,7 +6,8 @@
  * against QOR) and is never shown. Pure, so the browser and tests share it.
  */
 import { formatTokenAmount, resolveUsableAsset } from "./qwakk-asset-resolve";
-import { curatedAssets } from "./qwakk-assets";
+import { assetForDenom, curatedAssets } from "./qwakk-assets";
+import type { SearchEntry } from "./qwakk-search";
 
 type Num = string | number | null | undefined;
 
@@ -62,6 +63,16 @@ export function marketPrice(market: QuoteMarket) {
 export function priceUnit(market: QuoteMarket) {
   const { base, quote } = marketSides(market);
   return `${quote.symbol} per ${base.symbol}`;
+}
+
+/**
+ * A market as the pool search reads it (lib/qwakk-search.ts): base then quote,
+ * each with its curated name when there is one.
+ */
+export function marketSearchEntry(market: QuoteMarket & { id: string | number }): SearchEntry {
+  const { base, quote } = marketSides(market);
+  const token = (side: MarketSide) => ({ denom: side.denom, symbol: side.symbol, name: assetForDenom(side.denom)?.name ?? null });
+  return { id: String(market.id), tokens: [token(base), token(quote)] };
 }
 
 /** "fETH/QOR", base first. */
