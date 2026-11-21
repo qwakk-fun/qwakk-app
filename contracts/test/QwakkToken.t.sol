@@ -228,7 +228,8 @@ contract QwakkTokenTest is Test {
         uint256 before = token.balanceOf(ERC20_MODULE);
         vm.recordLogs();
         vm.prank(deployer);
-        (bool ok, bytes memory ret) = address(token).call(abi.encodeWithSignature("transfer(address,uint256)", ERC20_MODULE, amount));
+        (bool ok, bytes memory ret) =
+            address(token).call(abi.encodeWithSignature("transfer(address,uint256)", ERC20_MODULE, amount));
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertTrue(ok);
         assertTrue(abi.decode(ret, (bool)));
@@ -305,7 +306,9 @@ contract QwakkTokenTest is Test {
         vm.prank(deployer);
         token.approve(spender, allowed);
         vm.prank(spender);
-        vm.expectRevert(abi.encodeWithSelector(QwakkToken.ERC20InsufficientAllowance.selector, spender, allowed, amount));
+        vm.expectRevert(
+            abi.encodeWithSelector(QwakkToken.ERC20InsufficientAllowance.selector, spender, allowed, amount)
+        );
         token.transferFrom(deployer, alice, amount);
     }
 
@@ -384,7 +387,9 @@ contract QwakkTokenInvariantTest is StdInvariant, Test {
     /// Nothing mints or burns: the holders always own exactly the supply.
     function invariant_BalancesSumToFixedSupply() public view {
         uint256 sum;
-        for (uint256 i = 0; i < actors.length; i++) sum += token.balanceOf(actors[i]);
+        for (uint256 i = 0; i < actors.length; i++) {
+            sum += token.balanceOf(actors[i]);
+        }
         assertEq(sum, 1_000_000_000e6);
         assertEq(token.totalSupply(), 1_000_000_000e6);
     }

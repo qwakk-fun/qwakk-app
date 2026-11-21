@@ -8,6 +8,7 @@ AMM contract.
 
 - Live app (QoreChain Diana testnet): <https://app.qwakk.fun>
 - Landing page: <https://qwakk.fun>
+- Demo video (Build Before Q-Day): <https://www.youtube.com/watch?v=KHhoiTQOtV8>
 
 ## Current status
 
@@ -179,11 +180,26 @@ dApp category. The repository existed before the event started on 4 November
 - 15 November: Pond Vault deployed and tested on Diana (see above).
 - 15 November: the DEX went live at <https://app.qwakk.fun>, and two swaps
   through the live interface were verified on chain (see Current status).
+- 15 November: QCAI audit stage 1, score 85/100, five findings, none needing a
+  code change (report and responses in
+  [contracts/README.md](contracts/README.md#qcai-audit-two-stages)).
+- 15 November: phone users are guided into the QoreX app's dApp browser, and
+  swaps there take one tap (`76313fd`).
+- 18 November: Q-Day Drill. The drill bot held the vault account's classical
+  ECDSA key and swept the 0.745 QOR budget of an EVM window opened on it. The
+  native balance and the 99.995 QOR in the vault stayed untouched, because they
+  need the ML-DSA-87 key. Our proof transaction
+  ([`85A8C909...F4215`](https://explore.qore.network/tx/85A8C9091B9576D6E7841E2E77C209B8A6AF874C7089B5D48338AF0FEEEF4215))
+  was accepted on the project page.
+- 18 November: the QWAKK test token and its deploy CLI (`506db11`), listed in
+  the app with a QWAKK/QOR pool, 4h candles and reworked trade charts
+  (`9b1baf5`).
+- 19 November: tester feedback: exact-output swaps (`8e7f7ae`), token search
+  and favorite pools (`3ef1203`), profit and loss per token on the profile
+  (`811d3ee`, `f7483f6`).
 
-QCAI audit stage 1 ran on 2026-11-15: score 85/100, five findings, none needing a code change (report and responses in [contracts/README.md](contracts/README.md#qcai-audit-two-stages)).
-Not done yet: QCAI audit stage 2, the route that sends interface fees
-into the vault, and the Q-Day Drill run (the drill is registered with the
-vault and its owner account, but has not run).
+Not done yet: QCAI audit stage 2 (the procedure has been requested from
+QoreChain) and the route that sends interface fees into the vault.
 
 ### QoreChain testnet addresses used
 

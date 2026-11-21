@@ -51,8 +51,9 @@ sequenceDiagram
 | Full CLI flow | Rehearsed end to end on a local anvil node with stand-in precompiles (deploy, deposit, queue, approval file, pause, approved unpause, cancel, execute, smoke). |
 | On QoreChain Diana | **Deployed and tested on 2026-11-15.** Deposit, an ML-DSA-87 approved withdrawal checked on chain by `pqcVerify`, and its execution after the timelock all succeeded. See "Diana deployment" below. |
 | Replay on Diana | Not run live: the smoke script stopped after the deposit, and the remaining steps were run by hand without the replay `eth_call`. The vault's nonce advanced to 1 after the queue. Replay rejection is proven by the Foundry tests. |
-| Fee route into the vault | **Pending.** Interface fees go straight to the testnet treasury `qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq` today. `native-send-test` has not been run. |
-| QCAI audit | **Pending.** See "QCAI audit (two stages)". |
+| Fee route into the vault | **Pending.** Interface fees go straight to the testnet treasury `qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq` today. |
+| Q-Day Drill | **Done on 2026-11-18, proof accepted.** See "Diana deployment" below. |
+| QCAI audit | **Stage 1 done** on 2026-11-15: 85/100, 5 findings answered. Stage 2 pending. See "QCAI audit (two stages)". |
 
 ### Diana deployment
 
@@ -77,8 +78,13 @@ QoreChain testnet `qorechain-diana`, EVM chain id 9800. Explorer links use
 | Queue a 0.005 QOR withdrawal with an ML-DSA-87 approval, verified on chain by `pqcVerify` (328,598 gas) | [`4D1B12F1...280AA`](https://explore.qore.network/tx/4D1B12F1BC2B85BAD90430420F2E2DA2C032F06F5F9BA6D520E362134E4280AA) |
 | Execute after the timelock | [`1B6F479D...3C337`](https://explore.qore.network/tx/1B6F479DAA68842C79FFB12CEAD7402DA605BB70D7E862C1715885E36383C337) |
 
-The Q-Day Drill is registered on the project page with the account and the
-vault above. The drill has not run yet.
+The Q-Day Drill ran on 2026-11-18 against the account and the vault above. By
+design the drill bot held the account's classical ECDSA key. It swept the
+0.745 QOR budget of an EVM window we had opened on the account that day. It
+could not touch the account's native balance or the 99.995 QOR in the vault,
+because both need the ML-DSA-87 key. The proof transaction
+[`85A8C909...F4215`](https://explore.qore.network/tx/85A8C9091B9576D6E7841E2E77C209B8A6AF874C7089B5D48338AF0FEEEF4215)
+(a hybrid-signed native send) was accepted on the project page.
 
 ## Layout
 
