@@ -1,3 +1,4 @@
+import { BRAND } from "@/lib/brand";
 import { readAmmParams, readAmmPool, readQuoteExactIn, readQuoteExactOut } from "@/lib/qwakk-amm-chain";
 import { getServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
 import { isBlocked, nativeBlocklist } from "@/lib/qwakk-native-guards";
@@ -20,7 +21,7 @@ const SAFE_INPUT_ERRORS = new Set([
   "A valid pool ID is required",
   "A valid input denom is required",
   "Swap amount must be a positive integer",
-  "Swap amount is too small after the interface fee",
+  `Swap amount is too small after the ${BRAND.name} fee`,
   "Receive amount must be a positive integer",
   "Slippage must be between 1 and 500 bps",
 ]);

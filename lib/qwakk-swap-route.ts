@@ -1,4 +1,5 @@
 import { amm, bank, type EncodeObject } from "@qorechain/sdk";
+import { BRAND } from "./brand";
 
 /**
  * Qwakk's application fee is deliberately separate from the native AMM fee.
@@ -64,7 +65,7 @@ export function buildQwakkSwapRoute(input: SwapRouteInput): QwakkSwapRoute {
   const totalAmount = BigInt(input.amountIn);
   const interfaceFee = (totalAmount * BigInt(feeBps)) / BigInt(10_000);
   const swapAmount = totalAmount - interfaceFee;
-  if (swapAmount <= BigInt(0)) throw new Error("Swap amount is too small after the interface fee");
+  if (swapAmount <= BigInt(0)) throw new Error(`Swap amount is too small after the ${BRAND.name} fee`);
 
   const messages: EncodeObject[] = [];
   if (interfaceFee > BigInt(0)) {
@@ -142,7 +143,7 @@ export function buildQwakkExactOutSwapRoute(input: ExactOutSwapRouteInput): Qwak
   const totalAmount = BigInt(input.amountIn);
   const interfaceFee = (totalAmount * BigInt(feeBps)) / BigInt(10_000);
   const swapAmount = totalAmount - interfaceFee;
-  if (swapAmount <= BigInt(0)) throw new Error("Swap amount is too small after the interface fee");
+  if (swapAmount <= BigInt(0)) throw new Error(`Swap amount is too small after the ${BRAND.name} fee`);
   const maxIn = BigInt(input.maxIn);
   const ceiling = (swapAmount * BigInt(10_000 + MAX_EXACT_OUT_PADDING_BPS) + BigInt(9_999)) / BigInt(10_000);
   if (maxIn < swapAmount || maxIn > ceiling) throw new Error("The maximum input does not match the quote");

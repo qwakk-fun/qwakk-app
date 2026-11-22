@@ -157,7 +157,7 @@ export function SigningProbe() {
       if (success) {
         setVerdict({
           title: `${network.label} accepted the QoreX post-quantum transaction`,
-          detail: `QoreX built, signed and broadcast a 0.000001 QOR transfer to your own address, and it landed in a block with code 0. The wallet path works, and so does the bank transfer ${BRAND.name} uses for its interface fee. Only the network fee was spent.`,
+          detail: `QoreX built, signed and broadcast a 0.000001 QOR transfer to your own address, and it landed in a block with code 0. The wallet path works, and so does the bank transfer behind the ${BRAND.name} fee. Only the network fee was spent.`,
         });
       } else if (height) {
         setVerdict({

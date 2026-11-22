@@ -80,7 +80,7 @@ export function VaultView() {
           <div>
             <span className="kicker">Post-quantum treasury</span>
             <h1>The Pond Vault</h1>
-            <p>A vault on the QoreChain EVM built to hold {BRAND.name}&apos;s interface fees. It is not receiving swap fees yet. Withdrawals and rule changes need two signatures, one of them post-quantum, and a wait anyone can watch.</p>
+            <p>A vault on the QoreChain EVM built to hold {BRAND.name} fees. It is not receiving swap fees yet. Withdrawals and rule changes need two signatures, one of them post-quantum, and a wait anyone can watch.</p>
           </div>
         </section>
 

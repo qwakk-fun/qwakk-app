@@ -63,7 +63,7 @@ test("server-renders the QoreChain Diana quote workspace", async () => {
   assert.match(html, /QoreChain Diana pools/);
   assert.match(html, /Checking QoreChain Diana/);
   assert.match(html, /Price protection/);
-  assert.match(html, /Interface fee/);
+  assert.match(html, /Qwakk fee/);
   assert.match(html, /QOR price in USD/);
   // No wallet action is rendered until native signing works end to end.
   assert.doesNotMatch(html, /Connect wallet to continue|Review live quote|Waiting for first pool|Review swap|Confirm in QoreX/);
@@ -79,13 +79,13 @@ test("server-renders markets without unavailable pool actions", async () => {
   assert.doesNotMatch(html, /Create a Native AMM pool|Prepare pool|MsgCreatePool|Most active|New pool|Create pool/);
 });
 
-test("server-renders the fees page with the interface fee cap", async () => {
+test("server-renders the fees page with the Qwakk fee cap", async () => {
   const response = await render("/fees");
   assert.equal(response.status, 200);
 
   const html = await response.text();
   assert.match(html, /Never more than (<!-- -->)?0\.30%/);
-  assert.match(html, /Interface fee/);
+  assert.match(html, /Qwakk fee/);
   assert.match(html, /Pool fee/);
   assert.match(html, /Price protection is not a fee/);
   assert.doesNotMatch(html, /\u2014/);

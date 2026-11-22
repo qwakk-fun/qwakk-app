@@ -8,7 +8,7 @@ import { QORECHAIN_NETWORK, QORECHAIN_REST_URL } from "../../lib/qorechain-endpo
 
 export const metadata = {
   title: `Fees | ${BRAND.name}`,
-  description: `Every fee on ${BRAND.name}, in plain numbers, with a hard cap on the interface fee.`,
+  description: `Every fee on ${BRAND.name}, in plain numbers, with a hard cap on the ${BRAND.name} fee.`,
 };
 
 function percent(bps: number) {
@@ -63,18 +63,18 @@ export default async function FeesPage() {
           <span className="fee-promise-icon"><ShieldCheck size={22} /></span>
           <div>
             <h2 id="promise-title">Never more than {cap}</h2>
-            <p>The {BRAND.name} interface fee has a hard cap written into the code, so nobody can quietly raise it.</p>
+            <p>The {BRAND.name} fee has a hard cap written into the code, so nobody can quietly raise it.</p>
           </div>
         </section>
 
         <section className="fee-grid" aria-label="Fee breakdown">
           <article className="fee-card">
             <span className="fee-card-icon"><Coins size={18} /></span>
-            <h3>Interface fee</h3>
+            <h3>{`${BRAND.name} fee`}</h3>
             <strong className="num">{fee.enabled ? interfacePct : "None today"}</strong>
             <p>{fee.enabled
               ? `Taken from the amount you pay and sent to the public ${BRAND.name} treasury as a separate transfer inside your swap transaction. Listed on every quote before you sign. QoreX may show the transfer without the amount.`
-              : `${BRAND.name} charges no interface fee right now. Once it is switched on it will be ${interfacePct} of the amount you pay, listed on every quote before you sign.`}</p>
+              : `There is no ${BRAND.name} fee right now. Once it is switched on it will be ${interfacePct} of the amount you pay, listed on every quote before you sign.`}</p>
             {fee.enabled && <p className="fee-address"><span>Treasury</span><code>{fee.recipient}</code></p>}
           </article>
           <article className="fee-card">
@@ -98,11 +98,11 @@ export default async function FeesPage() {
           <section className="panel" aria-labelledby="example-title">
             <div className="panel-head"><span className="panel-title" id="example-title">Example: paying {qor(EXAMPLE_QOR)}</span></div>
             <div className="info-list">
-              <div><span>Interface fee</span><b className="num">{fee.enabled ? qor(exampleInterface) : "None"}</b></div>
+              <div><span>{`${BRAND.name} fee`}</span><b className="num">{fee.enabled ? qor(exampleInterface) : "None"}</b></div>
               <div><span>Pool fee</span><b className="num">{examplePool === null ? "Shown on the quote" : `About ${qor(examplePool)}`}</b></div>
               <div><span>Network fee</span><b>Shown in QoreX</b></div>
             </div>
-            <p className="panel-note">The pool fee applies to the amount that reaches the pool, after the interface fee.{testnet && ` On ${QORECHAIN_NETWORK.label}, every fee is paid in test tokens with no value.`}</p>
+            <p className="panel-note">The pool fee applies to the amount that reaches the pool, after the {BRAND.name} fee.{testnet && ` On ${QORECHAIN_NETWORK.label}, every fee is paid in test tokens with no value.`}</p>
           </section>
           <section className="panel fee-note" aria-labelledby="protection-title">
             <div className="panel-head"><span className="panel-title" id="protection-title"><Gauge size={16} />Price protection is not a fee</span></div>

@@ -1,6 +1,7 @@
 import type { AmmParams, AmmPool, ChainExactOutQuote, ChainQuote, QuoteFailure } from "@/lib/qwakk-amm-chain";
 import { constantProductIn, constantProductOut, curveImpactBps, maxSwapInForImpact, maxTotalForSwapIn, priceImpactBps, totalForSwapIn } from "@/lib/qwakk-amm-math";
 import type { ServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
+import { BRAND } from "@/lib/brand";
 
 /** 0.50%: the default price protection for a swap. */
 export const DEFAULT_SLIPPAGE_BPS = 50;
@@ -67,7 +68,7 @@ export function buildExactInQuoteRequest(input: ExactInQuoteInput): ExactInQuote
     : BigInt(0);
   const swapAmount = totalAmount - interfaceFee;
 
-  if (swapAmount <= BigInt(0)) throw new Error("Swap amount is too small after the interface fee");
+  if (swapAmount <= BigInt(0)) throw new Error(`Swap amount is too small after the ${BRAND.name} fee`);
 
   return {
     poolId: input.poolId,

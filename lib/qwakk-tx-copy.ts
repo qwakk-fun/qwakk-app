@@ -90,7 +90,7 @@ export function qorexNetworkCopy(network?: Pick<CopyNetwork, "id"> | null, mobil
  * QoreX lists the fee as its own transfer, so this names it in plain words.
  */
 export function interfaceFeeTransferCopy(amount: string, brandName: string) {
-  return `This transaction includes an interface fee of ${amount}. In QoreX it shows up as a transfer to the ${brandName} treasury.`;
+  return `This transaction includes a ${brandName} fee of ${amount}. In QoreX it shows up as a transfer to the ${brandName} treasury.`;
 }
 
 /** A quote whose minimum is 0 base units: signing it could return nothing. */

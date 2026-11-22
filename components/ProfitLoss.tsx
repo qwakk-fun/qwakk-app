@@ -196,6 +196,6 @@ export function ProfitLoss({ pnl }: { pnl: Pnl }) {
         </div>}
       </>}
 
-    {report && !noSwaps && <p className="panel-note">All figures in QOR at current pool prices, using your average buy price. Tokens with no known buy price never count as profit. {BRAND.name}&apos;s 0.10% interface fee is not included.</p>}
+    {report && !noSwaps && <p className="panel-note">All figures in QOR at current pool prices, using your average buy price. Tokens with no known buy price never count as profit. The 0.10% {BRAND.name} fee is not included.</p>}
   </section>;
 }
