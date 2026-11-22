@@ -138,7 +138,7 @@ export function PointsWalletView({ address }: { address: string }) {
         <span className="stat-label">{POINTS_WALLET.rankLabel}</span>
         {data.ranked && data.rank !== null
           ? <span className="stat-value num">{POINTS_WALLET.rankValue(formatCount(data.rank), formatCount(data.season.participants))}</span>
-          : <><span className="stat-value">{POINTS_WALLET.unrankedTitle}</span><span className="subtle">{POINTS_WALLET.unrankedBody}</span></>}
+          : <><span className="stat-value">{data.flagged ? POINTS_WALLET.flaggedTitle : POINTS_WALLET.unrankedTitle}</span><span className="subtle">{data.flagged ? POINTS_WALLET.flaggedBody : POINTS_WALLET.unrankedBody}</span></>}
       </div>
       <div className="stat-card stat">
         <span className="stat-label">{POINTS_WALLET.totalLabel}</span>

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseLiquidityEvent, parseSwapEvent, transactionSender, eventValues } from "../indexer/amm-events";
-import { loadPointsConfig, type PointsEnv } from "../indexer/points-config";
-import { bandedBps, formatPoints, scoreSeason, type ScoringInput, type ScoringLiquidityEvent, type ScoringLpSnapshot, type ScoringSwap } from "../indexer/points-scoring";
+import { parseLiquidityEvent, parseSwapEvent, senderTransfers, transactionSender, transfersOf, eventValues } from "../indexer/amm-events";
+import { splitPrunedHeights } from "../indexer/block-sync";
+import { describePointsConfig, loadPointsConfig, type PointsEnv } from "../indexer/points-config";
+import { bandedBps, formatPoints, madeWithoutAnyTransfer, minimumInterfaceFee, paidInterfaceFee, scoreSeason, type ScoringInput, type ScoringLiquidityEvent, type ScoringLpSnapshot, type ScoringSwap } from "../indexer/points-scoring";
 
 const addr = (name: string) => `qor1${name.padEnd(38, "q")}`;
 const ALICE = addr("alice"); // steady trader
@@ -122,7 +123,9 @@ function fixtureSeason(): ScoringInput {
   };
 }
 
-const testEnv: PointsEnv = { QWAKK_POINTS_EXCLUDED_ADDRESSES: OWNER };
+// The fixture was written for a 10,000 QOR daily ceiling; the default is now 2,000 (tested below).
+// No treasury is set, so the interface fee rule is off for the fixture.
+const testEnv: PointsEnv = { QWAKK_POINTS_EXCLUDED_ADDRESSES: OWNER, QWAKK_POINTS_SWAP_DAILY_MAX_QOR: "10000" };
 const config = (env: PointsEnv = {}) => loadPointsConfig({ ...testEnv, ...env }).config;
 const byAddress = (result: ReturnType<typeof scoreSeason>) => new Map(result.addresses.map((entry) => [entry.address, entry]));
 const points = (micro: bigint | undefined) => (micro === undefined ? undefined : formatPoints(micro));
@@ -248,6 +251,8 @@ test("reads the config from the environment and falls back on invalid values", (
   assert.equal(defaults.enabled, false);
   assert.equal(defaults.season, "testnet-1");
   assert.equal(defaults.minSwapUqor, BigInt(1_000_000));
+  assert.equal(defaults.swapDailyFullUqor, BigInt(1_000_000_000));
+  assert.equal(defaults.swapDailyMaxUqor, BigInt(2_000_000_000));
   assert.equal(defaults.lpPointsPerQorHourPpm, BigInt(10_000));
   assert.deepEqual(none, []);
 
@@ -300,4 +305,337 @@ test("finds the signer from standard transaction events and parses coin form swa
 
   const parsed = parseSwapEvent(eventValues(chainEvent("amm_swap", { pool_id: "1", tokens_in: "1000000uqor", tokens_out: "1990000utest" })), BOB);
   assert.deepEqual(parsed, { poolId: "1", sender: BOB, denomIn: "uqor", amountIn: "1000000", denomOut: "utest", amountOut: "1990000" });
+});
+
+// Anti-bot rules.
+
+const TREASURY = addr("treasury");
+const KIM = addr("kim");
+const LEO = addr("leo");
+const MIA = addr("mia");
+const NED = addr("ned");
+const OLA = addr("ola");
+const PIA = addr("pia");
+/** Fee rule on, as on the testnet indexer. */
+const feeEnv: PointsEnv = { QWAKK_TREASURY_ADDRESS: TREASURY };
+const NEW_TREASURY = addr("newtreasury");
+const atSec = (hours: number, seconds: number) => new Date(T0 + hours * 3_600_000 + seconds * 1000).toISOString();
+
+/** A swap as the Qwakk app sends it: the fee transfer (`feeBps` of the total, 10 by default) to the treasury in the same transaction. */
+function uiSwap(sender: string, poolId: string, time: string, side: "buy" | "sell", qorAmount: number, treasury = TREASURY, feeBps = 10): ScoringSwap {
+  const base = swap(sender, poolId, time, side, qorAmount);
+  const amountIn = BigInt(base.amountIn);
+  const total = (amountIn * BigInt(10000)) / BigInt(10000 - feeBps);
+  const fee = String((total * BigInt(feeBps)) / BigInt(10000));
+  return { ...base, feeCheck: "checked", senderTransfers: { [treasury]: { [base.denomIn]: fee } } };
+}
+/** A swap sent to x/amm directly: checked, the sender sent nothing else. */
+function directSwap(sender: string, poolId: string, time: string, side: "buy" | "sell", qorAmount: number): ScoringSwap {
+  return { ...swap(sender, poolId, time, side, qorAmount), feeCheck: "checked", senderTransfers: {} };
+}
+
+function season(swaps: ScoringSwap[], extra: Partial<ScoringInput> = {}): ScoringInput {
+  return {
+    throughHeight: heightOf(at(72)),
+    pools: [{ id: "1", tokenA: "uqor", tokenB: "utest", creator: CAROL, createdHeight: heightOf(at(0)) }],
+    swaps,
+    liquidityEvents: [liquidity("pool_created", CAROL, "1", at(0), "500000", 1000)],
+    lpSnapshots: [],
+    ...extra,
+  };
+}
+
+test("reads the anti-bot settings from the environment", () => {
+  const { config: defaults, warnings } = loadPointsConfig(feeEnv);
+  assert.deepEqual(warnings, []);
+  assert.equal(defaults.requireInterfaceFee, true);
+  assert.deepEqual(defaults.feeRecipients, [TREASURY]);
+  assert.equal(defaults.minInterfaceFeeBps, 10);
+  assert.equal(defaults.oneSwapPerTx, true);
+  assert.equal(defaults.minSwapGapSeconds, 60);
+  assert.equal(defaults.botBatchMinSwaps, 2);
+  assert.equal(defaults.botBurstMinSwaps, 10);
+  assert.equal(defaults.botBurstMedianGapSeconds, 30);
+  assert.equal(defaults.botDirectMinSwaps, 5);
+  assert.deepEqual(defaults.botAddresses, []);
+  assert.ok(defaults.excludedAddresses.includes(TREASURY));
+
+  // Without a treasury the app charges no fee, so there is nothing to check: off, and silent unless asked for.
+  assert.equal(loadPointsConfig({}).config.requireInterfaceFee, false);
+  const asked = loadPointsConfig({ QWAKK_POINTS_REQUIRE_INTERFACE_FEE: "enabled" });
+  assert.equal(asked.config.requireInterfaceFee, false);
+  assert.equal(asked.warnings.length, 1);
+  // The app's own fee setting is not read: a fee switched off or out of range in the app changes nothing here.
+  assert.deepEqual(loadPointsConfig({ ...feeEnv, QWAKK_SWAP_FEE_BPS: "50" }), loadPointsConfig(feeEnv));
+  // Past treasuries are accepted fee recipients and kept off the leaderboard.
+  const rotated = loadPointsConfig({ QWAKK_TREASURY_ADDRESS: NEW_TREASURY, QWAKK_POINTS_PAST_TREASURY_ADDRESSES: TREASURY.toUpperCase() }).config;
+  assert.deepEqual(rotated.feeRecipients, [NEW_TREASURY, TREASURY].sort());
+  assert.ok(rotated.excludedAddresses.includes(TREASURY));
+  assert.equal(loadPointsConfig({ ...feeEnv, QWAKK_POINTS_MIN_INTERFACE_FEE_BPS: "5" }).config.minInterfaceFeeBps, 5);
+
+  const { config: custom, warnings: customWarnings } = loadPointsConfig({
+    ...feeEnv,
+    QWAKK_POINTS_REQUIRE_INTERFACE_FEE: "disabled",
+    QWAKK_POINTS_MIN_SWAP_GAP_SECONDS: "120",
+    QWAKK_POINTS_BOT_BATCH_MIN_SWAPS: "0",
+    QWAKK_POINTS_BOT_BURST_MIN_SWAPS: "20",
+    QWAKK_POINTS_BOT_BURST_MEDIAN_GAP_SECONDS: "15",
+    QWAKK_POINTS_BOT_DIRECT_MIN_SWAPS: "3",
+    QWAKK_POINTS_BOT_ADDRESSES: `${KIM.toUpperCase()}, nope`,
+    QWAKK_POINTS_BOT_ALLOWLIST: LEO,
+  });
+  assert.deepEqual(customWarnings, []);
+  assert.equal(custom.requireInterfaceFee, false);
+  assert.equal(custom.minSwapGapSeconds, 120);
+  assert.equal(custom.botBatchMinSwaps, 0);
+  assert.equal(custom.botBurstMinSwaps, 20);
+  assert.equal(custom.botBurstMedianGapSeconds, 15);
+  assert.equal(custom.botDirectMinSwaps, 3);
+  assert.deepEqual(custom.botAddresses, [KIM]);
+  assert.deepEqual(custom.botAllowlist, [LEO]);
+
+  const bad = loadPointsConfig({ ...feeEnv, QWAKK_POINTS_REQUIRE_INTERFACE_FEE: "maybe", QWAKK_POINTS_MIN_SWAP_GAP_SECONDS: "-1", QWAKK_POINTS_MIN_INTERFACE_FEE_BPS: "31" });
+  assert.equal(bad.config.requireInterfaceFee, true);
+  assert.equal(bad.config.minSwapGapSeconds, 60);
+  assert.equal(bad.config.minInterfaceFeeBps, 10);
+  assert.equal(bad.warnings.length, 3);
+});
+
+test("the default daily ceiling is 2,000 QOR", () => {
+  const dave = byAddress(scoreSeason(fixtureSeason(), loadPointsConfig({ QWAKK_POINTS_EXCLUDED_ADDRESSES: OWNER }).config)).get(DAVE);
+  // 20,000 QOR in one day: 1,000 at full rate, 1,000 at 20%, the rest not at all.
+  assert.equal(points(dave?.swapMicro), "1200");
+});
+
+test("the rules version changes with the anti-bot settings", () => {
+  const describe = (env: PointsEnv) => JSON.stringify(describePointsConfig(loadPointsConfig(env).config));
+  assert.notEqual(describe(feeEnv), describe({ ...feeEnv, QWAKK_POINTS_MIN_SWAP_GAP_SECONDS: "30" }));
+  assert.notEqual(describe(feeEnv), describe({ ...feeEnv, QWAKK_POINTS_BOT_BURST_MIN_SWAPS: "11" }));
+  assert.notEqual(describe(feeEnv), describe({ ...feeEnv, QWAKK_POINTS_REQUIRE_INTERFACE_FEE: "disabled" }));
+  assert.notEqual(describe(feeEnv), describe({ ...feeEnv, QWAKK_POINTS_PAST_TREASURY_ADDRESSES: NEW_TREASURY }));
+  assert.notEqual(describe(feeEnv), describe({ ...feeEnv, QWAKK_POINTS_MIN_INTERFACE_FEE_BPS: "5" }));
+});
+
+test("checks the interface fee with room for rounding and exact-out swaps", () => {
+  const cfg = config(feeEnv);
+  // 1,000 QOR swap leg: floor(1e9 * 10 / 10500) = 952,380 uqor at least.
+  assert.equal(minimumInterfaceFee(BigInt(1_000_000_000), 10, 500), BigInt(952_380));
+  // A fee that rounds to 0 still needs a transfer.
+  assert.equal(minimumInterfaceFee(BigInt(50), 10, 500), BigInt(1));
+  const paid = (amount: string, recipient = TREASURY, denom = "uqor") => ({ denomIn: "uqor", amountIn: "1000000000", feeCheck: "checked" as const, senderTransfers: { [recipient]: { [denom]: amount } } });
+  assert.equal(paidInterfaceFee(paid("1001001"), cfg), true);
+  assert.equal(paidInterfaceFee(paid("952380"), cfg), true);
+  assert.equal(paidInterfaceFee(paid("952379"), cfg), false);
+  assert.equal(paidInterfaceFee(paid("0"), cfg), false);
+  assert.equal(paidInterfaceFee(paid("1001001", ALICE), cfg), false);
+  assert.equal(paidInterfaceFee(paid("1001001", TREASURY, "utest"), cfg), false);
+  assert.equal(paidInterfaceFee({ ...paid("1001001"), feeCheck: null }, cfg), false);
+  assert.equal(paidInterfaceFee({ ...paid("1001001"), feeCheck: "unavailable" }, cfg), false);
+  // Only an empty transfer list is plain x/amm use; a fee sent anywhere is not.
+  assert.equal(madeWithoutAnyTransfer({ ...paid("1"), senderTransfers: {} }), true);
+  assert.equal(madeWithoutAnyTransfer(paid("1", ALICE)), false);
+  assert.equal(madeWithoutAnyTransfer({ ...paid("1"), feeCheck: "unavailable", senderTransfers: null }), false);
+});
+
+test("keeps the transfers a sender made outside AMM messages", () => {
+  // Shape of a Qwakk swap on QoreChain Diana (RPC block_results, height 10508374): network fee, fee transfer, then the swap.
+  const events = [
+    chainEvent("transfer", { recipient: addr("feecollector"), sender: KIM, amount: "56835uqor" }),
+    chainEvent("transfer", { recipient: TREASURY, sender: KIM, amount: "2500000uqor", msg_index: "0" }),
+    chainEvent("transfer", { recipient: addr("pool"), sender: KIM, amount: "2497500000uqor", msg_index: "1" }),
+    chainEvent("transfer", { recipient: KIM, sender: addr("pool"), amount: "5utest", msg_index: "1" }),
+    chainEvent("amm_swap", { pool_id: "6", sender: KIM, denom_in: "uqor", amount_in: "2497500000", denom_out: "utest", amount_out: "5", msg_index: "1" }),
+    chainEvent("transfer", { recipient: TREASURY, sender: LEO, amount: "7utest,3uqor", msg_index: "2" }),
+    chainEvent("transfer", { recipient: TREASURY, sender: LEO.toUpperCase(), amount: "1utest", msg_index: "3" }),
+  ];
+  const bySender = senderTransfers(events);
+  assert.deepEqual(transfersOf(bySender, KIM), { [TREASURY]: { uqor: "2500000" } });
+  assert.deepEqual(transfersOf(bySender, LEO), { [TREASURY]: { utest: "8", uqor: "3" } });
+  assert.deepEqual(transfersOf(bySender, MIA), {});
+  assert.deepEqual(transfersOf(bySender, null), {});
+  // A batch of swaps with no other message: nothing remains.
+  assert.deepEqual(transfersOf(senderTransfers(events.slice(2, 5)), KIM), {});
+});
+
+test("a treasury rotation keeps past swaps counted when the old address is listed", () => {
+  const input = season([
+    uiSwap(KIM, "1", at(1), "buy", 100, TREASURY),
+    uiSwap(KIM, "1", at(25), "buy", 100, NEW_TREASURY),
+    ...Array.from({ length: 6 }, (_, index) => uiSwap(LEO, "1", at(2 + index), "buy", 10, TREASURY)),
+  ]);
+  const before = scoreSeason({ ...input, swaps: input.swaps.filter((entry) => entry.height < heightOf(at(24))) }, config(feeEnv));
+  const rotated = config({ QWAKK_TREASURY_ADDRESS: NEW_TREASURY, QWAKK_POINTS_PAST_TREASURY_ADDRESSES: TREASURY });
+  const after = byAddress(scoreSeason(input, rotated));
+  assert.equal(points(after.get(KIM)?.swapMicro), "200");
+  assert.equal(points(after.get(LEO)?.swapMicro), points(byAddress(before).get(LEO)?.swapMicro));
+  // Rotated without listing the old address: those swaps stop counting, but nobody is flagged as direct.
+  const unlisted = scoreSeason(input, config({ QWAKK_TREASURY_ADDRESS: NEW_TREASURY }));
+  assert.deepEqual(unlisted.flagged, []);
+  assert.equal(points(byAddress(unlisted).get(KIM)?.swapMicro), "100");
+});
+
+test("raising the app fee changes no past result", () => {
+  const input = season([
+    uiSwap(KIM, "1", at(1), "buy", 100, TREASURY, 10),
+    uiSwap(KIM, "1", at(25), "buy", 100, TREASURY, 30), // after the app fee went up to 30 bps
+  ]);
+  const before = scoreSeason(input, config(feeEnv));
+  assert.deepEqual(scoreSeason(input, config({ ...feeEnv, QWAKK_SWAP_FEE_BPS: "30" })), before);
+  assert.equal(points(byAddress(before).get(KIM)?.swapMicro), "200");
+});
+
+test("with the fee rule off, plain x/amm use flags nobody", () => {
+  const swaps = Array.from({ length: 6 }, (_, index) => directSwap(KIM, "1", at(1 + index), "buy", 10));
+  assert.deepEqual(scoreSeason(season(swaps), config(feeEnv)).flagged, [{ address: KIM, reasons: ["direct_swaps"] }]);
+  const off = scoreSeason(season(swaps), config({ ...feeEnv, QWAKK_POINTS_REQUIRE_INTERFACE_FEE: "disabled" }));
+  assert.deepEqual(off.flagged, []);
+  assert.equal(points(byAddress(off).get(KIM)?.swapMicro), "60");
+  // No treasury at all turns the rule, and the signal, off too.
+  assert.deepEqual(scoreSeason(season(swaps), config()).flagged, []);
+});
+
+test("swaps in blocks the node no longer keeps are given up, not counted and never direct", () => {
+  assert.deepEqual(splitPrunedHeights([5, 10, 15], 10), { pruned: [5], readable: [10, 15] });
+  assert.deepEqual(splitPrunedHeights([5, 10], 0), { pruned: [], readable: [5, 10] });
+  const gone = Array.from({ length: 6 }, (_, index): ScoringSwap => ({ ...swap(KIM, "1", at(1 + index), "buy", 10), feeCheck: "unavailable", senderTransfers: null }));
+  const result = scoreSeason(season(gone), config(feeEnv));
+  assert.deepEqual(result.flagged, []);
+  assert.equal(byAddress(result).has(KIM), false);
+});
+
+test("only swaps made through Qwakk count", () => {
+  const input = season([
+    uiSwap(KIM, "1", at(1), "buy", 100),
+    directSwap(LEO, "1", at(1), "buy", 100),
+    { ...swap(MIA, "1", at(1), "buy", 100), feeCheck: null, senderTransfers: null }, // not checked yet
+    uiSwap(NED, "1", at(1), "buy", 100, ALICE), // paid someone else
+  ]);
+  const result = scoreSeason(input, config(feeEnv));
+  const scores = byAddress(result);
+  assert.equal(points(scores.get(KIM)?.swapMicro), "100");
+  assert.equal(points(scores.get(KIM)?.activityMicro), "50");
+  // Direct and unchecked swaps score nothing and do not make a day active.
+  assert.equal(scores.has(LEO), false);
+  assert.equal(scores.has(MIA), false);
+  assert.equal(scores.has(NED), false);
+  assert.deepEqual(result.flagged, []);
+
+  // With the rule off the same data scores all four.
+  const off = byAddress(scoreSeason(input, config({ ...feeEnv, QWAKK_POINTS_REQUIRE_INTERFACE_FEE: "disabled" })));
+  assert.equal(points(off.get(LEO)?.swapMicro), "100");
+  assert.equal(points(off.get(MIA)?.swapMicro), "100");
+});
+
+test("reports ignored volume by reason next to counted volume", () => {
+  const result = scoreSeason(season([
+    uiSwap(KIM, "1", atSec(1, 0), "buy", 100),
+    directSwap(KIM, "1", atSec(2, 0), "buy", 40),
+    uiSwap(KIM, "1", atSec(3, 0), "buy", 50),
+    uiSwap(KIM, "1", atSec(3, 20), "buy", 30),
+  ]), config(feeEnv));
+  const kim = byAddress(result).get(KIM);
+  assert.equal(kim?.swapVolumeUqor, BigInt(qor(150)));
+  assert.deepEqual(kim?.ignoredSwapVolumeUqor, { notOnQwakk: BigInt(qor(40)), extraInTx: BigInt(0), tooSoon: BigInt(qor(30)) });
+});
+
+test("only the first swap of a transaction counts", () => {
+  const first = uiSwap(KIM, "1", at(1), "buy", 100);
+  const second = { ...uiSwap(KIM, "1", at(1), "buy", 300), txHash: first.txHash, eventIndex: 9 };
+  // The batch signal is off here so the per-swap rule shows on its own.
+  const kim = byAddress(scoreSeason(season([second, first]), config({ ...feeEnv, QWAKK_POINTS_BOT_BATCH_MIN_SWAPS: "0" }))).get(KIM);
+  assert.equal(points(kim?.swapMicro), "100");
+  assert.equal(kim?.ignoredSwapVolumeUqor.extraInTx, BigInt(qor(300)));
+});
+
+test("a swap too soon after the previous counted swap scores nothing", () => {
+  const kim = byAddress(scoreSeason(season([
+    uiSwap(KIM, "1", atSec(1, 0), "buy", 10),
+    uiSwap(KIM, "1", atSec(1, 30), "buy", 20), // 30 s after a counted swap
+    uiSwap(KIM, "1", atSec(1, 61), "buy", 40), // 61 s after the last counted swap
+    uiSwap(KIM, "1", atSec(1, 100), "buy", 80), // 39 s after the last counted swap
+  ]), config(feeEnv))).get(KIM);
+  assert.equal(points(kim?.swapMicro), "50");
+  assert.equal(kim?.ignoredSwapVolumeUqor.tooSoon, BigInt(qor(100)));
+
+  // The gap is measured from the last counted swap in any pool, and 0 turns it off.
+  const off = byAddress(scoreSeason(season([uiSwap(KIM, "1", atSec(1, 0), "buy", 10), uiSwap(KIM, "1", atSec(1, 30), "buy", 20)]), config({ ...feeEnv, QWAKK_POINTS_MIN_SWAP_GAP_SECONDS: "0" }))).get(KIM);
+  assert.equal(points(off?.swapMicro), "30");
+});
+
+test("swaps that do not count still reveal a round trip", () => {
+  // A counted buy reversed straight on x/amm two minutes later: the counted leg is still a round trip.
+  const kim = byAddress(scoreSeason(season([
+    uiSwap(KIM, "1", atSec(1, 0), "buy", 100),
+    directSwap(KIM, "1", atSec(1, 120), "sell", 100),
+  ]), config(feeEnv))).get(KIM);
+  assert.equal(kim?.roundTripVolumeUqor, BigInt(qor(100)));
+  assert.equal(points(kim?.swapMicro), "10");
+});
+
+test("direct and throttled swaps do not unlock the pool bonus", () => {
+  const traders = [KIM, LEO, MIA, NED];
+  const base = traders.map((trader, index) => uiSwap(trader, "1", at(1, index), "buy", 5));
+  // The fifth trader only swaps directly, or only too soon after a counted swap in another pool.
+  const direct = scoreSeason(season([...base, directSwap(OLA, "1", at(2), "buy", 5)]), config(feeEnv));
+  assert.equal(direct.pools[0].status, "locked");
+  assert.equal(direct.pools[0].distinctTraders, 4);
+
+  const pools = [
+    { id: "1", tokenA: "uqor", tokenB: "utest", creator: CAROL, createdHeight: heightOf(at(0)) },
+    { id: "2", tokenA: "uqor", tokenB: "uzzz", creator: PIA, createdHeight: heightOf(at(0)) },
+  ];
+  const throttled = scoreSeason(season([...base, uiSwap(OLA, "2", atSec(2, 0), "buy", 5), uiSwap(OLA, "1", atSec(2, 20), "buy", 5)], { pools }), config(feeEnv));
+  assert.equal(throttled.pools.find((pool) => pool.poolId === "1")?.status, "locked");
+
+  const counted = scoreSeason(season([...base, uiSwap(OLA, "1", at(2), "buy", 5)]), config(feeEnv));
+  assert.equal(counted.pools[0].status, "unlocked");
+});
+
+test("flags batch, burst and direct bots and leaves them off the leaderboard", () => {
+  const batch = uiSwap(KIM, "1", at(1), "buy", 100);
+  const swaps: ScoringSwap[] = [
+    // Kim: one transaction with two swaps.
+    batch,
+    { ...uiSwap(KIM, "1", at(1), "buy", 100), txHash: batch.txHash, eventIndex: 5 },
+    // Leo: 10 Qwakk swaps 20 s apart on one day.
+    ...Array.from({ length: 10 }, (_, index) => uiSwap(LEO, "1", atSec(2, index * 20), "buy", 50)),
+    // Mia: 5 swaps without the interface fee, an hour apart.
+    ...Array.from({ length: 5 }, (_, index) => directSwap(MIA, "1", at(3 + index), "buy", 50)),
+    // Ned: 10 swaps 40 s apart, 9 swaps 5 s apart the next day, then 4 direct and 3 unchecked swaps an hour apart: not flagged.
+    ...Array.from({ length: 10 }, (_, index) => uiSwap(NED, "1", atSec(4, index * 40), "buy", 5)),
+    ...Array.from({ length: 9 }, (_, index) => uiSwap(NED, "1", atSec(26, index * 5), "buy", 5)),
+    ...Array.from({ length: 4 }, (_, index) => directSwap(NED, "1", at(50 + index), "buy", 5)),
+    ...Array.from({ length: 3 }, (_, index): ScoringSwap => ({ ...swap(NED, "1", at(60 + index), "buy", 5), feeCheck: null, senderTransfers: null })),
+    // Ola: a normal trader who also helps unlock pool 1.
+    uiSwap(OLA, "1", at(5), "buy", 20),
+  ];
+  // Leo also holds liquidity; a flag removes all of an address's points.
+  const lpSnapshots = snapshots(LEO, "1", 0, 10, "500000");
+  const result = scoreSeason(season(swaps, { lpSnapshots }), config(feeEnv));
+  assert.deepEqual(result.flagged, [
+    { address: KIM, reasons: ["batch_swaps"] },
+    { address: LEO, reasons: ["burst_trading"] },
+    { address: MIA, reasons: ["direct_swaps"] },
+  ].sort((a, b) => a.address.localeCompare(b.address)));
+  const ranked = result.addresses.map((entry) => entry.address);
+  assert.deepEqual(new Set(ranked), new Set([NED, OLA, CAROL]));
+  assert.equal(result.daily.some((row) => [KIM, LEO, MIA].includes(row.address)), false);
+  // Flagged traders are not pool traders: only Ned and Ola count.
+  assert.equal(result.pools[0].distinctTraders, 2);
+  // Ranks stay contiguous without the flagged addresses.
+  assert.deepEqual(result.addresses.map((entry) => entry.rank), [1, 2, 3]);
+});
+
+test("the manual list always flags and the allowlist stops automatic flags", () => {
+  const swaps = [
+    ...Array.from({ length: 10 }, (_, index) => uiSwap(LEO, "1", atSec(2, index * 20), "buy", 50)),
+    uiSwap(KIM, "1", at(1), "buy", 100),
+  ];
+  const result = scoreSeason(season(swaps), config({ ...feeEnv, QWAKK_POINTS_BOT_ADDRESSES: `${KIM},${MIA}`, QWAKK_POINTS_BOT_ALLOWLIST: `${LEO},${MIA}` }));
+  // Kim is listed; Mia is listed and allowlisted (the list wins) without any swap; Leo's burst is allowed.
+  assert.deepEqual(result.flagged, [{ address: KIM, reasons: ["manual"] }, { address: MIA, reasons: ["manual"] }].sort((a, b) => a.address.localeCompare(b.address)));
+  assert.equal(byAddress(result).has(KIM), false);
+  assert.equal(byAddress(result).has(LEO), true);
+  // Excluded addresses are never reported as flagged.
+  assert.deepEqual(scoreSeason(season(swaps.slice(-1)), config({ ...feeEnv, QWAKK_POINTS_BOT_ADDRESSES: OWNER })).flagged, []);
 });

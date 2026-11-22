@@ -118,3 +118,18 @@ export async function verifyEventSearch(referenceHeight: number | null, findHeig
   if (referenceHeight === null || !Number.isSafeInteger(referenceHeight) || referenceHeight <= 0) return false;
   return (await findHeights(referenceHeight, referenceHeight)).includes(referenceHeight);
 }
+
+/**
+ * Splits heights waiting for a fee check into those the node no longer keeps
+ * and those it can still serve. The node's own earliest kept height is a
+ * positive answer that older blocks are gone, so their swaps are given up for
+ * good instead of being retried on every pass. An unknown earliest height (0)
+ * gives up nothing.
+ */
+export function splitPrunedHeights(heights: number[], earliestHeight: number) {
+  const keepsAll = !Number.isSafeInteger(earliestHeight) || earliestHeight <= 1;
+  return {
+    pruned: keepsAll ? [] : heights.filter((height) => height < earliestHeight),
+    readable: keepsAll ? heights : heights.filter((height) => height >= earliestHeight),
+  };
+}

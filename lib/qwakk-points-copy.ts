@@ -58,11 +58,13 @@ export const POINTS_RULES = {
       title: "Swaps",
       lines: [
         "1 point for every QOR you swap.",
+        `Only swaps made on ${brand} count.`,
         "The QOR side of a swap must be at least 1 QOR.",
-        "Each day: full points on your first 1,000 QOR, 20% from 1,000 to 10,000 QOR, nothing above 10,000 QOR.",
+        "Each day: full points on your first 1,000 QOR, 20% from 1,000 to 2,000 QOR, nothing above 2,000 QOR.",
+        "Quick repeat swaps within a minute of your last counted swap do not earn points.",
         "Swap back in the same pool within 30 minutes and both swaps count at 10%.",
       ],
-      example: "Example: you swap 3,000 QOR in one day. The first 1,000 QOR score 1,000 points, the next 2,000 QOR score 400. Total: 1,400 points.",
+      example: "Example: you swap 3,000 QOR in one day. The first 1,000 QOR score 1,000 points, the next 1,000 QOR score 200 and the last 1,000 QOR score nothing. Total: 1,200 points.",
     },
     {
       key: "liquidity",
@@ -95,6 +97,7 @@ export const POINTS_RULES = {
     "Only pools paired with QOR score for now.",
     "Days run on UTC.",
     `${brand}'s own wallets are not ranked.`,
+    "Wallets that look automated are not ranked for the season.",
     "Tied scores go to the wallet that started first.",
     "Every update recalculates the whole season, so totals and ranks can move up or down.",
   ],
@@ -168,6 +171,8 @@ export const POINTS_WALLET = {
   totalLabel: "Points",
   unrankedTitle: "Not ranked yet",
   unrankedBody: "No counted activity this season so far.",
+  flaggedTitle: "Not ranked",
+  flaggedBody: "This wallet looks automated, so it is not ranked this season.",
   breakdownTitle: "Where the points come from",
   loading: "Counting this wallet's points…",
   invalid: {
@@ -182,7 +187,7 @@ export const POINTS_WALLET = {
 } as const;
 
 export const POINTS_STATS = {
-  swapVolume: { label: "Counted swap volume", value: (qor: string) => `${qor} QOR`, tooltip: "Swaps of 1 QOR or more in QOR pools." },
+  swapVolume: { label: "Counted swap volume", value: (qor: string) => `${qor} QOR`, tooltip: `Swaps of 1 QOR or more in QOR pools, made on ${brand}.` },
   roundTrip: { label: "Swapped back fast", value: (qor: string) => `${qor} QOR`, tooltip: "Part of your volume swapped back in the same pool within 30 minutes. It counts at 10%." },
   liquidityHours: { label: "Liquidity held", value: (qor: string) => `${qor} QOR-hours`, tooltip: "QOR value of your liquidity times the hours it was held. 1,000 QOR for 2 hours is 2,000 QOR-hours." },
   poolsCreated: { label: "Pools created", value: (n: string) => n, tooltip: "" },
@@ -221,7 +226,7 @@ export const POINTS_FAQ_TITLE = "Questions";
 export const POINTS_FAQ: Array<{ question: string; answer: string }> = [
   { question: "Are points worth anything?", answer: `No. Points have no monetary value, are not a token and come with no promise of any future token, payment or benefit. They show who has been active on ${brand}. That is all.` },
   { question: "How often do points update?", answer: "Every 5 minutes. Each update recalculates the whole season from QoreChain data, so your total and rank can move up or down." },
-  { question: "Why did my swap not count?", answer: "Swaps under 1 QOR, swaps in pools without QOR, and volume above 10,000 QOR in one day score nothing. Swapping back in the same pool within 30 minutes counts at 10%." },
+  { question: "Why did my swap not count?", answer: `Swaps made outside ${brand}, swaps under 1 QOR, swaps in pools without QOR, a repeat swap within a minute of your last counted one and volume above 2,000 QOR in one day score nothing. Swapping back in the same pool within 30 minutes counts at 10%.` },
   { question: "Why are my liquidity points not showing?", answer: "Liquidity counts only after 6 hours held in a row. Positions are checked once an hour, so new hours show up after the next check." },
   { question: "How do I unlock a pool bonus?", answer: "Create a pool paired with QOR. Once 5 other wallets have each swapped at least 1 QOR in it, you get 500 points. Up to 3 per wallet each season." },
   { question: "Can the rules change?", answer: `Yes. ${brand} may change the rules, correct scores or reset points at any time, and a change can apply to past activity too.` },

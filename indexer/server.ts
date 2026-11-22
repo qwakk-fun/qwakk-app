@@ -4,8 +4,8 @@ import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 
-import { catchUpRange, catchUpWithSearch, ensurePoolStored, indexBlockRange, isNotFoundAnswer, resumeAfterPruning, verifyEventSearch, type ChainLookup } from "./block-sync";
-import { eventValues, isQorAddress, LIQUIDITY_EVENT_TYPES, parseLiquidityEvent, parseSwapEvent, transactionSender, type ChainEvent } from "./amm-events";
+import { catchUpRange, catchUpWithSearch, ensurePoolStored, indexBlockRange, isNotFoundAnswer, resumeAfterPruning, splitPrunedHeights, verifyEventSearch, type ChainLookup } from "./block-sync";
+import { eventValues, isQorAddress, LIQUIDITY_EVENT_TYPES, parseLiquidityEvent, parseSwapEvent, senderTransfers, transactionSender, transfersOf, type ChainEvent, type SenderTransfers } from "./amm-events";
 import {
   CANDLE_INTERVALS, CANDLE_ROLLUPS, CHART_WINDOWS, bucketStart, candleInQuote, chooseQuoteSide, knownDecimals, pairFigures, priceInQuote, swapTrade,
   toDisplayUnits, type QuoteSide,
@@ -351,7 +351,12 @@ async function backfillRolledUpCandles() {
   }
 }
 
-async function recordSwap(event: ChainEvent, executedAt: Date, height: number, txHash: string, eventIndex: number, txSender: string | null) {
+/**
+ * Stores a swap with the transfers its sender made in the same transaction
+ * outside AMM messages (see senderTransfers). They are kept whatever the
+ * points config says, so the fee rule can be retuned without a chain read.
+ */
+async function recordSwap(event: ChainEvent, executedAt: Date, height: number, txHash: string, eventIndex: number, txSender: string | null, transfers: Map<string, SenderTransfers>) {
   const values = eventValues(event);
   const swap = parseSwapEvent(values, txSender);
   if (!swap || !await ensurePool(swap.poolId)) return;
@@ -376,10 +381,11 @@ async function recordSwap(event: ChainEvent, executedAt: Date, height: number, t
       quoteSide: poolQuoteSide(pool.token_a, pool.token_b),
     });
   const inserted = await db.query(
-    `INSERT INTO swaps (tx_hash, event_index, pool_id, height, executed_at, sender, denom_in, amount_in, denom_out, amount_out, price_b_per_a, raw_event)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    `INSERT INTO swaps (tx_hash, event_index, pool_id, height, executed_at, sender, denom_in, amount_in, denom_out, amount_out, price_b_per_a, raw_event,
+       sender_transfers, fee_check_status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, 'checked')
      ON CONFLICT (tx_hash, event_index) DO NOTHING`,
-    [txHash, eventIndex, swap.poolId, height, executedAt, swap.sender, swap.denomIn, swap.amountIn, swap.denomOut, swap.amountOut, price, values],
+    [txHash, eventIndex, swap.poolId, height, executedAt, swap.sender, swap.denomIn, swap.amountIn, swap.denomOut, swap.amountOut, price, values, JSON.stringify(transfersOf(transfers, swap.sender))],
   );
   if (inserted.rowCount && price !== null) await recordCandle(swap.poolId, executedAt, price, volumeQor, volumeQuote);
 }
@@ -398,7 +404,8 @@ async function recordLiquidityEvent(event: ChainEvent, executedAt: Date, height:
   );
 }
 
-async function processBlock(height: number) {
+/** One block's successful transactions that carry AMM events, with their hashes, from the CometBFT RPC. */
+async function readAmmTransactions(height: number) {
   const [blockData, resultsData] = await Promise.all([
     fetchJson<{ result?: { block?: { header?: { time?: string }; data?: { txs?: string[] } } } }>(`${RPC_URL}/block?height=${height}`),
     fetchJson<{ result?: { txs_results?: Array<{ code?: number; events?: ChainEvent[] }> } }>(`${RPC_URL}/block_results?height=${height}`),
@@ -406,16 +413,25 @@ async function processBlock(height: number) {
   const timestamp = new Date(blockData.result?.block?.header?.time ?? Date.now());
   const txs = blockData.result?.block?.data?.txs ?? [];
   const results = resultsData.result?.txs_results ?? [];
+  const found: Array<{ txHash: string; events: ChainEvent[] }> = [];
   for (const [index, result] of results.entries()) {
     // A failed transaction changed no AMM state, whatever events it reports.
     if (Number(result.code ?? 0) !== 0) continue;
     const tx = txs[index] ?? `${height}:${index}`;
     const txHash = tx.includes(":") ? tx : createHash("sha256").update(Buffer.from(tx, "base64")).digest("hex").toUpperCase();
     const events = result.events ?? [];
-    if (!events.some((event) => event.type?.startsWith("amm_"))) continue;
+    if (events.some((event) => event.type?.startsWith("amm_"))) found.push({ txHash, events });
+  }
+  return { timestamp, transactions: found };
+}
+
+async function processBlock(height: number) {
+  const { timestamp, transactions } = await readAmmTransactions(height);
+  for (const { txHash, events } of transactions) {
     const txSender = transactionSender(events);
+    const transfers = senderTransfers(events);
     for (const [eventIndex, event] of events.entries()) {
-      if (event.type === "amm_swap") await recordSwap(event, timestamp, height, txHash, eventIndex, txSender);
+      if (event.type === "amm_swap") await recordSwap(event, timestamp, height, txHash, eventIndex, txSender, transfers);
       else if (event.type === "amm_pool_created" || event.type === "amm_liquidity_added" || event.type === "amm_liquidity_removed") {
         await recordLiquidityEvent(event, timestamp, height, txHash, eventIndex, txSender);
       }
@@ -645,6 +661,90 @@ async function snapshotLiquidity() {
 
 const runSnapshots = singleFlight("LP snapshot", snapshotLiquidity);
 
+const FEE_BACKFILL_HEIGHTS = 200;
+const FEE_BACKFILL_CONCURRENCY = 4;
+/** A pass stops starting new blocks after this long, so scoring goes ahead with what is checked. */
+const FEE_BACKFILL_BUDGET_MS = 60_000;
+
+/**
+ * Reads the transfers of in-season swaps stored before the fee check existed
+ * (fee_check_status NULL), from the same RPC endpoints as processBlock (block
+ * and block_results, two reads per block). Only the two fee check columns are
+ * written, and only while still NULL, so a repeated pass changes nothing.
+ * Blocks below the node's earliest kept height are given up for good
+ * ("unavailable": they never count and never mark a direct swap). A block
+ * that fails for another reason stays unchecked and is retried on the next
+ * pass. Runs only while the fee rule is on.
+ */
+async function backfillFeeChecks() {
+  if (!pointsConfig.requireInterfaceFee) return;
+  const indexed = Number(await getState("last_indexed_height") ?? 0);
+  const until = pointsConfig.seasonEndHeight === null ? indexed : Math.min(indexed, pointsConfig.seasonEndHeight);
+  const deadline = Date.now() + FEE_BACKFILL_BUDGET_MS;
+  const { earliest } = await chainStatus();
+  let after = pointsConfig.seasonStartHeight - 1;
+  let checked = 0;
+  let givenUp = 0;
+  let failed = 0;
+  let outOfTime = false;
+  while (after < until) {
+    if (Date.now() >= deadline) {
+      outOfTime = true;
+      break;
+    }
+    const batch = await db.query<{ height: string }>(
+      // BIGINT arrives as a string from pg.
+      `SELECT DISTINCT height FROM swaps
+       WHERE fee_check_status IS NULL AND height > $1 AND height <= $2
+       ORDER BY height ASC LIMIT ${FEE_BACKFILL_HEIGHTS}`,
+      [after, until],
+    );
+    if (!batch.rowCount) break;
+    const heights = batch.rows.map((row) => Number(row.height));
+    after = heights[heights.length - 1];
+    const { pruned, readable } = splitPrunedHeights(heights, earliest);
+    if (pruned.length) {
+      const result = await db.query("UPDATE swaps SET fee_check_status = 'unavailable' WHERE fee_check_status IS NULL AND height = ANY($1::bigint[])", [pruned]);
+      givenUp += result.rowCount ?? 0;
+    }
+    await mapLimit(readable, FEE_BACKFILL_CONCURRENCY, async (height) => {
+      if (Date.now() >= deadline) {
+        outOfTime = true;
+        return;
+      }
+      try {
+        const { transactions } = await readAmmTransactions(height);
+        for (const { txHash, events } of transactions) {
+          const transfers = senderTransfers(events);
+          const rows = await db.query<{ event_index: number; sender: string | null }>(
+            "SELECT event_index, sender FROM swaps WHERE tx_hash = $1 AND fee_check_status IS NULL",
+            [txHash],
+          );
+          for (const row of rows.rows) {
+            await db.query(
+              "UPDATE swaps SET sender_transfers = $1::jsonb, fee_check_status = 'checked' WHERE tx_hash = $2 AND event_index = $3 AND fee_check_status IS NULL",
+              [JSON.stringify(transfersOf(transfers, row.sender)), txHash, row.event_index],
+            );
+            checked += 1;
+          }
+        }
+        // The block was read in full: a stored swap whose transaction it does not hold can never be checked.
+        const leftover = await db.query("UPDATE swaps SET fee_check_status = 'unavailable' WHERE height = $1 AND fee_check_status IS NULL", [height]);
+        givenUp += leftover.rowCount ?? 0;
+      } catch {
+        failed += 1;
+      }
+    });
+  }
+  if (checked || givenUp || failed || outOfTime) {
+    const notes = [`${checked} swaps checked`];
+    if (givenUp) notes.push(`${givenUp} given up (block no longer kept)`);
+    if (failed) notes.push(`${failed} blocks unreadable, retried on the next run`);
+    if (outOfTime) notes.push("time budget reached, the rest continues on the next run");
+    console.log(`Interface fee check: ${notes.join(", ")}`);
+  }
+}
+
 async function loadScoringInput(): Promise<ScoringInput> {
   const throughHeight = Number(await getState("last_indexed_height") ?? 0);
   const startHeight = pointsConfig.seasonStartHeight;
@@ -652,8 +752,9 @@ async function loadScoringInput(): Promise<ScoringInput> {
     db.query<{ id: string; token_a: string; token_b: string; creator: string | null; created_height: string | null }>(
       "SELECT id::text, token_a, token_b, creator, created_height::text FROM pools",
     ),
-    db.query<{ pool_id: string; height: string; executed_at: Date; tx_hash: string; event_index: number; sender: string | null; denom_in: string; amount_in: string; denom_out: string; amount_out: string }>(
-      `SELECT pool_id::text, height::text, executed_at, tx_hash, event_index, sender, denom_in, amount_in::text, denom_out, amount_out::text
+    db.query<{ pool_id: string; height: string; executed_at: Date; tx_hash: string; event_index: number; sender: string | null; denom_in: string; amount_in: string; denom_out: string; amount_out: string; fee_check_status: string | null; sender_transfers: Record<string, Record<string, string>> | null }>(
+      `SELECT pool_id::text, height::text, executed_at, tx_hash, event_index, sender, denom_in, amount_in::text, denom_out, amount_out::text,
+              fee_check_status, sender_transfers
        FROM swaps WHERE height >= $1 AND height <= $2`,
       [startHeight, throughHeight],
     ),
@@ -672,7 +773,7 @@ async function loadScoringInput(): Promise<ScoringInput> {
   return {
     throughHeight,
     pools: pools.rows.map((row) => ({ id: row.id, tokenA: row.token_a, tokenB: row.token_b, creator: row.creator, createdHeight: row.created_height === null ? null : Number(row.created_height) })),
-    swaps: swaps.rows.map((row) => ({ poolId: row.pool_id, height: Number(row.height), executedAt: row.executed_at.toISOString(), txHash: row.tx_hash, eventIndex: row.event_index, sender: row.sender, denomIn: row.denom_in, amountIn: row.amount_in, denomOut: row.denom_out, amountOut: row.amount_out })),
+    swaps: swaps.rows.map((row) => ({ poolId: row.pool_id, height: Number(row.height), executedAt: row.executed_at.toISOString(), txHash: row.tx_hash, eventIndex: row.event_index, sender: row.sender, denomIn: row.denom_in, amountIn: row.amount_in, denomOut: row.denom_out, amountOut: row.amount_out, feeCheck: row.fee_check_status === "checked" || row.fee_check_status === "unavailable" ? row.fee_check_status : null, senderTransfers: row.sender_transfers })),
     liquidityEvents: liquidity.rows
       .filter((row) => row.event_type === "pool_created" || row.event_type === "liquidity_added" || row.event_type === "liquidity_removed")
       .map((row) => ({ poolId: row.pool_id, height: Number(row.height), executedAt: row.executed_at.toISOString(), txHash: row.tx_hash, eventIndex: row.event_index, eventType: row.event_type as "pool_created" | "liquidity_added" | "liquidity_removed", sender: row.sender, qorAmount: row.qor_amount, lpAmount: row.lp_amount })),
@@ -692,13 +793,15 @@ async function scorePoints() {
     await client.query("DELETE FROM points_scores WHERE season = $1", [season]);
     await client.query("DELETE FROM points_daily WHERE season = $1", [season]);
     await client.query("DELETE FROM points_pool_bonuses WHERE season = $1", [season]);
+    await client.query("DELETE FROM points_flags WHERE season = $1", [season]);
     const scores = result.addresses;
     if (scores.length) {
       await client.query(
         `INSERT INTO points_scores (season, address, rank, total_points, swap_points, liquidity_points, pool_points, activity_points, active_days,
-           swap_volume_uqor, round_trip_volume_uqor, liquidity_uqor_hours, pools_created, pools_unlocked, first_height, last_height)
+           swap_volume_uqor, round_trip_volume_uqor, liquidity_uqor_hours, pools_created, pools_unlocked, first_height, last_height,
+           not_on_qwakk_volume_uqor, extra_in_tx_volume_uqor, too_soon_volume_uqor)
          SELECT $1, * FROM unnest($2::text[], $3::int[], $4::numeric[], $5::numeric[], $6::numeric[], $7::numeric[], $8::numeric[], $9::int[],
-           $10::numeric[], $11::numeric[], $12::numeric[], $13::int[], $14::int[], $15::bigint[], $16::bigint[])`,
+           $10::numeric[], $11::numeric[], $12::numeric[], $13::int[], $14::int[], $15::bigint[], $16::bigint[], $17::numeric[], $18::numeric[], $19::numeric[])`,
         [
           season,
           scores.map((row) => row.address),
@@ -716,6 +819,9 @@ async function scorePoints() {
           scores.map((row) => row.poolsUnlocked),
           scores.map((row) => String(row.firstHeight)),
           scores.map((row) => String(row.lastHeight)),
+          scores.map((row) => row.ignoredSwapVolumeUqor.notOnQwakk.toString()),
+          scores.map((row) => row.ignoredSwapVolumeUqor.extraInTx.toString()),
+          scores.map((row) => row.ignoredSwapVolumeUqor.tooSoon.toString()),
         ],
       );
     }
@@ -751,6 +857,14 @@ async function scorePoints() {
         ],
       );
     }
+    if (result.flagged.length) {
+      // Text arrays cannot be nested in unnest, so the reasons travel as comma lists.
+      await client.query(
+        `INSERT INTO points_flags (season, address, reasons)
+         SELECT $1, address, string_to_array(reasons, ',') FROM unnest($2::text[], $3::text[]) AS f(address, reasons)`,
+        [season, result.flagged.map((row) => row.address), result.flagged.map((row) => row.reasons.join(","))],
+      );
+    }
     await client.query(
       `INSERT INTO points_runs (season, computed_at, through_height, config_hash, config, participants)
        VALUES ($1, NOW(), $2, $3, $4, $5)
@@ -767,7 +881,11 @@ async function scorePoints() {
   }
 }
 
-const runScoring = singleFlight("Points scoring", scorePoints);
+// The fee check runs first in the same flight, so a run never scores swaps the check is about to fill in.
+const runScoring = singleFlight("Points scoring", async () => {
+  await backfillFeeChecks().catch((error) => console.warn("Interface fee check failed, it runs again before the next scoring run:", error instanceof Error ? error.message : error));
+  await scorePoints();
+});
 
 const RETENTION_BATCH = 5_000;
 
@@ -1093,11 +1211,12 @@ async function pointsLeaderboard(limit: number, offset: number) {
 }
 
 async function pointsAddress(address: string) {
-  const [season, score, pools, days] = await Promise.all([
+  const [season, score, pools, days, flags] = await Promise.all([
     pointsSeason(),
-    db.query<ScoreRow & { swap_volume_uqor: string; round_trip_volume_uqor: string; liquidity_uqor_hours: string; pools_created: number; pools_unlocked: number }>(
+    db.query<ScoreRow & { swap_volume_uqor: string; round_trip_volume_uqor: string; liquidity_uqor_hours: string; pools_created: number; pools_unlocked: number; not_on_qwakk_volume_uqor: string; extra_in_tx_volume_uqor: string; too_soon_volume_uqor: string }>(
       `SELECT address, rank, total_points::text, swap_points::text, liquidity_points::text, pool_points::text, activity_points::text, active_days,
-              swap_volume_uqor::text, round_trip_volume_uqor::text, liquidity_uqor_hours::text, pools_created, pools_unlocked
+              swap_volume_uqor::text, round_trip_volume_uqor::text, liquidity_uqor_hours::text, pools_created, pools_unlocked,
+              not_on_qwakk_volume_uqor::text, extra_in_tx_volume_uqor::text, too_soon_volume_uqor::text
        FROM points_scores WHERE season = $1 AND address = $2`,
       [pointsConfig.season, address],
     ),
@@ -1111,7 +1230,9 @@ async function pointsAddress(address: string) {
        FROM points_daily WHERE season = $1 AND address = $2 ORDER BY day DESC LIMIT 90`,
       [pointsConfig.season, address],
     ),
+    db.query<{ reasons: string[] }>("SELECT reasons FROM points_flags WHERE season = $1 AND address = $2", [pointsConfig.season, address]),
   ]);
+  const flag = flags.rows[0];
   // Excluded and not yet scored addresses read the same: unranked with zero points.
   const row = score.rows[0];
   const excluded = pointsConfig.excludedAddresses.includes(address);
@@ -1131,7 +1252,14 @@ async function pointsAddress(address: string) {
       liquidityQorHours: row && !excluded ? qor(row.liquidity_uqor_hours) : "0",
       poolsCreated: row && !excluded ? row.pools_created : 0,
       poolsUnlocked: row && !excluded ? row.pools_unlocked : 0,
+      ignoredSwapVolumeQor: {
+        notOnQwakk: row && !excluded ? qor(row.not_on_qwakk_volume_uqor) : "0",
+        extraInTx: row && !excluded ? qor(row.extra_in_tx_volume_uqor) : "0",
+        tooSoon: row && !excluded ? qor(row.too_soon_volume_uqor) : "0",
+      },
     },
+    // Flagged addresses are never in points_scores, so they already read as unranked with zero points.
+    ...(flag && !excluded ? { flagged: { reasons: flag.reasons } } : {}),
     pools: excluded ? [] : pools.rows.map((pool) => ({
       poolId: pool.pool_id,
       distinctTraders: pool.distinct_traders,

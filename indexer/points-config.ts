@@ -11,6 +11,12 @@
  *
  * Pools without a uqor side cannot be valued in QOR yet, so their swaps and
  * liquidity score 0 and they cannot unlock the pool bonus (see `qorPoolsOnly`).
+ *
+ * Anti-bot rules: a swap counts only when its transaction also paid Qwakk's
+ * interface fee to the treasury (the Qwakk route), only the first swap of a
+ * transaction counts, and a swap too soon after the address's previous
+ * counted swap scores nothing. Addresses that look automated are flagged and
+ * left off the leaderboard for the whole season.
  */
 
 export type PointsConfig = {
@@ -64,6 +70,56 @@ export type PointsConfig = {
   /** Liquidity adds and pool creations count as activity only at or above this uqor amount. */
   minActionUqor: bigint;
 
+  /**
+   * Swaps count only when the same transaction paid at least the minimum
+   * interface fee from the swap sender to one of `feeRecipients`
+   * (QWAKK_POINTS_REQUIRE_INTERFACE_FEE, default on). Off when no valid
+   * recipient is configured: then there is nothing to check. When off, the
+   * direct swap bot signal is off too.
+   */
+  requireInterfaceFee: boolean;
+  /**
+   * QWAKK_TREASURY_ADDRESS plus QWAKK_POINTS_PAST_TREASURY_ADDRESSES, lower
+   * case and sorted. A fee paid to any of them counts, so the treasury can be
+   * rotated mid-season as long as the old address stays listed.
+   */
+  feeRecipients: string[];
+  /**
+   * Smallest fee that proves the Qwakk route, in bps of the swap input
+   * (QWAKK_POINTS_MIN_INTERFACE_FEE_BPS, default 10). Independent of the fee
+   * the app charges (QWAKK_SWAP_FEE_BPS), so raising the app fee never
+   * changes past results. Keep it at or below the app fee.
+   */
+  minInterfaceFeeBps: number;
+  /**
+   * Room for exact-out swaps, whose AMM leg may take up to 5% more than the
+   * quoted leg the fee was set on: the fee must be at least
+   * floor(amountIn * minInterfaceFeeBps / (10000 + slack)), and at least 1.
+   */
+  interfaceFeeSlackBps: number;
+  /** Only the first swap of a transaction counts. Always on. */
+  oneSwapPerTx: true;
+  /** A swap less than this many seconds after the address's previous counted swap scores nothing. 0 turns it off. */
+  minSwapGapSeconds: number;
+
+  /** Addresses always flagged as automated (QWAKK_POINTS_BOT_ADDRESSES). */
+  botAddresses: string[];
+  /** Addresses never flagged by the automatic signals (QWAKK_POINTS_BOT_ALLOWLIST). */
+  botAllowlist: string[];
+  /** Flag an address with any in-season transaction holding at least this many swaps. 0 turns it off. */
+  botBatchMinSwaps: number;
+  /** Flag an address with at least this many swaps on one UTC day... 0 turns it off. */
+  botBurstMinSwaps: number;
+  /** ...whose median gap between consecutive swaps that day is below this many seconds. */
+  botBurstMedianGapSeconds: number;
+  /**
+   * Flag an address with at least this many in-season swaps whose sender sent
+   * nothing to anyone in the transaction besides the swap itself (plain x/amm
+   * use). 0 turns it off. A Qwakk swap always carries a fee transfer, so a
+   * wrong fee recipient setting can never make a Qwakk trader look direct.
+   */
+  botDirectMinSwaps: number;
+
   /** Only pools with a uqor side are scored for now. Kept explicit so the API can say so. */
   qorPoolsOnly: true;
 };
@@ -71,6 +127,7 @@ export type PointsConfig = {
 export type PointsEnv = Record<string, string | undefined>;
 
 const QOR_DECIMALS = 6;
+const ADDRESS_PATTERN = /^qor1[0-9a-z]{20,}$/;
 const RATE_DECIMALS = 6;
 
 function decimalToScaled(value: string, decimals: number): bigint | null {
@@ -109,26 +166,46 @@ export function loadPointsConfig(env: PointsEnv = process.env): { config: Points
     return parsed;
   }
 
+  function addresses(...names: string[]) {
+    return [...new Set(
+      names.map((name) => raw(name) ?? "")
+        .join(",")
+        .split(/[\s,]+/)
+        .map((address) => address.toLowerCase())
+        .filter((address) => ADDRESS_PATTERN.test(address)),
+    )].sort();
+  }
+
+  function toggle(name: string, fallback: boolean) {
+    const value = raw(name)?.toLowerCase();
+    if (value === undefined) return fallback;
+    if (["enabled", "true", "1"].includes(value)) return true;
+    if (["disabled", "false", "0"].includes(value)) return false;
+    warnings.push(`${name} must be enabled or disabled, using ${fallback ? "enabled" : "disabled"}`);
+    return fallback;
+  }
+
   const endHeight = integer("QWAKK_POINTS_SEASON_END_HEIGHT", 0);
-  const excluded = new Set(
-    [raw("QWAKK_POINTS_EXCLUDED_ADDRESSES") ?? "", raw("QWAKK_TREASURY_ADDRESS") ?? ""]
-      .join(",")
-      .split(/[\s,]+/)
-      .map((address) => address.toLowerCase())
-      .filter((address) => /^qor1[0-9a-z]{20,}$/.test(address)),
-  );
+  const feeRecipients = addresses("QWAKK_TREASURY_ADDRESS", "QWAKK_POINTS_PAST_TREASURY_ADDRESSES");
+  // Unset means "on where it can be checked": without any treasury the app charges no fee.
+  const feeRuleSet = raw("QWAKK_POINTS_REQUIRE_INTERFACE_FEE") !== undefined;
+  let requireInterfaceFee = toggle("QWAKK_POINTS_REQUIRE_INTERFACE_FEE", true);
+  if (requireInterfaceFee && feeRecipients.length === 0) {
+    if (feeRuleSet) warnings.push("QWAKK_POINTS_REQUIRE_INTERFACE_FEE needs a valid QWAKK_TREASURY_ADDRESS, so it is off");
+    requireInterfaceFee = false;
+  }
 
   const config: PointsConfig = {
     enabled: ["enabled", "true", "1"].includes((raw("QWAKK_POINTS_ENABLED") ?? "").toLowerCase()),
     season: /^[a-z0-9-]{1,40}$/.test(raw("QWAKK_POINTS_SEASON") ?? "") ? raw("QWAKK_POINTS_SEASON") as string : "testnet-1",
     seasonStartHeight: integer("QWAKK_POINTS_SEASON_START_HEIGHT", 0),
     seasonEndHeight: endHeight > 0 ? endHeight : null,
-    excludedAddresses: [...excluded].sort(),
+    excludedAddresses: addresses("QWAKK_POINTS_EXCLUDED_ADDRESSES", "QWAKK_TREASURY_ADDRESS", "QWAKK_POINTS_PAST_TREASURY_ADDRESSES"),
 
     minSwapUqor: scaled("QWAKK_POINTS_MIN_SWAP_QOR", "1", QOR_DECIMALS),
     swapPointsPerQorPpm: scaled("QWAKK_POINTS_SWAP_POINTS_PER_QOR", "1", RATE_DECIMALS),
     swapDailyFullUqor: scaled("QWAKK_POINTS_SWAP_DAILY_FULL_QOR", "1000", QOR_DECIMALS),
-    swapDailyMaxUqor: scaled("QWAKK_POINTS_SWAP_DAILY_MAX_QOR", "10000", QOR_DECIMALS),
+    swapDailyMaxUqor: scaled("QWAKK_POINTS_SWAP_DAILY_MAX_QOR", "2000", QOR_DECIMALS),
     swapExcessFactorBps: BigInt(integer("QWAKK_POINTS_SWAP_EXCESS_FACTOR_BPS", 2000, 0, 10000)),
     roundTripWindowSeconds: integer("QWAKK_POINTS_ROUND_TRIP_WINDOW_SECONDS", 1800, 0, 30 * 86400),
     roundTripFactorBps: BigInt(integer("QWAKK_POINTS_ROUND_TRIP_FACTOR_BPS", 1000, 0, 10000)),
@@ -146,6 +223,20 @@ export function loadPointsConfig(env: PointsEnv = process.env): { config: Points
 
     activeDayPointsPpm: scaled("QWAKK_POINTS_ACTIVE_DAY_POINTS", "50", RATE_DECIMALS),
     minActionUqor: scaled("QWAKK_POINTS_MIN_ACTION_QOR", "1", QOR_DECIMALS),
+
+    requireInterfaceFee,
+    feeRecipients,
+    minInterfaceFeeBps: integer("QWAKK_POINTS_MIN_INTERFACE_FEE_BPS", 10, 0, 30),
+    interfaceFeeSlackBps: 500,
+    oneSwapPerTx: true,
+    minSwapGapSeconds: integer("QWAKK_POINTS_MIN_SWAP_GAP_SECONDS", 60, 0, 86400),
+
+    botAddresses: addresses("QWAKK_POINTS_BOT_ADDRESSES"),
+    botAllowlist: addresses("QWAKK_POINTS_BOT_ALLOWLIST"),
+    botBatchMinSwaps: integer("QWAKK_POINTS_BOT_BATCH_MIN_SWAPS", 2, 0, 1000),
+    botBurstMinSwaps: integer("QWAKK_POINTS_BOT_BURST_MIN_SWAPS", 10, 0, 100000),
+    botBurstMedianGapSeconds: integer("QWAKK_POINTS_BOT_BURST_MEDIAN_GAP_SECONDS", 30, 0, 86400),
+    botDirectMinSwaps: integer("QWAKK_POINTS_BOT_DIRECT_MIN_SWAPS", 5, 0, 100000),
 
     qorPoolsOnly: true,
   };

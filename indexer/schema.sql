@@ -196,3 +196,31 @@ ALTER TABLE candles ADD COLUMN IF NOT EXISTS volume_quote NUMERIC;
 -- changes no stored value and is safe to repeat.
 ALTER TABLE tokens ALTER COLUMN decimals DROP NOT NULL;
 ALTER TABLE tokens ALTER COLUMN decimals DROP DEFAULT;
+
+-- Interface fee check per swap, for the points rule "only swaps made through
+-- Qwakk count". sender_transfers holds every bank transfer the swap sender made
+-- in the same transaction outside AMM messages (recipient, then denom, then
+-- amount), such as Qwakk's interface fee MsgSend; {} when none. It does not
+-- depend on any config, so the treasury list and minimum fee can change without
+-- reading the chain again. fee_check_status is 'checked' once read,
+-- 'unavailable' when the node no longer keeps the block, NULL until then. New
+-- swaps are checked when their block is indexed; older in-season swaps by the
+-- pass that runs before each scoring run. Adding nullable columns rewrites no row.
+ALTER TABLE swaps ADD COLUMN IF NOT EXISTS sender_transfers JSONB;
+ALTER TABLE swaps ADD COLUMN IF NOT EXISTS fee_check_status TEXT;
+CREATE INDEX IF NOT EXISTS swaps_fee_unchecked_idx ON swaps (height) WHERE fee_check_status IS NULL;
+
+-- Derived, rebuilt on every scoring run: volume at or above the minimum size
+-- that scored nothing, by reason.
+ALTER TABLE points_scores ADD COLUMN IF NOT EXISTS not_on_qwakk_volume_uqor NUMERIC NOT NULL DEFAULT 0;
+ALTER TABLE points_scores ADD COLUMN IF NOT EXISTS extra_in_tx_volume_uqor NUMERIC NOT NULL DEFAULT 0;
+ALTER TABLE points_scores ADD COLUMN IF NOT EXISTS too_soon_volume_uqor NUMERIC NOT NULL DEFAULT 0;
+
+-- Derived, rebuilt on every scoring run: addresses left off the leaderboard
+-- as automated, with the signals that flagged them.
+CREATE TABLE IF NOT EXISTS points_flags (
+  season TEXT NOT NULL,
+  address TEXT NOT NULL,
+  reasons TEXT[] NOT NULL,
+  PRIMARY KEY (season, address)
+);

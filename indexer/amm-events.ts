@@ -155,3 +155,42 @@ export function parseLiquidityEvent(type: string | undefined, values: EventValue
     lpAmount: DIGITS.test(lpAmount ?? "") ? lpAmount as string : null,
   };
 }
+
+/** Transfers one sender made in a transaction outside its AMM messages: recipient, then denom, then amount. */
+export type SenderTransfers = Record<string, Record<string, string>>;
+
+/**
+ * Every bank transfer of a transaction that a message other than an AMM
+ * message made, grouped by sender, read from the standard `transfer` events.
+ * Transfers without `msg_index` (the network fee, taken before any message
+ * runs) and transfers of AMM messages (swap deposits and payouts) are left
+ * out, so what remains is what each sender chose to send, such as Qwakk's
+ * interface fee MsgSend. Stored per swap, it lets the points rules accept any
+ * set of treasury addresses and any minimum fee without reading the chain again.
+ */
+export function senderTransfers(events: ChainEvent[]) {
+  const ammMessages = new Set<string>();
+  for (const event of events) {
+    const index = event.type?.startsWith("amm_") ? eventValues(event).msg_index : undefined;
+    if (index !== undefined) ammMessages.add(index);
+  }
+  const bySender = new Map<string, SenderTransfers>();
+  for (const event of events) {
+    if (event.type !== "transfer") continue;
+    const values = eventValues(event);
+    const sender = values.sender?.toLowerCase();
+    const recipient = values.recipient?.toLowerCase();
+    if (values.msg_index === undefined || ammMessages.has(values.msg_index) || !isQorAddress(sender) || !isQorAddress(recipient)) continue;
+    const transfers = bySender.get(sender) ?? {};
+    const coins = transfers[recipient] ?? {};
+    for (const coin of parseCoins(values.amount)) coins[coin.denom] = (BigInt(coins[coin.denom] ?? "0") + BigInt(coin.amount)).toString();
+    transfers[recipient] = coins;
+    bySender.set(sender, transfers);
+  }
+  return bySender;
+}
+
+/** The transfers stored with one swap: those of its sender, or none. */
+export function transfersOf(bySender: Map<string, SenderTransfers>, sender: string | null): SenderTransfers {
+  return (sender && bySender.get(sender.toLowerCase())) || {};
+}

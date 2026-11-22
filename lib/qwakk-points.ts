@@ -56,7 +56,7 @@ export type QwakkPointsAddressResponse = {
   breakdown: QwakkPointsBreakdown;
   activeDays: number;
   stats: {
-    /** Counted swap volume (swaps at or above the minimum size), in QOR. */
+    /** Counted swap volume (swaps at or above the minimum size that scored), in QOR. */
     swapVolumeQor: string;
     /** Part of that volume matched as a quick reversal, in QOR. */
     roundTripVolumeQor: string;
@@ -64,7 +64,20 @@ export type QwakkPointsAddressResponse = {
     liquidityQorHours: string;
     poolsCreated: number;
     poolsUnlocked: number;
+    /**
+     * Volume of swaps at or above the minimum size that scored nothing, in QOR,
+     * by reason: made outside Qwakk (no interface fee in the transaction), a
+     * second or later swap in one transaction, or too soon after the previous
+     * counted swap. Missing from indexers older than this rule.
+     */
+    ignoredSwapVolumeQor?: { notOnQwakk: string; extraInTx: string; tooSoon: string };
   };
+  /**
+   * Present when the address looks automated: it is not ranked this season
+   * and has no points. Reasons: "manual", "batch_swaps", "burst_trading",
+   * "direct_swaps".
+   */
+  flagged?: { reasons: string[] };
   pools: Array<{ poolId: string; distinctTraders: number; requiredTraders: number; status: QwakkPoolBonusStatus; points: string }>;
   /** Newest first, up to 90 days. */
   days: Array<{ day: string; swapVolumeQor: string; roundTripVolumeQor: string; swapPoints: string; liquidityPoints: string; active: boolean }>;

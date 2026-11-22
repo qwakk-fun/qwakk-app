@@ -359,7 +359,7 @@ Pools without a QOR side score 0 for now.
 | `QWAKK_POINTS_MIN_SWAP_QOR` | `1` | Smallest swap (QOR side) that counts |
 | `QWAKK_POINTS_SWAP_POINTS_PER_QOR` | `1` | Points per QOR of counted swap volume |
 | `QWAKK_POINTS_SWAP_DAILY_FULL_QOR` | `1000` | Daily volume per address at the full rate |
-| `QWAKK_POINTS_SWAP_DAILY_MAX_QOR` | `10000` | Daily volume per address above which nothing counts |
+| `QWAKK_POINTS_SWAP_DAILY_MAX_QOR` | `2000` | Daily volume per address above which nothing counts |
 | `QWAKK_POINTS_SWAP_EXCESS_FACTOR_BPS` | `2000` | Rate between the full and max daily volume (20%) |
 | `QWAKK_POINTS_ROUND_TRIP_WINDOW_SECONDS` | `1800` | A reversal in the same pool within this window is a round trip |
 | `QWAKK_POINTS_ROUND_TRIP_FACTOR_BPS` | `1000` | Weight of round trip volume on both legs (10%) |
@@ -374,6 +374,38 @@ Pools without a QOR side score 0 for now.
 | `QWAKK_POINTS_POOL_BONUS_MAX_PER_ADDRESS` | `3` | Most pool bonuses per creator in a season |
 | `QWAKK_POINTS_ACTIVE_DAY_POINTS` | `50` | Points per UTC day with a qualifying action |
 | `QWAKK_POINTS_MIN_ACTION_QOR` | `1` | Smallest liquidity add or pool creation (QOR side) that counts as activity |
+| `QWAKK_POINTS_REQUIRE_INTERFACE_FEE` | `enabled` | A swap counts (points, activity, pool bonus traders) only when its transaction paid the interface fee from the swapper to `QWAKK_TREASURY_ADDRESS` or a past treasury. Off without a valid treasury |
+| `QWAKK_POINTS_MIN_INTERFACE_FEE_BPS` | `10` | Smallest fee, in bps of the swap input, that proves the Qwakk route. Independent of `QWAKK_SWAP_FEE_BPS`: keep it at or below the app fee. Raising the app fee changes no past result |
+| `QWAKK_POINTS_PAST_TREASURY_ADDRESSES` | none | Earlier treasury addresses. A fee paid to them still counts, and they are kept off the leaderboard |
+| `QWAKK_POINTS_MIN_SWAP_GAP_SECONDS` | `60` | A swap less than this many seconds after the address's previous counted swap scores nothing (0 = off). Only the first swap of a transaction counts, always |
+| `QWAKK_POINTS_BOT_BATCH_MIN_SWAPS` | `2` | Flag an address with any transaction holding this many swaps (0 = off) |
+| `QWAKK_POINTS_BOT_BURST_MIN_SWAPS` | `10` | Flag an address with this many swaps on one UTC day (0 = off) ... |
+| `QWAKK_POINTS_BOT_BURST_MEDIAN_GAP_SECONDS` | `30` | ... at a median gap between them below this many seconds |
+| `QWAKK_POINTS_BOT_DIRECT_MIN_SWAPS` | `5` | Flag an address with this many swaps sent with no other transfer at all, plain x/amm use (0 = off; also off while the fee rule is off) |
+| `QWAKK_POINTS_BOT_ADDRESSES` | none | Addresses always flagged |
+| `QWAKK_POINTS_BOT_ALLOWLIST` | none | Addresses never flagged by the automatic signals (the manual list still applies) |
+
+A flagged address is left off the leaderboard for the whole season (all its
+points) and never counts as a pool bonus trader; its points page says it is
+not ranked. Flags are recomputed from the stored swaps on every run.
+
+Each swap is stored with the bank transfers its sender made in the same
+transaction outside the swap (Qwakk's fee transfer, for example), read from
+the transaction's events. They do not depend on any setting, so the fee rule is
+evaluated again on every run. Swaps indexed before this check are read by a
+pass that runs before each scoring run: two RPC reads per block (block and
+block results), in-season blocks only, at most 60 seconds per pass, and only
+while the fee rule is on. Blocks the node no longer keeps are given up: those
+swaps never count and never mark an address as a direct trader.
+
+Rotating the treasury is safe: set the new `QWAKK_TREASURY_ADDRESS` and add the
+old one to `QWAKK_POINTS_PAST_TREASURY_ADDRESSES`, and past swaps keep counting.
+Even without that, a Qwakk swap always carries a fee transfer, so no Qwakk
+trader is ever flagged as a direct trader by a wrong setting. If the app stops
+charging the interface fee (`QWAKK_SWAP_FEE_BPS=0`, a value outside 0 to 30, or
+no treasury on the web app), set `QWAKK_POINTS_REQUIRE_INTERFACE_FEE=disabled`
+on the indexer (that also turns the direct trader signal off). Otherwise new
+Qwakk swaps score nothing and look like plain x/amm swaps.
 
 ### 3. Web application
 

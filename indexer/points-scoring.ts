@@ -16,6 +16,18 @@
  * - pools: a one-time bonus per created pool once enough other addresses
  *   have made counted swaps in it, limited per creator.
  * - activity: a flat amount per distinct UTC day with a qualifying action.
+ *
+ * Anti-bot rules, applied before any category:
+ * - flagged addresses (automatic signals below, or the manual list) are left
+ *   off the leaderboard for the whole season and never count as pool traders.
+ *   Signals: a transaction holding several swaps (batching), a UTC day with
+ *   many swaps at a short median gap (burst), or repeated swaps sent with no
+ *   other transfer at all (direct x/amm use).
+ * - a swap counts only when its transaction paid the interface fee to a
+ *   treasury address, only the first swap of a transaction counts, and a swap too
+ *   soon after the address's previous counted swap scores nothing. Swaps that
+ *   do not count still take part in round trip matching, so a counted leg
+ *   cannot be reversed outside Qwakk or in a throttled swap to dodge it.
  */
 
 import type { PointsConfig } from "./points-config";
@@ -39,6 +51,14 @@ export type ScoringSwap = {
   amountIn: string;
   denomOut: string;
   amountOut: string;
+  /**
+   * "checked" once the transaction's transfers were read, "unavailable" when
+   * the chain no longer keeps its block. Null or missing: not read yet. Only a
+   * checked swap can count while the fee rule is on.
+   */
+  feeCheck?: "checked" | "unavailable" | null;
+  /** What the sender sent outside AMM messages in the same transaction: recipient, then denom, then amount. */
+  senderTransfers?: Record<string, Record<string, string>> | null;
 };
 
 export type ScoringLiquidityEvent = {
@@ -94,7 +114,16 @@ export type AddressScore = {
   poolsUnlocked: number;
   firstHeight: number;
   lastHeight: number;
+  /** QOR volume of swaps at or above the minimum size that scored nothing, by reason. */
+  ignoredSwapVolumeUqor: IgnoredSwapVolume;
 };
+
+export type IgnoredSwapReason = "notOnQwakk" | "extraInTx" | "tooSoon";
+export type IgnoredSwapVolume = Record<IgnoredSwapReason, bigint>;
+
+export type BotFlagReason = "manual" | "batch_swaps" | "burst_trading" | "direct_swaps";
+
+export type BotFlag = { address: string; reasons: BotFlagReason[] };
 
 export type DailyScore = {
   address: string;
@@ -122,9 +151,12 @@ export type SeasonScore = {
   addresses: AddressScore[];
   daily: DailyScore[];
   pools: PoolBonus[];
+  /** Addresses left off the leaderboard as automated, sorted by address. */
+  flagged: BotFlag[];
 };
 
 const ZERO = BigInt(0);
+const ONE = BigInt(1);
 const BPS = BigInt(10000);
 const MICRO = BigInt(1000000);
 const HOUR_MS = 3_600_000;
@@ -178,6 +210,90 @@ export function swapQorAmount(swap: Pick<ScoringSwap, "denomIn" | "amountIn" | "
   return null;
 }
 
+/**
+ * Smallest interface fee, in `denomIn`, that proves a swap went through Qwakk.
+ * The app charges floor(total * bps / 10000) on the total input and swaps the
+ * rest, so for an exact-in swap the fee is at least floor(amountIn * bps /
+ * 10000). Exact-out swaps may take up to `slackBps` more than the leg the fee
+ * was set on, hence the larger divisor. Never below 1: the app sends no fee
+ * transfer when the fee rounds to 0, and such a swap cannot be told apart.
+ */
+export function minimumInterfaceFee(amountIn: bigint, feeBps: number, slackBps: number) {
+  const fee = (amountIn * BigInt(feeBps)) / BigInt(10000 + slackBps);
+  return fee > ONE ? fee : ONE;
+}
+
+type FeeCheckedSwap = Pick<ScoringSwap, "denomIn" | "amountIn" | "feeCheck" | "senderTransfers">;
+
+/** True when the swap's transaction paid at least the minimum interface fee, in its input denom, to the fee recipients together. */
+export function paidInterfaceFee(swap: FeeCheckedSwap, config: Pick<PointsConfig, "feeRecipients" | "minInterfaceFeeBps" | "interfaceFeeSlackBps">) {
+  if (swap.feeCheck !== "checked" || !swap.senderTransfers) return false;
+  const transfers = swap.senderTransfers;
+  let paid = ZERO;
+  for (const recipient of config.feeRecipients) paid += big(transfers[recipient]?.[swap.denomIn]);
+  return paid >= minimumInterfaceFee(big(swap.amountIn), config.minInterfaceFeeBps, config.interfaceFeeSlackBps);
+}
+
+/**
+ * True when the swap was checked and its sender sent nothing to anyone in the
+ * transaction besides the swap: plain x/amm use. A Qwakk swap always carries a
+ * fee transfer, whatever the fee recipient settings say, so this never marks a
+ * Qwakk trader. Unchecked and unavailable swaps are never direct.
+ */
+export function madeWithoutAnyTransfer(swap: FeeCheckedSwap) {
+  return swap.feeCheck === "checked" && Boolean(swap.senderTransfers) && Object.keys(swap.senderTransfers as object).length === 0;
+}
+
+/**
+ * Automatic and manual bot flags, from every in-season swap of a non-excluded
+ * address in any pool, whatever its size. Pure and deterministic.
+ */
+export function detectBots(swaps: Array<ScoringSwap & { sender: string; time: number }>, config: PointsConfig): BotFlag[] {
+  const reasons = new Map<string, Set<BotFlagReason>>();
+  const flag = (address: string, reason: BotFlagReason) => {
+    const set = reasons.get(address) ?? new Set<BotFlagReason>();
+    set.add(reason);
+    reasons.set(address, set);
+  };
+  const allowed = new Set(config.botAllowlist);
+
+  const perTx = new Map<string, { sender: string; count: number }>();
+  const perDay = new Map<string, number[]>();
+  const direct = new Map<string, number>();
+  for (const swap of swaps) {
+    if (allowed.has(swap.sender)) continue;
+    const tx = perTx.get(swap.txHash) ?? { sender: swap.sender, count: 0 };
+    tx.count += 1;
+    perTx.set(swap.txHash, tx);
+    pushTo(perDay, `${swap.sender}|${utcDay(swap.executedAt)}`, swap.time);
+    if (config.requireInterfaceFee && madeWithoutAnyTransfer(swap)) direct.set(swap.sender, (direct.get(swap.sender) ?? 0) + 1);
+  }
+  if (config.botBatchMinSwaps > 0) {
+    for (const tx of perTx.values()) if (tx.count >= config.botBatchMinSwaps) flag(tx.sender, "batch_swaps");
+  }
+  if (config.botBurstMinSwaps > 0) {
+    const limitMs = config.botBurstMedianGapSeconds * 1000;
+    for (const [key, times] of perDay) {
+      if (times.length < config.botBurstMinSwaps || times.length < 2) continue;
+      times.sort((a, b) => a - b);
+      const gaps = times.slice(1).map((time, index) => time - times[index]).sort((a, b) => a - b);
+      const middle = gaps.length >> 1;
+      // Median times two, so an even count stays in integers.
+      const doubled = gaps.length % 2 ? gaps[middle] * 2 : gaps[middle - 1] + gaps[middle];
+      if (doubled < limitMs * 2) flag(key.split("|")[0], "burst_trading");
+    }
+  }
+  if (config.requireInterfaceFee && config.botDirectMinSwaps > 0) {
+    for (const [address, count] of direct) if (count >= config.botDirectMinSwaps) flag(address, "direct_swaps");
+  }
+  for (const address of config.botAddresses) flag(address, "manual");
+
+  const order: BotFlagReason[] = ["manual", "batch_swaps", "burst_trading", "direct_swaps"];
+  return [...reasons]
+    .map(([address, set]) => ({ address, reasons: order.filter((reason) => set.has(reason)) }))
+    .sort((a, b) => a.address.localeCompare(b.address));
+}
+
 type AddressAccumulator = {
   swapVolumeUqor: bigint;
   roundTripVolumeUqor: bigint;
@@ -197,8 +313,16 @@ export function scoreSeason(input: ScoringInput, config: PointsConfig): SeasonSc
     height >= config.seasonStartHeight &&
     (config.seasonEndHeight === null || height <= config.seasonEndHeight) &&
     height <= input.throughHeight;
-  const eligible = (address: string | null | undefined): address is string =>
+  const notExcluded = (address: string | null | undefined): address is string =>
     typeof address === "string" && ADDRESS_PATTERN.test(address) && !excluded.has(address);
+
+  // Bot flags come from every in-season swap, in any pool and of any size.
+  const seasonSwaps = input.swaps
+    .map((swap) => ({ ...swap, sender: swap.sender?.toLowerCase() ?? null, time: new Date(swap.executedAt).getTime() }))
+    .filter((swap): swap is typeof swap & { sender: string } => inSeason(swap.height) && notExcluded(swap.sender) && Number.isFinite(swap.time));
+  const flagged = detectBots(seasonSwaps, config).filter((entry) => notExcluded(entry.address));
+  const flaggedSet = new Set(flagged.map((entry) => entry.address));
+  const eligible = (address: string | null | undefined): address is string => notExcluded(address) && !flaggedSet.has(address);
 
   const pools = new Map(input.pools.map((pool) => [pool.id, pool]));
   const accounts = new Map<string, AddressAccumulator>();
@@ -252,11 +376,38 @@ export function scoreSeason(input: ScoringInput, config: PointsConfig): SeasonSc
     legs.push(leg);
   }
 
+  // Which swaps count. Only the first swap of a transaction can count.
+  const firstInTx = new Map<string, number>();
+  for (const swap of swaps) {
+    const first = firstInTx.get(swap.txHash);
+    if (first === undefined || swap.eventIndex < first) firstInTx.set(swap.txHash, swap.eventIndex);
+  }
+  // Volume that scored nothing, kept apart so it never moves first or last height.
+  const ignored = new Map<string, IgnoredSwapVolume>();
+  const lastCounted = new Map<string, number>();
+  const gapMs = config.minSwapGapSeconds * 1000;
+  const counted: typeof swaps = [];
+
   swaps.forEach((swap, index) => {
     const qor = swap.qor as bigint;
     if (qor < config.minSwapUqor) return;
+    const sender = swap.sender as string;
+    const last = lastCounted.get(sender);
+    const reason: IgnoredSwapReason | null =
+      config.requireInterfaceFee && !paidInterfaceFee(swap, config) ? "notOnQwakk"
+        : firstInTx.get(swap.txHash) !== swap.eventIndex ? "extraInTx"
+          : gapMs > 0 && last !== undefined && swap.time - last < gapMs ? "tooSoon"
+            : null;
+    if (reason) {
+      const volume = ignored.get(sender) ?? { notOnQwakk: ZERO, extraInTx: ZERO, tooSoon: ZERO };
+      volume[reason] += qor;
+      ignored.set(sender, volume);
+      return;
+    }
+    lastCounted.set(sender, swap.time);
+    counted.push(swap);
     const leg = legs[index];
-    const entry = account(swap.sender as string, swap.height);
+    const entry = account(sender, swap.height);
     const bucket = day(entry, utcDay(swap.executedAt));
     const matched = minBig(leg.matched, qor);
     bucket.swapVolumeUqor += qor;
@@ -282,9 +433,7 @@ export function scoreSeason(input: ScoringInput, config: PointsConfig): SeasonSc
   }
   // Counted swaps grouped by pool once, in the same chronological order as `swaps`.
   const countedSwapsByPool = new Map<string, typeof swaps>();
-  for (const swap of swaps) {
-    if ((swap.qor as bigint) >= config.minSwapUqor) pushTo(countedSwapsByPool, swap.poolId, swap);
-  }
+  for (const swap of counted) pushTo(countedSwapsByPool, swap.poolId, swap);
   const bonuses: PoolBonus[] = [];
   for (const pool of [...pools.values()].sort((a, b) => Number(a.id) - Number(b.id))) {
     const createdHeight = pool.createdHeight ?? creationHeights.get(pool.id) ?? null;
@@ -450,6 +599,7 @@ export function scoreSeason(input: ScoringInput, config: PointsConfig): SeasonSc
       poolsUnlocked: entry.poolsUnlocked,
       firstHeight: entry.firstHeight,
       lastHeight: entry.lastHeight,
+      ignoredSwapVolumeUqor: ignored.get(address) ?? { notOnQwakk: ZERO, extraInTx: ZERO, tooSoon: ZERO },
     });
   }
 
@@ -465,6 +615,7 @@ export function scoreSeason(input: ScoringInput, config: PointsConfig): SeasonSc
     addresses: ranked,
     daily: daily.filter((entry) => rankedSet.has(entry.address)).sort((a, b) => a.address.localeCompare(b.address) || a.day.localeCompare(b.day)),
     pools: bonuses,
+    flagged,
   };
 }
 
