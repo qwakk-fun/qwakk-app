@@ -597,8 +597,10 @@ test("flags batch, burst and direct bots and leaves them off the leaderboard", (
     // Kim: one transaction with two swaps.
     batch,
     { ...uiSwap(KIM, "1", at(1), "buy", 100), txHash: batch.txHash, eventIndex: 5 },
-    // Leo: 10 Qwakk swaps 20 s apart on one day.
-    ...Array.from({ length: 10 }, (_, index) => uiSwap(LEO, "1", atSec(2, index * 20), "buy", 50)),
+    // Leo: 10 swaps 20 s apart on one day, checked but short of the interface fee (a hand made fee transfer).
+    ...Array.from({ length: 10 }, (_, index): ScoringSwap => ({ ...swap(LEO, "1", atSec(2, index * 20), "buy", 50), feeCheck: "checked", senderTransfers: { [TREASURY]: { uqor: "1" } } })),
+    // Pia: 12 Qwakk swaps 10 s apart on one day, a person clicking fast in the app: not flagged.
+    ...Array.from({ length: 12 }, (_, index) => uiSwap(PIA, "1", atSec(7, index * 10), "buy", 50)),
     // Mia: 5 swaps without the interface fee, an hour apart.
     ...Array.from({ length: 5 }, (_, index) => directSwap(MIA, "1", at(3 + index), "buy", 50)),
     // Ned: 10 swaps 40 s apart, 9 swaps 5 s apart the next day, then 4 direct and 3 unchecked swaps an hour apart: not flagged.
@@ -618,12 +620,14 @@ test("flags batch, burst and direct bots and leaves them off the leaderboard", (
     { address: MIA, reasons: ["direct_swaps"] },
   ].sort((a, b) => a.address.localeCompare(b.address)));
   const ranked = result.addresses.map((entry) => entry.address);
-  assert.deepEqual(new Set(ranked), new Set([NED, OLA, CAROL]));
+  assert.deepEqual(new Set(ranked), new Set([NED, OLA, PIA, CAROL]));
   assert.equal(result.daily.some((row) => [KIM, LEO, MIA].includes(row.address)), false);
-  // Flagged traders are not pool traders: only Ned and Ola count.
-  assert.equal(result.pools[0].distinctTraders, 2);
+  // Flagged traders are not pool traders: only Ned, Ola and Pia count.
+  assert.equal(result.pools[0].distinctTraders, 3);
+  // Pia's fast clicks are throttled by the swap gap instead: 2 of her 12 swaps count.
+  assert.equal(byAddress(result).get(PIA)?.swapVolumeUqor, BigInt(qor(100)));
   // Ranks stay contiguous without the flagged addresses.
-  assert.deepEqual(result.addresses.map((entry) => entry.rank), [1, 2, 3]);
+  assert.deepEqual(result.addresses.map((entry) => entry.rank), [1, 2, 3, 4]);
 });
 
 test("the manual list always flags and the allowlist stops automatic flags", () => {
@@ -631,7 +635,8 @@ test("the manual list always flags and the allowlist stops automatic flags", () 
     ...Array.from({ length: 10 }, (_, index) => uiSwap(LEO, "1", atSec(2, index * 20), "buy", 50)),
     uiSwap(KIM, "1", at(1), "buy", 100),
   ];
-  const result = scoreSeason(season(swaps), config({ ...feeEnv, QWAKK_POINTS_BOT_ADDRESSES: `${KIM},${MIA}`, QWAKK_POINTS_BOT_ALLOWLIST: `${LEO},${MIA}` }));
+  // Without the fee rule every fast swap feeds the burst signal, so Leo's burst is real here.
+  const result = scoreSeason(season(swaps), config({ QWAKK_POINTS_BOT_ADDRESSES: `${KIM},${MIA}`, QWAKK_POINTS_BOT_ALLOWLIST: `${LEO},${MIA}` }));
   // Kim is listed; Mia is listed and allowlisted (the list wins) without any swap; Leo's burst is allowed.
   assert.deepEqual(result.flagged, [{ address: KIM, reasons: ["manual"] }, { address: MIA, reasons: ["manual"] }].sort((a, b) => a.address.localeCompare(b.address)));
   assert.equal(byAddress(result).has(KIM), false);

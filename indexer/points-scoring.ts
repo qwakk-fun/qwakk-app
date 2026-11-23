@@ -21,8 +21,9 @@
  * - flagged addresses (automatic signals below, or the manual list) are left
  *   off the leaderboard for the whole season and never count as pool traders.
  *   Signals: a transaction holding several swaps (batching), a UTC day with
- *   many swaps at a short median gap (burst), or repeated swaps sent with no
- *   other transfer at all (direct x/amm use).
+ *   many swaps at a short median gap (burst; while the fee rule is on, only
+ *   swaps outside the Qwakk route count toward it), or
+ *   repeated swaps sent with no other transfer at all (direct x/amm use).
  * - a swap counts only when its transaction paid the interface fee to a
  *   treasury address, only the first swap of a transaction counts, and a swap too
  *   soon after the address's previous counted swap scores nothing. Swaps that
@@ -265,7 +266,10 @@ export function detectBots(swaps: Array<ScoringSwap & { sender: string; time: nu
     const tx = perTx.get(swap.txHash) ?? { sender: swap.sender, count: 0 };
     tx.count += 1;
     perTx.set(swap.txHash, tx);
-    pushTo(perDay, `${swap.sender}|${utcDay(swap.executedAt)}`, swap.time);
+    // A swap that paid Qwakk's fee is a person on the Qwakk route: fast clicking is
+    // already held back by the minimum swap gap and the daily ceiling, so it never
+    // counts toward a burst. Only swaps outside the Qwakk route can make one.
+    if (!(config.requireInterfaceFee && paidInterfaceFee(swap, config))) pushTo(perDay, `${swap.sender}|${utcDay(swap.executedAt)}`, swap.time);
     if (config.requireInterfaceFee && madeWithoutAnyTransfer(swap)) direct.set(swap.sender, (direct.get(swap.sender) ?? 0) + 1);
   }
   if (config.botBatchMinSwaps > 0) {

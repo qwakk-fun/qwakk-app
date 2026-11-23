@@ -379,7 +379,7 @@ Pools without a QOR side score 0 for now.
 | `QWAKK_POINTS_PAST_TREASURY_ADDRESSES` | none | Earlier treasury addresses. A fee paid to them still counts, and they are kept off the leaderboard |
 | `QWAKK_POINTS_MIN_SWAP_GAP_SECONDS` | `60` | A swap less than this many seconds after the address's previous counted swap scores nothing (0 = off). Only the first swap of a transaction counts, always |
 | `QWAKK_POINTS_BOT_BATCH_MIN_SWAPS` | `2` | Flag an address with any transaction holding this many swaps (0 = off) |
-| `QWAKK_POINTS_BOT_BURST_MIN_SWAPS` | `10` | Flag an address with this many swaps on one UTC day (0 = off) ... |
+| `QWAKK_POINTS_BOT_BURST_MIN_SWAPS` | `10` | Flag an address with this many swaps outside the Qwakk route on one UTC day (0 = off; while the fee rule is on, swaps that paid the interface fee never count here) ... |
 | `QWAKK_POINTS_BOT_BURST_MEDIAN_GAP_SECONDS` | `30` | ... at a median gap between them below this many seconds |
 | `QWAKK_POINTS_BOT_DIRECT_MIN_SWAPS` | `5` | Flag an address with this many swaps sent with no other transfer at all, plain x/amm use (0 = off; also off while the fee rule is off) |
 | `QWAKK_POINTS_BOT_ADDRESSES` | none | Addresses always flagged |

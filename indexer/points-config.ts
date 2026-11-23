@@ -108,7 +108,11 @@ export type PointsConfig = {
   botAllowlist: string[];
   /** Flag an address with any in-season transaction holding at least this many swaps. 0 turns it off. */
   botBatchMinSwaps: number;
-  /** Flag an address with at least this many swaps on one UTC day... 0 turns it off. */
+  /**
+   * Flag an address with at least this many swaps on one UTC day... 0 turns it off.
+   * While the fee rule is on, swaps that paid the interface fee are left out:
+   * they are already throttled by `minSwapGapSeconds`.
+   */
   botBurstMinSwaps: number;
   /** ...whose median gap between consecutive swaps that day is below this many seconds. */
   botBurstMedianGapSeconds: number;
