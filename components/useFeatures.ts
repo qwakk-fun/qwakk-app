@@ -4,19 +4,24 @@ import { useEffect, useState } from "react";
 import type { PublicQwakkNetwork } from "../lib/qwakk-network";
 import { setAssetNetwork } from "../lib/qwakk-assets";
 
-export type FeatureActions = { swap: boolean; add_liquidity: boolean; remove_liquidity: boolean; create_pool: boolean };
+export type FeatureActions = { swap: boolean; add_liquidity: boolean; remove_liquidity: boolean; create_pool: boolean; rewards_claim: boolean };
 export type Features = {
   /** True when at least one wallet action is on. */
   nativeActions: boolean;
   /** Each wallet action's own switch. Render an action only when its switch is on. */
   actions: FeatureActions;
   points: boolean;
+  /**
+   * Liquidity rewards render only when both the program (QWAKK_REWARDS_ENABLED)
+   * and claims (`rewards_claim` with a configured contract) are on.
+   */
+  rewards: boolean;
   /** Null until `/api/features` answers: the browser never guesses the network. */
   network: PublicQwakkNetwork | null;
 };
 
-const ACTIONS_OFF: FeatureActions = { swap: false, add_liquidity: false, remove_liquidity: false, create_pool: false };
-export const FEATURES_OFF: Features = { nativeActions: false, actions: ACTIONS_OFF, points: false, network: null };
+const ACTIONS_OFF: FeatureActions = { swap: false, add_liquidity: false, remove_liquidity: false, create_pool: false, rewards_claim: false };
+export const FEATURES_OFF: Features = { nativeActions: false, actions: ACTIONS_OFF, points: false, rewards: false, network: null };
 
 /** Switches can change in CapRover at runtime, so a loaded answer is reused for one minute only. */
 const FEATURES_TTL_MS = 60_000;
@@ -37,11 +42,13 @@ function parseFeatures(data: unknown): Features {
     add_liquidity: raw.add_liquidity === true,
     remove_liquidity: raw.remove_liquidity === true,
     create_pool: raw.create_pool === true,
+    rewards_claim: raw.rewards_claim === true,
   };
   return {
     nativeActions: Object.values(actions).some(Boolean),
     actions,
     points: record.points === true,
+    rewards: record.rewards === true && actions.rewards_claim,
     network: parseNetwork(record.network),
   };
 }

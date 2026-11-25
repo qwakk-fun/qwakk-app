@@ -5,6 +5,7 @@ import { ArrowDownLeft, ArrowUpRight, ExternalLink, Wallet } from "lucide-react"
 import { FaucetHint } from "../../components/FaucetHint";
 import { ProfitLoss } from "../../components/ProfitLoss";
 import { QwakkHeader } from "../../components/QwakkHeader";
+import { RewardsPortfolio } from "../../components/RewardsPortfolio";
 import { SiteFooter } from "../../components/SiteFooter";
 import { TokenIcon } from "../../components/TokenIcon";
 import { useAssets } from "../../components/useAssets";
@@ -170,6 +171,9 @@ export default function Profile() {
           {!loading && !error && lowOnQor && <FaucetHint lead="This wallet is low on QOR, and every swap or pool action pays its network fee in QOR." className="faucet-hint-panel" />}
 
           <ProfitLoss pnl={pnl} />
+
+          {/* Renders only while LP rewards are switched on. */}
+          <RewardsPortfolio address={address} />
 
           <div className="portfolio-sections">
             <section className="panel assets-table" aria-labelledby="assets-title">

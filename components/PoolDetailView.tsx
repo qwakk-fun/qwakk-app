@@ -14,6 +14,7 @@ import { FavoriteButton } from "./FavoriteButton";
 import { useFavorites } from "./useFavorites";
 import { ChartMessage, PoolChart, type PoolCandle } from "./PoolChart";
 import { RecentSwaps, shortAddress, type PoolSwap } from "./RecentSwaps";
+import { RewardsPoolCard } from "./RewardsPoolCard";
 import { formatBaseAmount, withAssetOverrides } from "../lib/qwakk-assets";
 import { BRAND } from "../lib/brand";
 import { CHART_INTERVAL_LABELS, chartEmptyCopy, type ChartInterval } from "../lib/qwakk-chart";
@@ -171,6 +172,9 @@ export function PoolDetailView({ poolId, slug, unresolved, pair }: { poolId: str
           <div className="stat-card stat"><span className="stat-label">24h volume</span><span className="stat-value num">{volume.value === null ? "None yet" : `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(volume.value)} ${volume.symbol}`}</span></div>
         </section>
 
+        {/* Renders only while LP rewards are switched on and this pool has a program. */}
+        <RewardsPoolCard poolId={String(pool.id)} walletAddress={walletAddress} canAddLiquidity={actions.add_liquidity && !paused && !tooThinToTrade} />
+
         <div className="pool-layout">
           <div className="pool-main">
             <section className="panel" aria-labelledby="pool-chart-title">
@@ -203,7 +207,7 @@ export function PoolDetailView({ poolId, slug, unresolved, pair }: { poolId: str
             </div>
             <p className="panel-note">Liquidity is held by the pool on QoreChain. {BRAND.name} never holds assets.</p>
             {liquidityActions && <>
-              <div className="panel-head panel-head-split"><span className="panel-title">{actions.add_liquidity ? "Liquidity" : "Withdraw liquidity"}</span></div>
+              <div className="panel-head panel-head-split" id="pool-liquidity"><span className="panel-title">{actions.add_liquidity ? "Liquidity" : "Withdraw liquidity"}</span></div>
               {walletAddress
                 ? <LiquidityPanel pool={pool} walletAddress={walletAddress} allowAdd={actions.add_liquidity} allowRemove={actions.remove_liquidity} />
                 : <div className="panel-body"><button type="button" className="btn btn-primary btn-block" onClick={() => window.dispatchEvent(new Event("qwakk:request-connect"))}>Connect wallet</button></div>}

@@ -1,6 +1,7 @@
 import { nativeActionSwitches } from "@/lib/features";
 import { rewardsClaimContract } from "@/lib/qwakk-native-rewards";
 import { pointsEnabled } from "@/lib/qwakk-points";
+import { rewardsEnabled } from "@/lib/qwakk-rewards";
 import { getQwakkNetwork, publicNetwork } from "@/lib/qwakk-network";
 
 /**
@@ -8,6 +9,8 @@ import { getQwakkNetwork, publicNetwork } from "@/lib/qwakk-network";
  * points pages, plus the network it must ask QoreX for. `nativeActions` stays
  * for existing callers: true when any action is on. `rewards_claim` is on
  * only when a rewards contract is configured for this network as well.
+ * `rewards` is QWAKK_REWARDS_ENABLED: the rewards pages need it and
+ * `rewards_claim` both before they render anything.
  */
 export async function GET() {
   const network = getQwakkNetwork();
@@ -18,6 +21,7 @@ export async function GET() {
       nativeActions: Object.values(actions).some(Boolean),
       actions,
       points: pointsEnabled(),
+      rewards: rewardsEnabled(),
       network: publicNetwork(network),
     },
     { headers: { "Cache-Control": "no-store" } },
