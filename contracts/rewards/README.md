@@ -16,8 +16,8 @@ instantiation closed (docs: developer-guide/cosmwasm-development).
 | Optimized build | Reproducible: two clean builds with `cosmwasm/optimizer-arm64:0.16.1` gave the same sha256. See "Build". |
 | Static check | `cosmwasm-check` 2.3.5 (the VM in Diana's wasmvm v2.3.5) passes with only the `iterator` capability. |
 | Local chain rehearsal | Passed on a throwaway wasmd v0.60.2 node (wasmvm v2.2.4, SDK v0.53.0) on 2026-11-25. See "Rehearsal". |
-| Store-code proposal | **Prepared and dry-run on Diana, not submitted.** See "Proposal". |
-| On QoreChain Diana | Not stored, not instantiated. |
+| Store-code proposal | **Passed.** Diana proposal 50 (expedited), submitted 2026-11-25 17:50 UTC ([`7AC3CD90...3555`](https://explore.qore.network/tx/7AC3CD90DA59D5BE8ABB51250EA2C57A410D8452429C598DB93CED9B8AD03555)), passed at 18:50 UTC. |
+| On QoreChain Diana | **Stored as code 866** (checksum `3c953fbc...f006`, matches `artifacts/checksums.txt`). **Instantiated** at `qor1xdmy3ruvchrt8rmcg6kqx08lypgsahfz79qnqq6nxk4qmmv856pqe8y28w`, height 10,743,928 ([`D0C01343...1256`](https://explore.qore.network/tx/D0C0134397EEC5ED6B7076D8779F5D786E7CCCC40740506F122F9A5E07D81256)). Owner and wasm admin: the testnet deployer `qor1lndgla7rrh8cjq8enly3cldkaze3z2jupzakmp`. No stages yet. |
 | Claim with QoreX | **Not verified.** The app builds the claim (`lib/qwakk-native-rewards.ts`); no QoreX-signed claim exists yet. |
 
 ## The contract
