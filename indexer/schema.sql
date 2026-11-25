@@ -224,3 +224,70 @@ CREATE TABLE IF NOT EXISTS points_flags (
   reasons TEXT[] NOT NULL,
   PRIMARY KEY (season, address)
 );
+
+-- Liquidity rewards (indexer/rewards-*.ts). New tables only, nothing existing
+-- is touched. Programs mirror QWAKK_REWARDS_PROGRAMS on every start. Epoch and
+-- allocation rows are written only by indexer/rewards-cli.ts finalize, from
+-- the raw lp_snapshots and liquidity_events, and are never rewritten once an
+-- epoch is registered on chain. Amounts are base units of the reward denom.
+CREATE TABLE IF NOT EXISTS reward_programs (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  pool_id BIGINT NOT NULL,
+  reward_denom TEXT NOT NULL,
+  reward_symbol TEXT NOT NULL,
+  reward_decimals INTEGER NOT NULL,
+  epoch_budget NUMERIC NOT NULL,
+  epoch_anchor TIMESTAMPTZ NOT NULL,
+  epoch_seconds INTEGER NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- One row per finalized epoch. status: 'draft' (reserved), 'finalized' (tree
+-- and proofs written, stage JSON handed to the contract CLI), 'registered'
+-- (the owner registered the stage on chain). config freezes the exclusions and
+-- holding rules used, so `rewards-cli verify` can recompute the same root.
+CREATE TABLE IF NOT EXISTS reward_epochs (
+  program_id TEXT NOT NULL REFERENCES reward_programs(id),
+  epoch_number INTEGER NOT NULL,
+  pool_id BIGINT NOT NULL,
+  reward_denom TEXT NOT NULL,
+  starts_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ NOT NULL,
+  budget NUMERIC NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('draft', 'finalized', 'registered')),
+  contract_address TEXT,
+  stage_id BIGINT,
+  merkle_root TEXT,
+  total_allocated NUMERIC,
+  dust NUMERIC,
+  recipients INTEGER,
+  total_share_seconds NUMERIC,
+  excluded_share_seconds NUMERIC,
+  data_through_height BIGINT,
+  config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  -- Claim window registered with the stage (the contract's start and end).
+  claim_starts_at TIMESTAMPTZ,
+  claim_ends_at TIMESTAMPTZ,
+  finalized_at TIMESTAMPTZ,
+  registered_at TIMESTAMPTZ,
+  register_tx_hash TEXT,
+  PRIMARY KEY (program_id, epoch_number)
+);
+
+-- A stage id is assigned by the contract, so it is unique per contract.
+CREATE UNIQUE INDEX IF NOT EXISTS reward_epochs_stage_idx ON reward_epochs (COALESCE(contract_address, ''), stage_id) WHERE stage_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS reward_allocations (
+  program_id TEXT NOT NULL,
+  epoch_number INTEGER NOT NULL,
+  address TEXT NOT NULL,
+  share_seconds NUMERIC NOT NULL,
+  amount NUMERIC NOT NULL,
+  leaf TEXT NOT NULL,
+  proof TEXT[] NOT NULL,
+  PRIMARY KEY (program_id, epoch_number, address),
+  FOREIGN KEY (program_id, epoch_number) REFERENCES reward_epochs (program_id, epoch_number) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS reward_allocations_address_idx ON reward_allocations (address);

@@ -1,16 +1,20 @@
 import { qorechainRegistry, type EncodeObject } from "@qorechain/sdk";
 import { MsgSend } from "cosmjs-types/cosmos/bank/v1beta1/tx";
+import { MsgExecuteContract } from "cosmjs-types/cosmwasm/wasm/v1/tx";
 import { SignMode } from "cosmjs-types/cosmos/tx/signing/v1beta1/signing";
 import { AuthInfo, Fee, ModeInfo, SignerInfo, TxBody, TxRaw } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 import type { Any } from "cosmjs-types/google/protobuf/any";
 
 import { QORECHAIN_REST_URL } from "@/lib/qorechain-endpoints";
+import { WASM_EXECUTE_TYPE, isAllowedRewardsClaim } from "@/lib/qwakk-native-rewards";
 import type { QoreXMessage } from "@/lib/qorex-native";
 
 /**
  * Qwakk only ever asks QoreX to sign native AMM messages, plus the disclosed
- * interface fee transfer next to a swap. Anything else is refused before it
- * reaches the wallet.
+ * interface fee transfer next to a swap, plus one narrow exception: a single
+ * rewards claim to the configured qwakk-rewards contract
+ * (lib/qwakk-native-rewards.ts). Anything else is refused before it reaches
+ * the wallet.
  */
 export const NATIVE_AMM_MESSAGE_TYPES = new Set([
   "/qorechain.amm.v1.MsgCreatePool",
@@ -97,9 +101,15 @@ export function toWalletMessages(encoded: readonly Any[]): QoreXMessage[] {
  * A message set may go to the wallet when every message is a native AMM
  * message, or when a swap is paired with Qwakk's interface fee: one transfer
  * from the sender to the configured treasury. Any other transfer is refused.
+ *
+ * The one exception is a rewards claim: exactly one MsgExecuteContract from
+ * the sender to `rewardsContract`, no funds, a `claim` body and nothing else.
+ * A contract message in any other shape, or next to any other message, is
+ * refused, and so is every contract message when no rewards contract is set.
  */
-export function isAllowedMessageSet(messages: readonly Any[], sender: string, treasury?: string) {
+export function isAllowedMessageSet(messages: readonly Any[], sender: string, treasury?: string, rewardsContract?: string | null) {
   if (!messages.length) return false;
+  if (messages.some((message) => message.typeUrl === WASM_EXECUTE_TYPE)) return isAllowedRewardsClaim(messages, sender, rewardsContract);
   const sends = messages.filter((message) => message.typeUrl === SEND_TYPE);
   const others = messages.filter((message) => message.typeUrl !== SEND_TYPE);
   if (others.some((message) => !NATIVE_AMM_MESSAGE_TYPES.has(message.typeUrl))) return false;
@@ -169,6 +179,13 @@ export function networkFeeForGas(gasLimit: bigint) {
 
 export type SimulationFailure =
   | "insufficient_funds"
+  | "rewards_claimed"
+  | "rewards_invalid"
+  | "rewards_not_open"
+  | "rewards_ended"
+  | "rewards_paused"
+  | "rewards_exhausted"
+  | "rewards_unavailable"
   | "network_fee"
   | "pool_creation_fee"
   | "pool_not_found"
@@ -195,6 +212,8 @@ export type SimulationResult = { ok: true; gasUsed: bigint; events: ChainEvent[]
  */
 export function classifySimulationError(message: string): SimulationFailure {
   const text = message.toLowerCase();
+  // The qwakk-rewards contract prefixes every error (contracts/rewards/src/error.rs).
+  if (text.includes("qwakk-rewards: ")) return classifyRewardsError(text);
   if (text.includes("insufficient funds") || text.includes("smaller than")) return "insufficient_funds";
   if (text.includes("pool not found")) return "pool_not_found";
   if (text.includes("pool already exists")) return "pool_exists";
@@ -204,6 +223,17 @@ export function classifySimulationError(message: string): SimulationFailure {
   if (text.includes("insufficient liquidity")) return "insufficient_liquidity";
   if (text.includes("below minimum liquidity")) return "below_min_liquidity";
   if (text.includes("reached max pools")) return "pool_limit";
+  return "rejected";
+}
+
+function classifyRewardsError(text: string): SimulationFailure {
+  if (text.includes("qwakk-rewards: already claimed")) return "rewards_claimed";
+  if (text.includes("qwakk-rewards: invalid proof") || text.includes("qwakk-rewards: amount must be positive")) return "rewards_invalid";
+  if (text.includes("qwakk-rewards: claim window not open")) return "rewards_not_open";
+  if (text.includes("qwakk-rewards: claim window ended") || text.includes("qwakk-rewards: stage closed")) return "rewards_ended";
+  if (text.includes("qwakk-rewards: stage paused")) return "rewards_paused";
+  if (text.includes("qwakk-rewards: stage total exceeded")) return "rewards_exhausted";
+  if (text.includes("qwakk-rewards: stage not found")) return "rewards_unavailable";
   return "rejected";
 }
 
@@ -335,6 +365,11 @@ export function requiredSpend(encoded: readonly Any[], options: { poolCreationFe
     spend.set(coin.denom, (spend.get(coin.denom) ?? BigInt(0)) + BigInt(coin.amount as string));
   };
   for (const message of encoded) {
+    if (message.typeUrl === WASM_EXECUTE_TYPE) {
+      // Not in the SDK registry. A rewards claim carries no funds; count any anyway.
+      for (const coin of MsgExecuteContract.decode(message.value).funds) add(coin);
+      continue;
+    }
     const decoded = registry.decode(message) as Record<string, unknown>;
     switch (message.typeUrl) {
       case SEND_TYPE:

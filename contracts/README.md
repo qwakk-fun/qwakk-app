@@ -100,7 +100,8 @@ test/QwakkToken.t.sol             its unit, x/erc20 conversion-shape, fuzz and i
 src/QcatToken.sol                 QCAT (Quantum Cat), the same token shape for the QCAT community token (see "QCAT token" below)
 test/QcatToken.t.sol              the same test suite for QCAT
 script/DeployPondVault.s.sol      Foundry deploy script for the anvil rehearsal only (refuses other chains)
-cli/                              owner and approver CLI (TypeScript, viem, QoreChain SDK), plus the token CLI for QWAKK and QCAT (src/token.ts)
+cli/                              owner and approver CLI (TypeScript, viem, QoreChain SDK), plus the token CLI for QWAKK and QCAT (src/token.ts) and the rewards CLI (src/rewards.ts)
+rewards/                          qwakk-rewards, the CosmWasm Merkle claim contract for liquidity rewards (its own README)
 ```
 
 The read-only dashboard lives in the app: `app/vault/page.tsx`,

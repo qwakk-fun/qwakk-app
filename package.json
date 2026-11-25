@@ -13,6 +13,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
     "indexer": "tsx indexer/server.ts",
+    "rewards": "tsx indexer/rewards-cli.ts",
     "pool:testnet": "tsx scripts/qwakk-testnet-pool.ts",
     "verify:amm": "tsx scripts/qwakk-verify-amm.ts"
   },

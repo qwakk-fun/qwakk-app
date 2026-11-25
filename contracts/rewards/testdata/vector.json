@@ -1,0 +1,32 @@
+{
+ "stage": 1,
+ "root": "a546da3d30ca80c9abe13be629e99630e0baac67f8a8ac1616c347d044eeacac",
+ "claims": [
+  {
+   "address": "qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq",
+   "amount": "1000000",
+   "leaf": "6eb434b9a1e3f7590ee6bae3778d13afaa4e9f378211c39bf0796010dbc50c0a",
+   "proof": [
+    "dcd131a3554df512903be2cd0daddd866ab1191774935ba7ca76d9a7f0ced676",
+    "e68a185cfc0af007deb571cd00a1025a17124609253d8329eec744f386f5a72b"
+   ]
+  },
+  {
+   "address": "qor1lndgla7rrh8cjq8enly3cldkaze3z2jupzakmp",
+   "amount": "2500000",
+   "leaf": "dcd131a3554df512903be2cd0daddd866ab1191774935ba7ca76d9a7f0ced676",
+   "proof": [
+    "6eb434b9a1e3f7590ee6bae3778d13afaa4e9f378211c39bf0796010dbc50c0a",
+    "e68a185cfc0af007deb571cd00a1025a17124609253d8329eec744f386f5a72b"
+   ]
+  },
+  {
+   "address": "qor1x6jdvvyf3c3dahvw7ktcljx9ylgknpzkpsaxw2",
+   "amount": "7",
+   "leaf": "e68a185cfc0af007deb571cd00a1025a17124609253d8329eec744f386f5a72b",
+   "proof": [
+    "0249278eeadd049d3a2673cc1b6ad65a58646be9b911d6b692c97f1288e960bf"
+   ]
+  }
+ ]
+}

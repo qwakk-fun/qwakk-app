@@ -60,7 +60,16 @@ How it works:
   `signAndBroadcast` (QoreX 0.3.5 or newer). QoreX asks the user to approve,
   adds its post-quantum layer, signs and broadcasts. Qwakk never signs or relays
   a transaction. The server only prepares native AMM messages, plus the
-  disclosed interface fee transfer on a swap.
+  disclosed interface fee transfer on a swap. The one exception is a rewards
+  claim (below).
+- Liquidity rewards claims (`contracts/rewards`, a CosmWasm Merkle claim
+  contract) are built but **not live**: the contract's store-code proposal is
+  prepared and dry-run, not submitted, and no claim has been signed with QoreX
+  yet. The prepare route builds a claim only when `QWAKK_NATIVE_ACTIONS` names
+  `rewards_claim` explicitly (`enabled` never includes it) and
+  `QWAKK_REWARDS_CONTRACT_ADDRESS` is set on QoreChain Diana: exactly one
+  `MsgExecuteContract` `claim` with no funds to that contract
+  (`lib/qwakk-native-rewards.ts`).
 - QOR/USD price, volume and market cap come from CoinGecko and are labeled as
   such wherever they appear.
 - Assets: Diana has test tokens next to `uqor`. Qwakk's asset registry
@@ -288,6 +297,7 @@ them to an empty value. The full list with comments is in `.env.example`.
 | `QWAKK_SWAP_FEE_BPS` | yes | | `10` (fee on) | owner decides |
 | `QWAKK_POINTS_ENABLED` | yes | yes | `enabled` | owner decides |
 | `QWAKK_NATIVE_ACTIONS` | yes | | per launch checklist | owner decides |
+| `QWAKK_REWARDS_CONTRACT_ADDRESS` | yes (claims) | yes | the qwakk-rewards contract, after its proposal passes | ignored (CosmWasm is Diana only) |
 | `QWAKK_VAULT_ADDRESS` | yes | | Pond Vault `0x` address, optional (`/vault`) | ignored |
 | `QWAKK_BLOCKED_POOL_IDS`, `QWAKK_BLOCKED_DENOMS` | yes | | empty unless pausing | empty unless pausing |
 | `QWAKK_HEALTH_MAX_INDEXER_LAG` | optional | | `600` default | `600` default |

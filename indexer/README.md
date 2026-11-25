@@ -265,6 +265,82 @@ table, are no longer written or served, and `interval=6h` answers 400.
   - `dust`: a held balance below one millionth of a token (at least 1000
     base units), the pools' dust rule. It is still counted.
 - `GET /points/...`: only while `QWAKK_POINTS_ENABLED` is on.
+- `GET /rewards/programs` and `GET /rewards/addresses/:address`: only while
+  `QWAKK_REWARDS_ENABLED` is on. See Liquidity rewards below.
+
+## Liquidity rewards
+
+A rewards program pays the LPs of one pool in one token, per epoch (7 days by
+default, from the program's `anchor`). Programs come from
+`QWAKK_REWARDS_PROGRAMS` (see `.env.example`). Testnet only for now.
+
+How an epoch is computed (`rewards-math.ts`, pure and deterministic):
+
+- Input: the pool's hourly LP snapshots (the chain's LP balance query) and its
+  `liquidity_removed` events. LP shares cannot be transferred.
+- Between two consecutive snapshots of a position, the amount held through the
+  whole interval is the earlier balance minus everything removed in between,
+  capped by the later balance, as in the points program. Adds count from the
+  next interval. A gap is credited for at most `QWAKK_REWARDS_MAX_GAP_HOURS`.
+- A holding streak shorter than `QWAKK_REWARDS_MIN_HOLD_HOURS` earns nothing.
+- Share-seconds: LP units held times seconds of credited time inside
+  [start, end). Excluded addresses are left out of the total, so they do not
+  dilute anyone.
+- Amount: `floor(budget * share_seconds / total_eligible_share_seconds)`. The
+  remainder (dust) stays unallocated and is stored with the epoch.
+
+An epoch settles `QWAKK_REWARDS_MAX_GAP_HOURS + 1` hours after it ends, once
+the indexer has ingested up to the latest snapshot it reads. Nothing happens
+automatically: the owner runs `rewards-cli.ts` (`npm run rewards -- ...`, or
+`node --import tsx indexer/rewards-cli.ts ...` in the indexer container):
+
+1. `status`: every epoch and whether it is running, settled or finalized.
+2. `preview --epoch <n>`: shares and amounts, writes nothing (also for the
+   running epoch).
+3. `finalize --epoch <n> --stage-id <s>`: dry run. The stage id is part of
+   every Merkle leaf, so it must be the id the contract assigns next.
+4. `finalize --epoch <n> --stage-id <s> --apply --out stage.json`: writes the
+   allocations and proofs and the stage JSON
+   (`{stage_id, root, total, denom, pool_id, start, end, label}`) for the
+   contract CLI's `register_stage`. `start` and `end` are the claim window in
+   unix seconds, as the contract expects: from the epoch's end for the
+   program's `claimDays` (default 30). The epoch dates are in the label. The
+   contract field for `root` is `merkle_root`.
+5. After registering on chain: `mark-registered --epoch <n> --stage-id <s> --tx <hash>`.
+
+`verify --epoch <n>` recomputes a finalized epoch with its frozen exclusions
+and rules and compares the root. A finalized epoch can be rewritten with
+`--replace` until it is registered; a registered one never is. Snapshots of a
+rewards pool from shortly before its first epoch are never pruned by retention.
+
+Merkle format (`rewards-merkle.ts`, shared vector in
+`tests/fixtures/qwakk-rewards-vector.json`):
+`leaf = sha256("qwakk-rewards-v1" || u64_be(stage_id) || u8(len(address)) || address || u128_be(amount))`,
+`node = sha256(min(a, b) || max(a, b))`, leaves sorted ascending, an odd last
+node carried up unchanged.
+
+Responses (amounts are base units of the reward token, as strings):
+
+- `/rewards/programs`: `{ programs: [{ id, label, poolId, rewardDenom,
+  rewardSymbol, rewardDecimals, epochSeconds, epochBudget, firstEpochStartsAt,
+  currentEpoch: { number, startsAt, endsAt, budget, participants, warmingUp,
+  eligibleShareSeconds, computedAt, throughHeight } | null, epochs: [{ number,
+  startsAt, endsAt, status, stageId, root, budget, totalAllocated, dust,
+  recipients, finalizedAt, registeredAt, registerTxHash, claimStartsAt,
+  claimEndsAt }] }], rules: {
+  minHoldHours, maxGapHours } }`. The running epoch is recomputed at most once
+  a minute.
+- `/rewards/addresses/:address`: `{ address, excluded, claims: [{ programId,
+  epoch, stageId, status, startsAt, endsAt, claimStartsAt, claimEndsAt,
+  poolId, rewardDenom, rewardSymbol,
+  rewardDecimals, amount, shareSeconds, root, leaf, proof }], current: [{
+  programId, poolId, rewardDenom, rewardSymbol, rewardDecimals, epoch,
+  startsAt, endsAt, status, shareSeconds, totalShareSeconds, sharePpm,
+  estimatedAmount, warmingUpHours, minHoldHours, computedAt }] }`. Only a
+  `registered` claim can be claimed on chain; whether it was already claimed
+  is contract state and is not tracked here. `current.status` is `earning`,
+  `warming_up`, `not_earning` or `excluded`; `estimatedAmount` splits the full
+  budget by the shares so far and changes until the epoch is finalized.
 
 ## Rebuilding candles
 

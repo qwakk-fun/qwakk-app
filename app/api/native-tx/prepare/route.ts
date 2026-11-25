@@ -4,6 +4,7 @@ import { checkChainId } from "@/lib/qwakk-chain-guard";
 import { getServerQwakkFeeConfig, type ServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
 import { alignDepositToPool } from "@/lib/qwakk-liquidity-route";
 import { encodedMessagesForAction, exactOutQuoteCheck, interfaceFeeInMessages, parseNativeAction, type NativeAction } from "@/lib/qwakk-native-actions";
+import { REWARDS_CLAIM_KIND, rewardsClaimContract } from "@/lib/qwakk-native-rewards";
 import { isBlocked, nativeBlocklist } from "@/lib/qwakk-native-guards";
 import { prepareWalletTx, type SimulationFailure } from "@/lib/qwakk-native-tx";
 import { getQwakkNetwork, requiresChainQuote } from "@/lib/qwakk-network";
@@ -56,6 +57,8 @@ function chainQuoteFailure(quote: ChainQuote | ChainExactOutQuote): PrecheckFail
  * to build (deposits put in pool order) or a fixed failure.
  */
 async function precheck(action: NativeAction, fee: ServerQwakkFeeConfig): Promise<{ action: NativeAction } | { failure: PrecheckFailure }> {
+  // A rewards claim touches no pool: the contract itself checks it in simulation.
+  if (action.kind === REWARDS_CLAIM_KIND) return { action };
   const blocklist = nativeBlocklist();
   if (action.kind === "create_pool" && isBlocked(blocklist, { denoms: [action.denomA, action.denomB] })) return { failure: "blocked" };
   if (action.kind !== "create_pool" && isBlocked(blocklist, { poolId: action.poolId, denoms: [] })) return { failure: "blocked" };
@@ -131,6 +134,12 @@ async function precheck(action: NativeAction, fee: ServerQwakkFeeConfig): Promis
  * opens, and checked against the wallet's balance including the network fee
  * and, for a new pool, the pool creation fee. QoreX builds, signs and
  * broadcasts the transaction itself. Nothing is signed or broadcast here.
+ *
+ * A rewards claim (`{ kind: "rewards_claim", stageId, amount, proof }`) is the
+ * one non-AMM action: it needs its own switch and
+ * `QWAKK_REWARDS_CONTRACT_ADDRESS`, builds exactly one MsgExecuteContract
+ * `claim` with no funds to that contract, and is checked by the contract in
+ * simulation (refusals map to the `rewards_*` copy).
  */
 export async function POST(request: Request) {
   if (!nativeActionsEnabled()) return json({ error: "Not found" }, 404);
@@ -148,6 +157,9 @@ export async function POST(request: Request) {
   }
   // Per-action switch: QWAKK_NATIVE_ACTIONS can allow only some actions.
   if (!nativeActionAllowed(action.kind)) return guard("action_disabled", 403);
+  // Claims also need the rewards contract configured for this network.
+  const rewardsContract = action.kind === REWARDS_CLAIM_KIND ? rewardsClaimContract(process.env, network.id) : null;
+  if (action.kind === REWARDS_CLAIM_KIND && !rewardsContract) return guard("action_disabled", 403);
 
   // The configured endpoints must serve the configured chain before anything
   // is prepared for QoreX to sign (cached, see lib/qwakk-chain-guard.ts).
@@ -166,20 +178,21 @@ export async function POST(request: Request) {
 
   let encoded;
   try {
-    encoded = encodedMessagesForAction(address, action, fee);
+    encoded = encodedMessagesForAction(address, action, fee, rewardsContract);
   } catch (error) {
     // Builder errors are fixed strings written in this codebase, never chain text.
     return json({ error: error instanceof Error ? error.message : "Check the transaction details" }, 400);
   }
 
   try {
-    const params = await readAmmParams();
+    // The pool creation fee only matters for a new pool; a claim needs no AMM read.
+    const poolCreationFee = action.kind === "create_pool" ? BigInt((await readAmmParams()).poolCreationFee) : undefined;
     const outcome = await prepareWalletTx({
       address,
       chainId: network.chainId,
       encoded,
       balanceCheck: {
-        poolCreationFee: action.kind === "create_pool" ? BigInt(params.poolCreationFee) : undefined,
+        poolCreationFee,
         readBalances,
       },
     });

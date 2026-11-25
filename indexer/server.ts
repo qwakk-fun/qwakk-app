@@ -16,6 +16,9 @@ import { positionBalances } from "./positions";
 import { HISTORY_START_KEY, PnlTooLarge, readBankBalances, walletPnl, type WalletPnlDeps } from "./wallet-pnl";
 import { describePointsConfig, loadPointsConfig } from "./points-config";
 import { formatPoints, scoreSeason, type ScoringInput } from "./points-scoring";
+import { loadRewardsConfig } from "./rewards-config";
+import { syncRewardPrograms } from "./rewards-data";
+import { createRewardsApi } from "./rewards-api";
 
 const configWarnings: string[] = [];
 const { network: NETWORK, warnings: networkWarnings } = resolveIndexerNetwork(process.env);
@@ -34,6 +37,8 @@ const db = new Pool({ connectionString: DATABASE_URL });
 const { config: pointsConfig, warnings: pointsWarnings } = loadPointsConfig();
 const pointsConfigJson = describePointsConfig(pointsConfig);
 const pointsConfigHash = createHash("sha256").update(JSON.stringify(pointsConfigJson)).digest("hex").slice(0, 16);
+const { config: rewardsConfig, warnings: rewardsWarnings } = loadRewardsConfig();
+const rewardsApi = createRewardsApi(db, rewardsConfig, pointsConfig.season);
 /** LP snapshots are checked every minute and written once per UTC hour per position. */
 const SNAPSHOT_CHECK_MS = 60_000;
 const SNAPSHOT_CONCURRENCY = 6;
@@ -931,13 +936,17 @@ async function pruneRetention() {
     ? { condition: "s.height < $1", param: rule.height, label: `below season start height ${rule.height}` }
     : { condition: "s.snapshot_hour < NOW() - make_interval(days => $1)", param: rule.days, label: `older than ${rule.days} days` };
   if (snapshotRule) {
+    // Snapshots of a rewards pool from shortly before its first epoch are kept: finalize and verify recompute epochs from them.
+    const rewardPools = rewardsConfig.programs.map((program) => program.poolId);
+    const rewardsSince = new Date(Math.min(Date.now(), ...rewardsConfig.programs.map((program) => program.anchorMs)) - rewardsConfig.lookbackHours * 3_600_000);
     const count = await inBatches(
       `DELETE FROM lp_snapshots WHERE id IN (
          SELECT s.id FROM lp_snapshots s
          WHERE ${snapshotRule.condition}
            AND s.snapshot_hour < (SELECT MAX(l.snapshot_hour) FROM lp_snapshots l WHERE l.pool_id = s.pool_id AND l.address = s.address)
+           AND NOT (s.pool_id = ANY($2::bigint[]) AND s.snapshot_hour >= $3)
          LIMIT ${RETENTION_BATCH})`,
-      [snapshotRule.param],
+      [snapshotRule.param, rewardPools, rewardsSince],
     );
     if (count) pruned.push(`${count} LP snapshots ${snapshotRule.label}`);
   }
@@ -1336,6 +1345,16 @@ const server = createServer(async (request, response) => {
         return writeJson(response, 200, await pointsAddress(address));
       }
     }
+    // Rewards stay invisible until the program is switched on.
+    if (url.pathname.startsWith("/rewards/") && rewardsConfig.enabled) {
+      if (url.pathname === "/rewards/programs") return writeJson(response, 200, await rewardsApi.programs());
+      const rewardsMatch = url.pathname.match(/^\/rewards\/addresses\/([0-9a-zA-Z]+)$/);
+      if (rewardsMatch) {
+        const address = rewardsMatch[1].toLowerCase();
+        if (!isQorAddress(address)) return writeJson(response, 400, { error: "A valid QoreChain address is required" });
+        return writeJson(response, 200, await rewardsApi.address(address));
+      }
+    }
     return writeJson(response, 404, { error: "Not found" });
   } catch (error) {
     console.error("Indexer API request failed", error);
@@ -1387,7 +1406,10 @@ async function verifyChain() {
 async function main() {
   const schemaPath = fileURLToPath(new URL("./schema.sql", import.meta.url));
   await db.query(await readFile(schemaPath, "utf8"));
-  for (const warning of [...configWarnings, ...pointsWarnings.map((warning) => `Points config: ${warning}`)]) console.warn(warning);
+  for (const warning of [...configWarnings, ...pointsWarnings.map((warning) => `Points config: ${warning}`), ...rewardsWarnings.map((warning) => `Rewards config: ${warning}`)]) console.warn(warning);
+  // Programs are mirrored before any request, so epoch rows written by rewards-cli.ts can reference them.
+  await syncRewardPrograms(db, rewardsConfig);
+  if (rewardsConfig.programs.length) console.log(`Rewards: ${rewardsConfig.programs.map((program) => `${program.id} (pool ${program.poolId})`).join(", ")}, public API ${rewardsConfig.enabled ? "on" : "off"}`);
   console.log(`Indexing ${NETWORK.id} (${NETWORK.chainId}) from ${RPC_URL} and ${REST_URL}`);
   // Health answers while the chain id is verified; it reads "starting" until the first sync.
   server.listen(PORT, () => console.log(`Qwakk indexer listening on ${PORT}`));

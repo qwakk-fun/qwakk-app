@@ -19,6 +19,13 @@ export const SIMULATION_FAILURE_COPY = {
   pool_creation_fee: "Creating a pool needs the pool creation fee on top of both deposits and the network fee. Add QOR and try again.",
   module_disabled: "Trading on QoreChain Diana's native AMM is switched off right now.",
   rejected: "QoreChain Diana would not accept this transaction.",
+  rewards_claimed: "This wallet already claimed these rewards.",
+  rewards_invalid: "These rewards do not match this wallet. Refresh your rewards and try again.",
+  rewards_not_open: "Claims for these rewards are not open yet.",
+  rewards_ended: "The claim window for these rewards has closed.",
+  rewards_paused: "Claims for these rewards are paused right now.",
+  rewards_exhausted: "This reward round has nothing left to pay out.",
+  rewards_unavailable: "These rewards are not available on QoreChain Diana.",
 } as const;
 
 /** Why a swap quote could not be produced. */
@@ -276,6 +283,8 @@ export function chainFailureCopy(codespace: string, code: number) {
   if (codespace === "amm" && code === 7) return SIMULATION_FAILURE_COPY.pool_exists;
   if (codespace === "amm" && code === 9) return SIMULATION_FAILURE_COPY.below_min_liquidity;
   if (codespace === "amm" && code === 17) return SIMULATION_FAILURE_COPY.pool_limit;
+  // wasmd x/wasm ErrExecuteFailed: only rewards claims send contract messages.
+  if (codespace === "wasm" && code === 5) return "The rewards contract did not accept this claim. Refresh your rewards and try again.";
   if (codespace === "sdk" && code === 5) return SIMULATION_FAILURE_COPY.insufficient_funds;
   if (codespace === "sdk" && code === 13) return "The network fee was too low. Try again.";
   if (codespace === "sdk" && code === 32) return "Another transaction from this wallet is pending. Try again in a moment.";
