@@ -9,7 +9,7 @@ import { formatQuotePrice, isLowLiquidity, marketPrice, marketReserves, marketSi
  * A board card for one indexed pool, base token first. The card opens the
  * pool page; the star sits beside the link (a button never goes inside one).
  */
-export function PoolCard({ market, favorites }: { market: Market; favorites: Favorites }) {
+export function PoolCard({ market, favorites, href }: { market: Market; favorites: Favorites; href: string }) {
   const { base, quote } = marketSides(market);
   const lowLiquidity = isLowLiquidity(market);
   const price = lowLiquidity ? null : marketPrice(market);
@@ -17,7 +17,7 @@ export function PoolCard({ market, favorites }: { market: Market; favorites: Fav
   const reserves = marketReserves(market);
   const swaps = Number(market.transactions_24h) || 0;
   return <div className="pool-card-wrap">
-    <Link className="pool-card" href={`/pools/${market.id}`}>
+    <Link className="pool-card" href={href}>
       <span className="coin-avatar is-large"><TokenIcon denom={base.denom} size="avatar" /><span className="coin-badge"><TokenIcon denom={quote.denom} size="small" /></span></span>
       <span className="pool-card-body">
         <span className="pool-card-name"><b>{pairLabel(market)}</b><small className="mono">#{market.id}</small></span>

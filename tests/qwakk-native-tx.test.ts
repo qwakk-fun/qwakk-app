@@ -24,7 +24,7 @@ import {
   toWalletMessages,
 } from "../lib/qwakk-native-tx";
 import { qorexSupport } from "../lib/qorex-native";
-import { QOREX_NETWORK_COPY, SIMULATION_FAILURE_COPY, QUOTE_BLOCK_COPY, QUOTE_FAILURE_COPY, chainFailureCopy, walletFailure } from "../lib/qwakk-tx-copy";
+import { QOREX_DECLINED_COPY, QOREX_LOCKED_COPY, QOREX_NETWORK_COPY, SIMULATION_FAILURE_COPY, QUOTE_BLOCK_COPY, QUOTE_FAILURE_COPY, chainFailureCopy, walletConnectionCopy, walletFailure } from "../lib/qwakk-tx-copy";
 
 const sender = "qor1exampleaddress000000000000";
 const fromBase64 = (value: string) => Uint8Array.from(Buffer.from(value, "base64"));
@@ -273,4 +273,27 @@ test("maps keeper errors from x/amm/types/errors.go to fixed reasons and copy", 
   for (const copy of [...Object.values(SIMULATION_FAILURE_COPY), ...Object.values(QUOTE_FAILURE_COPY), ...Object.values(QUOTE_BLOCK_COPY)]) {
     assert.doesNotMatch(copy, /—/);
   }
+});
+
+test("a cancelled QoreX 0.4.5 unlock window is a decline, not a lock", () => {
+  const diana = { id: "testnet" as const, label: "QoreChain Diana" };
+  const cancelled = Object.assign(new Error("QoreX: unlock cancelled"), { code: 4001 });
+  const failure = walletFailure(cancelled);
+  assert.equal(failure.kind, "declined");
+  assert.equal(failure.copy, QOREX_DECLINED_COPY);
+  // The message alone, or the code alone, is enough.
+  assert.equal(walletFailure(new Error("QoreX: unlock cancelled")).kind, "declined");
+  assert.equal(walletFailure({ message: "QoreX: request closed", code: 4001 }).kind, "declined");
+  // A real lock still reads as locked, and its copy is unchanged.
+  const locked = walletFailure(Object.assign(new Error("QoreX: wallet is locked"), { code: 4100 }));
+  assert.equal(locked.kind, "locked");
+  assert.equal(locked.copy, QOREX_LOCKED_COPY);
+
+  // The top bar's Connect: same decline, never "QoreX is locked".
+  const notApproved = "Wallet connection was not approved. Try again whenever you are ready.";
+  assert.equal(walletConnectionCopy(cancelled, diana), notApproved);
+  assert.equal(walletConnectionCopy(new Error("QoreX: unlock cancelled"), diana), notApproved);
+  assert.equal(walletConnectionCopy(new Error("QoreX: connection rejected"), diana), notApproved);
+  assert.match(walletConnectionCopy(new Error("QoreX: wallet is locked"), diana), /^QoreX is locked\./);
+  assert.doesNotMatch(walletConnectionCopy(cancelled, diana), /locked|\u2014/);
 });

@@ -16,6 +16,7 @@ import { START_PRICE_WARN_PERCENT, formatQuotePrice, impliedPairPrice, priceDiff
 import { formatRatio } from "../lib/qwakk-amm-math";
 import { coversSpend } from "../lib/qwakk-quote";
 import { assetDecimalsUnknownCopy } from "../lib/qwakk-tx-copy";
+import { marketPairSlugs, poolPath } from "../lib/qwakk-pair-slug";
 
 type AmmInfo = { poolCreationFee: string | null; minLiquidity: string | null } | null;
 
@@ -40,7 +41,7 @@ function faucetDaysCopy(creationFee: bigint) {
  * `markets` are the indexed pools, used to check the starting price against
  * the price other pools imply.
  */
-export function CreatePoolPanel({ walletAddress, amm, markets = [], onBusyChange }: { walletAddress: string; amm: AmmInfo; markets?: readonly QuoteMarket[]; onBusyChange?: (busy: boolean) => void }) {
+export function CreatePoolPanel({ walletAddress, amm, markets = [], onBusyChange }: { walletAddress: string; amm: AmmInfo; markets?: ReadonlyArray<QuoteMarket & { id: string | number }>; onBusyChange?: (busy: boolean) => void }) {
   const tx = useNativeTransaction();
   const { copy, isTestnet } = useNetworkCopy();
   // Write paths wait for /api/features: until then the asset registry is the default (testnet) one.
@@ -170,7 +171,7 @@ export function CreatePoolPanel({ walletAddress, amm, markets = [], onBusyChange
       {implied && difference !== null && (priceOff
         ? <div className="quote-alert" role="note"><p className="quote-alert-text"><AlertTriangle size={14} aria-hidden="true" /><span>This starting price is {formatQuotePrice(Math.abs(difference))}% {difference > 0 ? "above" : "below"} what other pools imply: about 1 {symbolOf(denomA)} = {formatQuotePrice(implied.price)} {symbolOf(denomB)}{implied.via ? ` (through ${displaySymbol(implied.via)} pools)` : ""}. The first deposit sets the price, and traders can buy from your pool at that price right away, so a price that is off can cost you part of your deposit.</span></p></div>
         : <p className="subtle form-note">In line with other pools: about 1 {symbolOf(denomA)} = {formatQuotePrice(implied.price)} {symbolOf(denomB)}{implied.via ? ` through ${displaySymbol(implied.via)} pools` : ""}.</p>)}
-      {error && <p className="form-error" role="alert">{error}{existingPoolId && <> <Link href={`/pools/${existingPoolId}`}>Open pool #{existingPoolId}</Link></>}</p>}
+      {error && <p className="form-error" role="alert">{error}{existingPoolId && <> <Link href={poolPath(existingPoolId, marketPairSlugs(markets))}>Open pool #{existingPoolId}</Link></>}</p>}
       <p className="subtle form-note">The first deposit sets the starting price.{minLiquidity !== null ? " Each deposit must reach the pool minimum." : ""}</p>
       {creationFee !== null && <div className="cost-note">
         <b>Cost to create: {formatBaseAmount(creationFee.toString(), 6, 2)} QOR pool creation fee + both deposits + the network fee</b>

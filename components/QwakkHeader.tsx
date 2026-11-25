@@ -9,7 +9,7 @@ import { CONSENT_EVENT, hasConsent } from "../lib/legal";
 import { quack } from "../lib/quack";
 import { POINTS_NAV_LABEL } from "../lib/qwakk-points-copy";
 import { readQoreXSigner } from "../lib/qorex-native";
-import { NETWORK_UNKNOWN_COPY, QOREX_PENDING_COPY, qorexNetworkCopy, type CopyNetwork } from "../lib/qwakk-tx-copy";
+import { NETWORK_UNKNOWN_COPY, walletConnectionCopy } from "../lib/qwakk-tx-copy";
 import { currentMobilePlatform, type MobilePlatform } from "../lib/qwakk-mobile-wallet";
 import { storeWalletAddress } from "../lib/qwakk-wallet-session";
 import { BrandMark } from "./BrandMark";
@@ -34,22 +34,6 @@ const QOREX_INSTALL_URL = "https://chromewebstore.google.com/detail/qorex/cflpng
 
 /** Opens the pool creation form when the pools page is already showing. */
 export const CREATE_EVENT = "qwakk:request-create";
-
-function walletConnectionMessage(error: unknown, network: CopyNetwork) {
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  if (message.includes("lock") || message.includes("unlock") || message.includes("vault")) {
-    // Inside the QoreX app's dApp browser there is no toolbar to point at.
-    return currentMobilePlatform()
-      ? "QoreX is locked. Unlock it in the QoreX app, then try again."
-      : "QoreX is locked. Open the QoreX extension from your browser toolbar, unlock it, then try again.";
-  }
-  if (message.includes("active network") || message.includes("unsupported chain")) return qorexNetworkCopy(network);
-  if (message.includes("reject") || message.includes("denied")) {
-    return "Wallet connection was not approved. Try again whenever you are ready.";
-  }
-  if (message.includes("already waiting") || message.includes("requests are waiting")) return QOREX_PENDING_COPY;
-  return "QoreX could not complete the connection. Make sure it is unlocked, then try again.";
-}
 
 export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (address: string) => void; page?: Page }) {
   const router = useRouter();
@@ -129,13 +113,13 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
         return;
       }
       try {
-        // One call: getKey connects the site if needed and never opens a window while QoreX is locked.
+        // One call: getKey connects the site if needed. While locked, QoreX 0.4.5+ opens its unlock window; 0.4.3 refuses with 'wallet is locked'.
         const address = await readQoreXSigner(nativeWallet, target.chainId);
         storeWalletAddress(address);
         onConnected?.(address);
         setNotice("Wallet connected. Your portfolio is ready.");
       } catch (error) {
-        setNotice(walletConnectionMessage(error, target));
+        setNotice(walletConnectionCopy(error, target));
       }
     } finally {
       setIsConnecting(false);

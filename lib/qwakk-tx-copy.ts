@@ -120,12 +120,11 @@ export type WalletFailureKind = "declined" | "locked" | "pending" | "network" | 
 export type WalletFailure = { kind: WalletFailureKind; copy: string; code?: number; codespace?: string };
 
 /**
- * QoreX is locked. In QoreX 0.4.2 `getKey` and `signAndBroadcast` call
- * `requireUnlocked()` before anything else and reject with
- * `Error("QoreX: wallet is locked")`, `code` 4100, without opening a window
- * (dist/background.js). Only connect requests open QoreX's unlock window
- * today, so the user unlocks QoreX and presses the same button again.
- * Nothing was sent.
+ * QoreX is locked. QoreX 0.4.5+ opens its unlock window; 0.4.3 refuses with
+ * 'wallet is locked' (`Error("QoreX: wallet is locked")`, `code` 4100), and
+ * the user unlocks QoreX and presses the same button again. Closing the
+ * 0.4.5 unlock window rejects with "QoreX: unlock cancelled" (`code` 4001),
+ * which is a decline, not a lock (`isWalletDecline`). Nothing was sent.
  *
  * QoreX keeps the unlocked wallet only in its extension service worker's
  * memory (no `chrome.storage.session`), and Chrome stops an idle extension
@@ -148,6 +147,21 @@ export function qorexLockedCopy(mobile = currentMobilePlatform() !== null) {
 }
 /** The user closed or declined the QoreX window ("QoreX: signature rejected", "QoreX: connection rejected"). */
 export const QOREX_DECLINED_COPY = "You declined the request in QoreX. Nothing was sent.";
+
+/** The code QoreX, like EIP-1193 wallets, gives a request the user turned down. */
+const USER_REJECTED_CODE = 4001;
+
+/**
+ * The user turned the request down: a declined approval, or a closed QoreX
+ * 0.4.5 unlock window ("QoreX: unlock cancelled", code 4001). Checked before
+ * the lock test, since "unlock" must never read as "QoreX is locked".
+ */
+export function isWalletDecline(error: unknown) {
+  const code = error && typeof error === "object" ? (error as { code?: unknown }).code : undefined;
+  if (code === USER_REJECTED_CODE) return true;
+  const message = walletErrorText(error).toLowerCase();
+  return message.includes("rejected") || /unlock (?:was )?cancel+ed/.test(message);
+}
 /**
  * QoreX holds one request per site and three in total ("QoreX: a request from
  * this site is already waiting for your answer.", "too many requests are waiting").
@@ -209,7 +223,7 @@ function classifyWalletFailure(error: unknown, network: CopyNetwork | null): Wal
         : "QoreChain Diana included the transaction but it failed. Only the network fee was spent. Check your QoreX activity for the details.",
     };
   }
-  if (message.includes("rejected")) return { kind: "declined", copy: QOREX_DECLINED_COPY };
+  if (isWalletDecline(error)) return { kind: "declined", copy: QOREX_DECLINED_COPY };
   if (QOREX_LOCKED_MESSAGE.test(message)) return { kind: "locked", copy: qorexLockedCopy() };
   if (message.includes("already waiting for your answer") || message.includes("requests are waiting")) return { kind: "pending", copy: QOREX_PENDING_COPY };
   if (message.includes("changed while this request was waiting")) return { kind: "account", copy: QOREX_ACCOUNT_CHANGED_COPY };
@@ -225,6 +239,24 @@ function classifyWalletFailure(error: unknown, network: CopyNetwork | null): Wal
     return { kind: "other", copy: "Too many transactions from this wallet in a short time. Wait a minute and try again." };
   }
   return { kind: "other", copy: "QoreX did not complete the transaction." };
+}
+
+/**
+ * Controlled copy for a failed wallet connection (the top bar's Connect).
+ * A decline, including a closed unlock window, comes before the lock test.
+ */
+export function walletConnectionCopy(error: unknown, network: CopyNetwork) {
+  const message = walletErrorText(error).toLowerCase();
+  if (isWalletDecline(error) || message.includes("denied")) return "Wallet connection was not approved. Try again whenever you are ready.";
+  if (message.includes("lock") || message.includes("vault")) {
+    // Inside the QoreX app's dApp browser there is no toolbar to point at.
+    return currentMobilePlatform()
+      ? "QoreX is locked. Unlock it in the QoreX app, then try again."
+      : "QoreX is locked. Open the QoreX extension from your browser toolbar, unlock it, then try again.";
+  }
+  if (message.includes("active network") || message.includes("unsupported chain")) return qorexNetworkCopy(network);
+  if (message.includes("already waiting") || message.includes("requests are waiting")) return QOREX_PENDING_COPY;
+  return "QoreX could not complete the connection. Make sure it is unlocked, then try again.";
 }
 
 /** Maps a QoreX error to controlled copy. */

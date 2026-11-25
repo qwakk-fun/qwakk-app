@@ -8,9 +8,11 @@ import { PointsDisclaimer, PointsSeasonLine } from "./PointsShared";
 import { QwakkHeader } from "./QwakkHeader";
 import { SiteFooter } from "./SiteFooter";
 import { POINTS_REFRESH_MS, fetchPoints, useConnectedWallet, usePointsClock } from "./usePoints";
+import { useMarkets } from "./useMarkets";
 import { POINTS_CATEGORIES, POINTS_DAYS, POINTS_POOLS, POINTS_STATS, POINTS_WALLET } from "../lib/qwakk-points-copy";
 import { formatCount, formatPointsDay, formatPointsDecimal, pointsShare, shortPointsAddress } from "../lib/qwakk-points-display";
 import { isPointsAddress, type QwakkPointsAddressResponse } from "../lib/qwakk-points";
+import { marketPairSlugs, poolPath } from "../lib/qwakk-pair-slug";
 
 type View = { status: "loading" | "ready" | "invalid" | "unavailable"; data: QwakkPointsAddressResponse | null };
 
@@ -69,6 +71,9 @@ export function PointsWalletView({ address }: { address: string }) {
   const valid = isPointsAddress(address);
   const [view, setView] = useState<View>({ status: valid ? "loading" : "invalid", data: null });
   const [reloadKey, setReloadKey] = useState(0);
+  // Only for readable pool links; without it the links use the pool number, which redirects.
+  const { markets } = useMarkets(60_000);
+  const poolSlugs = marketPairSlugs(markets);
 
   useEffect(() => {
     if (!valid) return;
@@ -165,7 +170,7 @@ export function PointsWalletView({ address }: { address: string }) {
           : <ul className="points-pools">{data.pools.map((pool) => {
             const copy = poolStatusCopy(pool);
             return <li key={pool.poolId}>
-              <Link className="points-pool-link" href={`/pools/${pool.poolId}`}>Pool #{pool.poolId}</Link>
+              <Link className="points-pool-link" href={poolPath(pool.poolId, poolSlugs)}>Pool #{pool.poolId}</Link>
               <span className={`points-status ${POOL_STATUS_CLASS[pool.status] ?? ""}`}>{copy.label}</span>
               <small className="subtle">{copy.tooltip}</small>
             </li>;

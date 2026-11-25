@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeftRight, Search, X } from "lucide-react";
 import { BRAND } from "../lib/brand";
 import { formatQuotePrice, isLowLiquidity, marketPrice, marketSearchEntry, marketSides, pairLabel } from "../lib/qwakk-market-view";
+import { marketPairSlugs, poolPath, swapPath } from "../lib/qwakk-pair-slug";
 import { SELECT_POOL_EVENT, isTokenLookup, matchedToken, parseSearchQuery, searchEmptyCopy, searchPools } from "../lib/qwakk-search";
 import { DISMISS_SHARE, EXIT_EASE, EXIT_FALLBACK_MS, exitDuration, projectedTravel, rubberband } from "../lib/qwakk-sheet-motion";
 import { FavoriteButton } from "./FavoriteButton";
@@ -34,7 +35,7 @@ function phoneLayout() {
   return window.matchMedia("(max-width: 760px)").matches;
 }
 
-function ResultRow({ market, favorites, onNavigate }: { market: Market; favorites: Favorites; onNavigate: (href: string, poolId: string) => void }) {
+function ResultRow({ market, favorites, slugs, onNavigate }: { market: Market; favorites: Favorites; slugs: ReadonlyMap<string, string>; onNavigate: (href: string, poolId: string) => void }) {
   const { base, quote } = marketSides(market);
   const id = String(market.id);
   const lowLiquidity = isLowLiquidity(market);
@@ -44,8 +45,10 @@ function ResultRow({ market, favorites, onNavigate }: { market: Market; favorite
   // The pool page explains why a thin or paused pool is not offered; search does not offer it either.
   const tradable = !lowLiquidity && market.status === "active";
   const baseName = marketSearchEntry(market).tokens[0]?.name;
+  const poolHref = poolPath(id, slugs);
+  const tradeHref = swapPath(id, slugs);
   return <li className="search-row">
-    <Link className="search-row-link" href={`/pools/${id}`} data-search-link onClick={(event) => { if (opensElsewhere(event)) return; event.preventDefault(); onNavigate(`/pools/${id}`, id); }}>
+    <Link className="search-row-link" href={poolHref} data-search-link onClick={(event) => { if (opensElsewhere(event)) return; event.preventDefault(); onNavigate(poolHref, id); }}>
       <span className="pair-icons"><TokenIcon denom={base.denom} size="regular" /><TokenIcon denom={quote.denom} size="regular" /></span>
       <span className="search-row-name"><b>{pairLabel(market, " / ")}</b><small>#{id}{baseName ? ` · ${baseName}` : ""}{lowLiquidity && <span className="low-tag">Low liquidity</span>}</small></span>
       <span className="search-row-price num">
@@ -53,7 +56,7 @@ function ResultRow({ market, favorites, onNavigate }: { market: Market; favorite
         {change !== null && <small className={change >= 0 ? "up" : "down"}>{formatPercentChange(change)}</small>}
       </span>
     </Link>
-    {tradable && <Link className="btn btn-ghost btn-sm search-trade" href={`/swap?pool=${id}`} aria-label={`Trade ${pair}`} onClick={(event) => { if (opensElsewhere(event)) return; event.preventDefault(); onNavigate(`/swap?pool=${id}`, id); }}><ArrowLeftRight size={14} aria-hidden="true" /><span className="search-trade-label">Trade</span></Link>}
+    {tradable && <Link className="btn btn-ghost btn-sm search-trade" href={tradeHref} aria-label={`Trade ${pair}`} onClick={(event) => { if (opensElsewhere(event)) return; event.preventDefault(); onNavigate(tradeHref, id); }}><ArrowLeftRight size={14} aria-hidden="true" /><span className="search-trade-label">Trade</span></Link>}
     <FavoriteButton favorites={favorites} poolId={id} pair={pair} />
   </li>;
 }
@@ -136,6 +139,7 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
   }, []);
 
   const ordered = useMemo(() => byRelevance(markets), [markets]);
+  const slugs = useMemo(() => marketPairSlugs(markets), [markets]);
   const parsed = useMemo(() => parseSearchQuery(query), [query]);
   const matches = useMemo(() => parsed.kind === "empty" ? [] : searchPools(ordered, parsed, marketSearchEntry, RESULT_LIMIT), [ordered, parsed]);
   const exactToken = isTokenLookup(parsed) ? matchedToken(matches) : null;
@@ -146,7 +150,7 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
 
   const navigate = useCallback((href: string, poolId: string) => {
     // The swap page stays mounted on a same-page link, so it is told which pool to open.
-    if (href.startsWith("/swap") && window.location.pathname === "/swap") window.dispatchEvent(new CustomEvent(SELECT_POOL_EVENT, { detail: poolId }));
+    if (href.startsWith("/swap") && (window.location.pathname === "/swap" || window.location.pathname.startsWith("/swap/"))) window.dispatchEvent(new CustomEvent(SELECT_POOL_EVENT, { detail: poolId }));
     router.push(href);
     dialog.current?.close();
     onClose();
@@ -159,7 +163,7 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
     } else if (event.key === "Enter" && !event.nativeEvent.isComposing) {
       // Enter opens the top result.
       const first = parsed.kind === "empty" ? (favoriteMarkets[0] ?? trending[0]) : matches[0]?.item;
-      if (first) { event.preventDefault(); navigate(`/pools/${first.id}`, String(first.id)); }
+      if (first) { event.preventDefault(); navigate(poolPath(first.id, slugs), String(first.id)); }
     }
   }
 
@@ -210,7 +214,7 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
   }
 
   const empty = parsed.kind !== "empty" && matches.length === 0 && state === "ready" ? searchEmptyCopy(query, BRAND.name) : null;
-  const row = (market: Market) => <ResultRow key={market.id} market={market} favorites={favorites} onNavigate={navigate} />;
+  const row = (market: Market) => <ResultRow key={market.id} market={market} favorites={favorites} slugs={slugs} onNavigate={navigate} />;
 
   return <dialog
     ref={dialog}

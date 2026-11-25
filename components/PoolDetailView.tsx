@@ -19,6 +19,7 @@ import { BRAND } from "../lib/brand";
 import { CHART_INTERVAL_LABELS, chartEmptyCopy, type ChartInterval } from "../lib/qwakk-chart";
 import { QUOTE_BLOCK_COPY } from "../lib/qwakk-tx-copy";
 import { formatQuotePrice, isLowLiquidity, lowLiquidityCopy, marketPrice, marketReserves, marketSides, marketVolume, pairLabel, priceUnit, type QuoteMarket } from "../lib/qwakk-market-view";
+import { marketPairCandidate, resolvePairParam } from "../lib/qwakk-pair-slug";
 
 type Pool = QuoteMarket & {
   id: string | number;
@@ -45,9 +46,20 @@ const LP_TOKEN_DECIMALS = 6;
 /** `quote_candles` are already in quote per base; the raw `candles` are not used. `interval` is the one these candles are for. */
 type Detail = { pool: Pool; quote_candles?: PoolCandle[]; swaps: PoolSwap[]; interval: ChartInterval };
 
-export function PoolDetailView({ poolId }: { poolId: string }) {
+/**
+ * `poolId` is the resolved numeric id and `slug` its readable pair link
+ * ("qwakk-qor"), when it has one. When the page could not resolve its link
+ * to a pool, `poolId` is empty and `unresolved` says why. While that reason
+ * is "unavailable" (the indexer was down), the view keeps resolving `pair`,
+ * the link as it was opened, until the pool list answers.
+ */
+export function PoolDetailView({ poolId, slug, unresolved, pair }: { poolId: string; slug?: string | null; unresolved?: "missing" | "unavailable"; pair?: string }) {
   const [detail, setDetail] = useState<Detail | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "missing" | "unavailable">("loading");
+  const [state, setState] = useState<"loading" | "ready" | "missing" | "unavailable">(poolId ? "loading" : unresolved ?? "missing");
+  // The pool `pair` names, once the pool list could be read in the browser.
+  const [late, setLate] = useState<{ id: string; slug: string | null } | null>(null);
+  const activeId = poolId || late?.id || "";
+  const activeSlug = slug ?? late?.slug ?? null;
   // Same default as the swap page: 1m candles on a quiet pool are mostly empty.
   const [chartInterval, setChartInterval] = useState<ChartInterval>("1h");
   // Each wallet action has its own switch (QWAKK_NATIVE_ACTIONS). The liquidity
@@ -66,11 +78,37 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
     return () => window.removeEventListener("qwakk:wallet-change", restoreWallet);
   }, []);
 
+  // Opened while the indexer was down: retry the link against the pool list until it answers.
+  const retryLink = !poolId && unresolved === "unavailable" && Boolean(pair) && !late && state === "unavailable";
   useEffect(() => {
+    if (!retryLink || !pair) return;
+    let active = true;
+    async function resolve() {
+      try {
+        const response = await fetch("/api/markets", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json() as { markets?: Array<QuoteMarket & { id: string | number }> };
+        if (!active || !Array.isArray(data.markets) || !pair) return;
+        const match = resolvePairParam(pair, data.markets.map((market) => marketPairCandidate(withAssetOverrides(market))));
+        if (!match) { setState("missing"); return; }
+        setLate({ id: match.pool.id, slug: match.poolSlug });
+        setState("loading");
+        if (match.poolSlug && window.location.pathname !== `/pools/${match.poolSlug}`) window.history.replaceState(window.history.state, "", `/pools/${match.poolSlug}${window.location.search}${window.location.hash}`);
+      } catch {
+        // Still unavailable: the next tick tries again.
+      }
+    }
+    const timer = window.setInterval(() => void resolve(), 15_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [retryLink, pair]);
+
+  useEffect(() => {
+    if (!activeId) return;
+    const poolId = activeId;
     let active = true;
     async function load() {
       try {
-        const response = await fetch(`/api/pools/${poolId}?interval=${chartInterval}`, { cache: "no-store" });
+        const response = await fetch(`/api/pools/${encodeURIComponent(poolId)}?interval=${chartInterval}`, { cache: "no-store" });
         if (response.status === 404) throw new Error("missing");
         if (!response.ok) throw new Error("unavailable");
         const data = await response.json() as Omit<Detail, "interval">;
@@ -86,7 +124,7 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
     const reloadSoon = () => window.setTimeout(() => void load(), 6_000);
     window.addEventListener("qwakk:tx-confirmed", reloadSoon);
     return () => { active = false; window.clearInterval(timer); window.removeEventListener("qwakk:tx-confirmed", reloadSoon); };
-  }, [poolId, chartInterval]);
+  }, [activeId, chartInterval]);
 
   if (state !== "ready" || !detail) {
     const message = state === "loading" ? "Reading current pool data…" : state === "missing" ? copy("This pool does not exist on QoreChain Diana.") : "Pool data is temporarily unavailable. This page retries on its own.";
@@ -154,7 +192,7 @@ export function PoolDetailView({ poolId }: { poolId: string }) {
               ? <p className="pool-paused" role="status"><PauseCircle size={16} aria-hidden="true" /><span>{copy(QUOTE_BLOCK_COPY.paused)}</span></p>
               : tooThinToTrade
                 ? <p className="pool-paused" role="status"><AlertTriangle size={16} aria-hidden="true" /><span>Swaps are not offered here: this pool holds too little to trade at a fair price.</span></p>
-              : <Link className="btn btn-primary btn-block" href={`/swap?pool=${pool.id}`}>{nativeActions ? `Swap ${base.symbol} and ${quote.symbol}` : "Get a live quote"}</Link>}</div>
+              : <Link className="btn btn-primary btn-block" href={activeSlug ? `/swap/${activeSlug}` : `/swap?pool=${encodeURIComponent(String(pool.id))}`}>{nativeActions ? `Swap ${base.symbol} and ${quote.symbol}` : "Get a live quote"}</Link>}</div>
             <div className="panel-head"><span className="panel-title" id="pool-info-title">Pool details</span></div>
             <div className="info-list">
               <div><span>Status</span><b>{pool.status}</b></div>

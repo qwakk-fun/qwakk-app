@@ -8,11 +8,12 @@ import type { Favorites } from "./useFavorites";
 import { formatPercentChange, marketChange, type Market } from "./useMarkets";
 import { usePoolSparks, type PoolSpark } from "./usePoolSparks";
 import { formatQuotePrice, isLowLiquidity, marketPrice, marketSides, pairLabel } from "../lib/qwakk-market-view";
+import { marketPairSlugs, poolPath } from "../lib/qwakk-pair-slug";
 
 /** Same floor as the pool chart: a move under 2% stays a gentle line. */
 const SPARK_MIN_SPAN = 0.02;
 
-function WatchRow({ market, favorites, spark }: { market: Market; favorites: Favorites; spark: PoolSpark | undefined }) {
+function WatchRow({ market, favorites, spark, href }: { market: Market; favorites: Favorites; spark: PoolSpark | undefined; href: string }) {
   const { base, quote } = marketSides(market);
   const lowLiquidity = isLowLiquidity(market);
   const price = lowLiquidity ? null : marketPrice(market);
@@ -22,7 +23,7 @@ function WatchRow({ market, favorites, spark }: { market: Market; favorites: Fav
   // "No trades" only when the read landed and the pool truly had none in the window; otherwise nothing is claimed.
   const quiet = !lowLiquidity && spark?.state === "ready" && spark.summary?.traded === false;
   return <li className="watch-row">
-    <Link className="watch-link" href={`/pools/${market.id}`}>
+    <Link className="watch-link" href={href}>
       <span className="cell-main"><span className="pair-icons"><TokenIcon denom={base.denom} size="regular" /><TokenIcon denom={quote.denom} size="regular" /></span><span><b>{pairLabel(market, " / ")}</b><small>#{market.id}{lowLiquidity && <span className="low-tag">Low liquidity</span>}</small></span></span>
       <span className="watch-spark">{points.length > 1
         ? <Sparkline points={points} width={160} height={36} minSpan={SPARK_MIN_SPAN} />
@@ -53,13 +54,14 @@ function MissingRow({ poolId, favorites }: { poolId: string; favorites: Favorite
  */
 export function FavoritesList({ ids, markets, favorites, ready, label }: { ids: readonly string[]; markets: Market[]; favorites: Favorites; ready: boolean; label: string }) {
   const byId = new Map(markets.map((market) => [String(market.id), market]));
+  const slugs = marketPairSlugs(markets);
   // One batched read for every listed pool that is not low liquidity.
   const sparks = usePoolSparks(ids.filter((id) => { const market = byId.get(id); return market !== undefined && !isLowLiquidity(market); }));
   return <section className="panel watchlist" aria-label={label}>
     <ul className="watch-list">
       {ids.map((id) => {
         const market = byId.get(id);
-        if (market) return <WatchRow key={id} market={market} favorites={favorites} spark={sparks[id]} />;
+        if (market) return <WatchRow key={id} market={market} favorites={favorites} spark={sparks[id]} href={poolPath(id, slugs)} />;
         // Until the pool list has loaded, an unknown id is not yet "missing".
         return ready ? <MissingRow key={id} poolId={id} favorites={favorites} /> : <li className="watch-row" key={id} aria-hidden="true"><span className="row-skeleton" /></li>;
       })}

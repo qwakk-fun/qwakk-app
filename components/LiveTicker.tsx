@@ -8,6 +8,7 @@ import { formatPercentChange, marketChange, useMarkets } from "./useMarkets";
 import { formatQuotePrice, isLowLiquidity, marketPrice, marketSides, pairLabel } from "../lib/qwakk-market-view";
 import { useQorMarket } from "./useQorMarket";
 import { formatChange, formatUsdPrice } from "../lib/qor-price";
+import { marketPairSlugs, poolPath } from "../lib/qwakk-pair-slug";
 
 /** Enough repeats that one half of the track is wider than a large screen. Copies are inert so links are read and focused once. */
 const MIN_ITEMS_PER_HALF = 12;
@@ -23,11 +24,12 @@ export function LiveTicker() {
   const { markets } = useMarkets(30_000);
   const { trades } = useActivity(20_000);
 
+  const slugs = marketPairSlugs(markets);
   const quoteSides = new Map(markets.map((market) => [String(market.id), market.quote_side ?? null]));
   const items: React.ReactNode[] = [];
   for (const trade of trades.slice(0, TRADE_LIMIT)) {
     const { side, base } = describeTrade(trade, quoteSides.get(String(trade.pool_id)) ?? null);
-    items.push(<Link className="ticker-item" href={`/pools/${trade.pool_id}`} key={`trade-${trade.tx_hash}-${trade.executed_at}`}>
+    items.push(<Link className="ticker-item" href={poolPath(trade.pool_id, slugs)} key={`trade-${trade.tx_hash}-${trade.executed_at}`}>
       <Identicon address={trade.sender} size={18} />
       <b>{shortWallet(trade.sender)}</b>
       <span className={side === "buy" ? "up" : "down"}>{side === "buy" ? "bought" : "sold"} {base}</span>
@@ -46,7 +48,7 @@ export function LiveTicker() {
     const change = marketChange(market);
     const price = marketPrice(market);
     const { base, quote } = marketSides(market);
-    items.push(<Link className="ticker-item" href={`/pools/${market.id}`} key={`pool-${market.id}`}>
+    items.push(<Link className="ticker-item" href={poolPath(market.id, slugs)} key={`pool-${market.id}`}>
       <span className="pair-icons"><TokenIcon denom={base.denom} size="small" /><TokenIcon denom={quote.denom} size="small" /></span>
       <b>{pairLabel(market)}</b>
       <span className="num">{price === null ? "No trades yet" : `${formatQuotePrice(price)} ${quote.symbol}`}</span>

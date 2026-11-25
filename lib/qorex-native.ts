@@ -51,7 +51,8 @@ export type QoreXNativeProvider = {
    * Every account in the wallet ("read only. The site must be connected.",
    * `@qorechain/qorex-types` 0.1.0 `QorexNativeProvider.listAccounts`).
    *
-   * Not silent. QoreX 0.3.9 handles `native:listAccounts` as
+   * Not silent. (QoreX 0.4.5+ opens its unlock window; 0.4.3 refuses with
+   * 'wallet is locked'.) QoreX 0.3.9 handles `native:listAccounts` as
    * `ensureConnected(origin)` first and the lock check second, and while
    * locked it reads the connected-sites list under the pre-wallet storage key
    * (`wk()` has no `activeWalletId` until unlock), so a connected site can
@@ -65,9 +66,10 @@ export type QoreXNativeProvider = {
  * The active QoreX account for one wallet action, in a single provider call.
  *
  * `getKey` "connects the site first if needed" (`@qorechain/qorex-types`
- * 0.1.0), so a separate `enable` adds a round trip and nothing else. In QoreX
- * 0.3.9 `getKey` checks the lock before anything else and rejects with
- * "QoreX: wallet is locked" without opening a window; once unlocked it opens
+ * 0.1.0), so a separate `enable` adds a round trip and nothing else. `getKey`
+ * checks the lock first: QoreX 0.4.5+ opens its unlock window; 0.4.3 refuses
+ * with 'wallet is locked'. Closing the unlock window rejects with "QoreX:
+ * unlock cancelled" (code 4001), shown as a decline. Once unlocked it opens
  * a window only for a site QoreX has not approved yet. An already approved
  * site gets the address with no prompt, so a normal action shows exactly one
  * QoreX window: the `signAndBroadcast` approval.

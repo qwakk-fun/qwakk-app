@@ -19,6 +19,7 @@ import { formatQuotePrice, isLowLiquidity, marketPrice, marketReserves, marketSe
 import { formatUsdPrice } from "../lib/qor-price";
 import { BRAND } from "../lib/brand";
 import { searchEmptyCopy, searchPools, shortQuery } from "../lib/qwakk-search";
+import { marketPairSlugs, poolPath } from "../lib/qwakk-pair-slug";
 
 type Sort = "trending" | "newest" | "moves";
 type View = "grid" | "table";
@@ -169,6 +170,8 @@ export function MarketsView() {
   const swaps24h = markets.reduce((total, market) => total + (Number(market.transactions_24h) || 0), 0);
 
   const lowLiquidityCount = markets.filter(isLowLiquidity).length;
+  // Readable pool links (/pools/qwakk-qor), made from every indexed pool so a shared pair opens the right one.
+  const slugs = useMemo(() => marketPairSlugs(markets), [markets]);
   // Same matcher as the search dialog and the swap picker (lib/qwakk-search.ts); the chosen sort still orders the list.
   const visibleMarkets = useMemo(() => {
     const listed = showLowLiquidity ? markets : markets.filter((market) => !isLowLiquidity(market));
@@ -274,7 +277,7 @@ export function MarketsView() {
             ? <section className="pool-grid" aria-busy="true" aria-label={copy("QoreChain Diana pools")}><p className="sr-only">{copy("Reading pools from QoreChain Diana…")}</p>{Array.from({ length: 6 }, (_, index) => <span className="row-skeleton is-card" aria-hidden="true" key={index} />)}</section>
             : <section className="panel" aria-label={copy("QoreChain Diana pools")}>{emptyState}</section>
           : view === "grid"
-            ? <section className="pool-grid" aria-label={copy("QoreChain Diana pools")}>{visibleMarkets.map((market) => <PoolCard market={market} favorites={favorites} key={market.id} />)}</section>
+            ? <section className="pool-grid" aria-label={copy("QoreChain Diana pools")}>{visibleMarkets.map((market) => <PoolCard market={market} favorites={favorites} href={poolPath(market.id, slugs)} key={market.id} />)}</section>
             : <section className="panel markets-table" aria-label={copy("QoreChain Diana pools")}>
               <div className="table">
                 <div className="table-row table-head"><span>Pool</span><span className="num">Price</span><span className="num hide-sm">24h swaps</span><span className="num hide-sm">24h change</span><span className="num hide-sm">Reserves</span><span className="sr-only">Favorite</span></div>
@@ -287,7 +290,7 @@ export function MarketsView() {
                   const reserves = marketReserves(market);
                   // The pool name is the link and stretches over the row; the star sits above it, outside the link.
                   return <div className="table-row market-row" key={market.id}>
-                    <span className="cell-main"><span className="pair-icons"><TokenIcon denom={base.denom} size="regular" /><TokenIcon denom={quote.denom} size="regular" /></span><span><Link className="row-link" href={`/pools/${market.id}`}><b>{pairLabel(market, " / ")}</b></Link><small>#{market.id} · {market.pool_type.replace(/_/g, " ")}{lowLiquidity && <span className="low-tag">Low liquidity</span>}</small></span></span>
+                    <span className="cell-main"><span className="pair-icons"><TokenIcon denom={base.denom} size="regular" /><TokenIcon denom={quote.denom} size="regular" /></span><span><Link className="row-link" href={poolPath(market.id, slugs)}><b>{pairLabel(market, " / ")}</b></Link><small>#{market.id} · {market.pool_type.replace(/_/g, " ")}{lowLiquidity && <span className="low-tag">Low liquidity</span>}</small></span></span>
                     <span className="num"><b>{lowLiquidity ? "Not shown" : price === null ? "No trades yet" : formatQuotePrice(price)}</b><span className="cell-sub">{priceUnit(market)}</span></span>
                     <span className="num hide-sm"><b>{formatDecimal(market.transactions_24h, 0)}</b><span className="cell-sub">{volume.value === null ? "No 24h volume" : `${formatDecimal(volume.value, 4)} ${volume.symbol}`}</span></span>
                     <span className={`num hide-sm change-cell ${percentage === null ? "subtle" : percentage >= 0 ? "up" : "down"}`}>{formatPercentChange(percentage)}</span>
