@@ -49,6 +49,8 @@ test("maps routes to budgets and exempts the health check", () => {
   assert.equal(rateLimitRuleFor("/api/native/pool")?.name, "chain-read");
   assert.equal(rateLimitRuleFor("/api/account")?.name, "chain-read");
   assert.equal(rateLimitRuleFor("/api/pnl")?.name, "chain-read");
+  assert.equal(rateLimitRuleFor("/api/rewards/qor1abc/claimed")?.name, "chain-read");
+  assert.equal(rateLimitRuleFor("/api/rewards")?.name, "chain-read");
   assert.equal(rateLimitRuleFor("/api/swap-quote")?.name, "quote");
   assert.equal(rateLimitRuleFor("/api/network")?.name, "api");
   assert.equal(rateLimitRuleFor("/api/activity")?.name, "api");

@@ -14,8 +14,10 @@ export type RewardClaimState =
   | "upcoming"
   | "claimable"
   | "claimed"
-  /** The claim window closed before this wallet claimed. */
-  | "expired";
+  /** The contract says this wallet did not claim before the window closed. */
+  | "expired"
+  /** The window closed and whether this wallet claimed is not known (closed weeks are not queried). */
+  | "closed";
 
 /**
  * `claimed` is the contract's `is_claimed` answer for this stage: true, false,
@@ -27,7 +29,7 @@ export function rewardClaimState(claim: Pick<QwakkRewardClaim, "status" | "claim
   if (claim.status !== "registered") return "pending";
   const opens = claim.claimStartsAt ? Date.parse(claim.claimStartsAt) : Number.NaN;
   const closes = claim.claimEndsAt ? Date.parse(claim.claimEndsAt) : Number.NaN;
-  if (Number.isFinite(closes) && now >= closes) return "expired";
+  if (Number.isFinite(closes) && now >= closes) return claimed === false ? "expired" : "closed";
   if (!Number.isFinite(opens) || now < opens) return "upcoming";
   return "claimable";
 }
@@ -172,4 +174,39 @@ export function nextRewardClaim<T extends Pick<QwakkRewardClaim, "stageId" | "st
   const closesAt = (claim: T) => (claim.claimEndsAt ? Date.parse(claim.claimEndsAt) : Number.POSITIVE_INFINITY);
   open.sort((a, b) => closesAt(a) - closesAt(b) || a.stageId - b.stageId);
   return { claim: open[0] ?? null, open: open.length };
+}
+
+/**
+ * Stages worth asking the contract about: registered ones whose claim window
+ * has not closed. A closed week can no longer change, so it is never queried,
+ * which also keeps the number of stages bounded however long the program runs.
+ */
+export function claimStagesToCheck(claims: ReadonlyArray<Pick<QwakkRewardClaim, "stageId" | "status" | "claimEndsAt">>, now: number): number[] {
+  const stages = new Set<number>();
+  for (const claim of claims) {
+    if (claim.status !== "registered" || !Number.isSafeInteger(claim.stageId) || claim.stageId < 1) continue;
+    const closes = claim.claimEndsAt ? Date.parse(claim.claimEndsAt) : Number.NaN;
+    if (Number.isFinite(closes) && now >= closes) continue;
+    stages.add(claim.stageId);
+  }
+  return [...stages].sort((a, b) => a - b);
+}
+
+/** Splits a list into requests of at most `size` (the claimed route's limit). */
+export function chunkList<T>(list: readonly T[], size = MAX_CLAIMED_STAGES): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < list.length; index += size) chunks.push(list.slice(index, index + size));
+  return chunks;
+}
+
+/** Claimed answers keyed by contract and stage. A claim is final, so true always wins over a later false. */
+export function mergeClaimed(earlier: Readonly<Record<string, boolean>>, next: Readonly<Record<string, boolean>>): Record<string, boolean> {
+  const merged: Record<string, boolean> = { ...next };
+  for (const [key, value] of Object.entries(earlier)) if (value) merged[key] = true;
+  return merged;
+}
+
+/** The key for one stage of one rewards contract. */
+export function claimKeyFor(contract: string, stageId: number) {
+  return `${contract}|${stageId}`;
 }

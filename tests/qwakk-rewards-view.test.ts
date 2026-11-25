@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { rewardsClaimAction } from "../lib/qwakk-native-rewards";
-import { claimActionFor, formatRewardAmount, formatRewardHero, formatTimeLeft, nextRewardClaim, formatRewardRange, formatRewardTime, formatSharePpm, isClaimedQueryPath, parseIsClaimed, parseStageList, rewardClaimState, warmingHoursLeft } from "../lib/qwakk-rewards-view";
+import { chunkList, claimActionFor, claimKeyFor, claimStagesToCheck, formatRewardAmount, mergeClaimed, formatRewardHero, formatTimeLeft, nextRewardClaim, formatRewardRange, formatRewardTime, formatSharePpm, isClaimedQueryPath, parseIsClaimed, parseStageList, rewardClaimState, warmingHoursLeft } from "../lib/qwakk-rewards-view";
 
 const OPEN = "2026-12-01T01:00:00.000Z";
 const CLOSE = "2026-12-31T01:00:00.000Z";
@@ -18,6 +18,8 @@ test("claim state follows the contract window and the is_claimed answer", () => 
   // The window is [start, end): the end itself is closed.
   assert.equal(rewardClaimState(registered, false, Date.parse(CLOSE)), "expired");
   assert.equal(rewardClaimState(registered, true, Date.parse(CLOSE) + 1), "claimed");
+  // A closed week is not queried: unknown reads as closed, never as expired or ready.
+  assert.equal(rewardClaimState(registered, undefined, Date.parse(CLOSE) + 1), "closed");
   assert.equal(rewardClaimState({ ...registered, status: "finalized" }, undefined, inside), "pending");
   assert.equal(rewardClaimState({ ...registered, claimStartsAt: null }, undefined, inside), "upcoming");
 });
@@ -89,4 +91,25 @@ test("hero amounts, countdowns and the next claim", () => {
   assert.deepEqual(nextRewardClaim(claims, (entry) => entry.stageId === 2, now), { claim: claims[0], open: 1 });
   assert.deepEqual(nextRewardClaim(claims, () => true, now), { claim: null, open: 0 });
   assert.deepEqual(nextRewardClaim(claims, () => undefined, 0), { claim: null, open: 0 });
+});
+
+test("only open windows are checked, in chunks, and a claim stays claimed", () => {
+  const now = Date.parse("2026-12-02T00:00:00Z");
+  const claims = [
+    { stageId: 5, status: "registered" as const, claimEndsAt: "2026-12-30T00:00:00Z" },
+    { stageId: 4, status: "registered" as const, claimEndsAt: "2026-12-01T00:00:00Z" },
+    { stageId: 3, status: "finalized" as const, claimEndsAt: null },
+    { stageId: 2, status: "registered" as const, claimEndsAt: null },
+    { stageId: 5, status: "registered" as const, claimEndsAt: "2026-12-30T00:00:00Z" },
+  ];
+  assert.deepEqual(claimStagesToCheck(claims, now), [2, 5]);
+  const many = Array.from({ length: 60 }, (_, index) => ({ stageId: index + 1, status: "registered" as const, claimEndsAt: "2027-01-30T00:00:00Z" }));
+  const chunks = chunkList(claimStagesToCheck(many, now));
+  assert.deepEqual(chunks.map((chunk) => chunk.length), [24, 24, 12]);
+  assert.deepEqual(chunks.flat(), many.map((claim) => claim.stageId));
+  const key = claimKeyFor("qor1contract", 7);
+  assert.equal(key, "qor1contract|7");
+  assert.deepEqual(mergeClaimed({ [key]: true }, { [key]: false }), { [key]: true });
+  assert.deepEqual(mergeClaimed({ [key]: false }, { [key]: true }), { [key]: true });
+  assert.deepEqual(mergeClaimed({ "a|1": false }, {}), {});
 });

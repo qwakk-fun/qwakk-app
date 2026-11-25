@@ -5,7 +5,7 @@ import { TokenIcon } from "./TokenIcon";
 import { RewardClaimAction, useRewardClaimFlow } from "./RewardClaim";
 import { useFeatures } from "./useFeatures";
 import { usePointsClock } from "./usePoints";
-import { readClaimTx, useAddressRewards, useRewardPrograms } from "./useRewards";
+import { useAddressRewards, useRewardPrograms } from "./useRewards";
 import { BRAND } from "../lib/brand";
 import type { QwakkRewardClaim, QwakkRewardProgram } from "../lib/qwakk-rewards";
 import { REWARDS_HONESTY, REWARDS_POOL } from "../lib/qwakk-rewards-copy";
@@ -47,7 +47,7 @@ type Hero = { label: string; value: string; chip: boolean; note?: string };
 
 function RewardsStrip({ program, walletAddress, canAddLiquidity }: Props & { program: QwakkRewardProgram }) {
   const rewards = useAddressRewards(walletAddress, true);
-  const flow = useRewardClaimFlow(walletAddress);
+  const flow = useRewardClaimFlow(walletAddress, rewards.contract);
   const now = usePointsClock();
   const epoch = program.currentEpoch;
   const symbol = program.rewardSymbol;
@@ -58,8 +58,9 @@ function RewardsStrip({ program, walletAddress, canAddLiquidity }: Props & { pro
 
   // The claim to offer here: the open week whose window closes first, kept on screen while it is being sent.
   const claims = (rewards.data?.claims ?? []).filter((claim) => claim.programId === program.id);
-  const claimedFor = (claim: QwakkRewardClaim) => rewards.claimed[String(claim.stageId)] ?? (readClaimTx(walletAddress, claim.stageId) ? true : undefined);
+  const claimedFor = (claim: QwakkRewardClaim) => rewards.isClaimed(claim.stageId);
   const claim = flow.pinned ?? nextRewardClaim(claims, claimedFor, now).claim;
+  // The program's decimals stand in when the week's own are missing; never a base-unit amount.
   const claimAmount = claim ? formatRewardHero(claim.amount, claim.rewardDecimals ?? program.rewardDecimals) : null;
 
   const facts: Array<[string, ReactNode]> = [];

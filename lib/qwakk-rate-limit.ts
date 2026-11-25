@@ -36,7 +36,8 @@ export type RateLimitRule = {
  * - quote: debounced while typing plus a refresh every 15 s.
  * - chain-read: wallet balances, history, wallet PnL, pool and asset reads.
  *   One to a few upstream calls each (PnL: one bank read plus an indexer
- *   replay of the wallet's swaps), polled at most every 15 s.
+ *   replay of the wallet's swaps), polled at most every 15 s. Rewards reads
+ *   too: a claimed check fans out to up to 24 contract queries (4 at a time).
  * - api: everything else. Network, markets and activity are served from short
  *   server caches, so a client hammering them costs no extra upstream calls.
  *   The home page polls about 25 times a minute per open tab.
@@ -46,7 +47,7 @@ export const QWAKK_RATE_LIMIT_RULES: readonly RateLimitRule[] = [
   { name: "positions", prefixes: ["/api/positions"], budget: { capacity: 5, refillPerMinute: 4 } },
   { name: "tx-status", prefixes: ["/api/native-tx/status"], budget: { capacity: 30, refillPerMinute: 40 } },
   { name: "quote", prefixes: ["/api/swap-quote"], budget: { capacity: 30, refillPerMinute: 30 } },
-  { name: "chain-read", prefixes: ["/api/account", "/api/transactions", "/api/pnl", "/api/native/"], budget: { capacity: 40, refillPerMinute: 60 } },
+  { name: "chain-read", prefixes: ["/api/account", "/api/transactions", "/api/pnl", "/api/native/", "/api/rewards"], budget: { capacity: 40, refillPerMinute: 60 } },
   { name: "api", prefixes: ["/api/"], budget: { capacity: 120, refillPerMinute: 240 } },
 ];
 

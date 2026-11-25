@@ -13,15 +13,16 @@ import { claimActionFor } from "../lib/qwakk-rewards-view";
  * for its block, `pinned` keeps that claim on screen, so the next open week
  * does not replace it when the claimed state reloads.
  */
-export function useRewardClaimFlow(address: string) {
+export function useRewardClaimFlow(address: string, contract: string | null) {
   const tx = useNativeTransaction();
   const [active, setActive] = useState<QwakkRewardClaim | null>(null);
   const [reviewing, setReviewing] = useState<QwakkRewardClaim | null>(null);
 
-  // A confirmed claim's hash, so the claimed week can link to its transaction.
+  // A confirmed claim's hash, keyed by the contract the claimed answers come
+  // from (the server's configured one), so the claimed week links to its transaction.
   useEffect(() => {
-    if (tx.state.phase === "success" && tx.state.txhash && active) rememberClaimTx(address, active.stageId, tx.state.txhash);
-  }, [tx.state.phase, tx.state.txhash, active, address]);
+    if (tx.state.phase === "success" && tx.state.txhash && active && contract) rememberClaimTx(contract, address, active.stageId, tx.state.txhash);
+  }, [tx.state.phase, tx.state.txhash, active, address, contract]);
 
   return {
     tx,
