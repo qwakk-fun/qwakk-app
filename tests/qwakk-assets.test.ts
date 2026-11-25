@@ -3,11 +3,12 @@ import test from "node:test";
 
 import { qorechainRegistry, toChecksumAddress } from "@qorechain/sdk";
 
-import { QWAKK_TOKEN_ADDRESS as INDEXER_QWAKK_TOKEN_ADDRESS, curatedToken } from "../indexer/token-registry";
+import { QCAT_TOKEN_ADDRESS as INDEXER_QCAT_TOKEN_ADDRESS, QWAKK_TOKEN_ADDRESS as INDEXER_QWAKK_TOKEN_ADDRESS, curatedToken } from "../indexer/token-registry";
 import { readResolvedAsset } from "../lib/qwakk-asset-metadata";
 import {
   DIANA_ASSETS,
   MAINNET_ASSETS,
+  QCAT_TOKEN_ADDRESS,
   QWAKK_TOKEN_ADDRESS,
   assetForDenom,
   assetFromBankMetadata,
@@ -15,6 +16,7 @@ import {
   decimalsFromBankMetadata,
   displaySymbol,
   formatBaseAmount,
+  qcatTokenAsset,
   qwakkTokenAsset,
   resolveAsset,
   toBaseAmount,
@@ -110,7 +112,8 @@ test("indexed rows take curated symbols and decimals", () => {
 test("create pool offers every curated token plus held denoms, case preserved", () => {
   const balances = new Map([["uqor", BigInt(5)], [FETH, BigInt(1)], ["factory/qor1x/Duck", BigInt(3)], ["uempty", BigInt(0)]]);
   const qwakk = qwakkTokenAsset(QWAKK_TOKEN_ADDRESS);
-  assert.deepEqual(createPoolTokenOptions(balances), ["uqor", FUSD, FETH, FBTC, ATOM, ...(qwakk ? [qwakk.denom] : []), "factory/qor1x/Duck"]);
+  const qcat = qcatTokenAsset(QCAT_TOKEN_ADDRESS);
+  assert.deepEqual(createPoolTokenOptions(balances), ["uqor", FUSD, FETH, FBTC, ATOM, ...(qwakk ? [qwakk.denom] : []), ...(qcat ? [qcat.denom] : []), "factory/qor1x/Duck"]);
   assert.deepEqual(createPoolTokenOptions(null), DIANA_ASSETS.map((asset) => asset.denom));
 });
 
@@ -200,4 +203,43 @@ test("the QWAKK entry keeps the exact denom and the contract's own metadata", ()
     denom_units: [{ denom: `erc20:${address}`, exponent: 0 }, { denom: "Qwakk", exponent: 6 }],
   });
   assert.deepEqual({ symbol: chain.symbol, decimals: chain.decimals, source: chain.source }, { symbol: "QWAKK", decimals: 6, source: "chain" });
+});
+
+test("QCAT joins the Diana registry only through QCAT_TOKEN_ADDRESS", () => {
+  const listed = DIANA_ASSETS.filter((asset) => asset.symbol === "QCAT" || asset.icon === "qcat");
+  if (QCAT_TOKEN_ADDRESS === null) {
+    // Not registered and pooled yet: nothing may offer or name QCAT.
+    assert.deepEqual(listed, []);
+    assert.equal(createPoolTokenOptions(null).some((denom) => /qcat/i.test(displaySymbol(denom))), false);
+  } else {
+    assert.deepEqual(listed, [qcatTokenAsset(QCAT_TOKEN_ADDRESS)]);
+  }
+  assert.equal(MAINNET_ASSETS.some((asset) => asset.icon === "qcat"), false);
+});
+
+test("QCAT_TOKEN_ADDRESS is null or EIP-55, and the indexer holds the same value", () => {
+  if (QCAT_TOKEN_ADDRESS !== null) {
+    assert.match(QCAT_TOKEN_ADDRESS, /^0x[0-9a-fA-F]{40}$/);
+    assert.equal(QCAT_TOKEN_ADDRESS, toChecksumAddress(QCAT_TOKEN_ADDRESS), "use the EIP-55 spelling: the erc20: denom is case sensitive");
+  }
+  assert.equal(INDEXER_QCAT_TOKEN_ADDRESS, QCAT_TOKEN_ADDRESS, "set the same address in indexer/token-registry.ts");
+});
+
+test("the QCAT entry keeps the exact denom and the contract's own metadata", () => {
+  // The deployed QcatToken (2026-11-25).
+  const address = "0x36a4D630898e22dedD8eF5978FC8C527D1698456";
+  assert.equal(address, toChecksumAddress(address));
+  assert.deepEqual(qcatTokenAsset(address), { denom: `erc20:${address}`, symbol: "QCAT", name: "Quantum Cat", decimals: 6, icon: "qcat" });
+  assert.equal(qcatTokenAsset(null), null);
+  assert.equal(qcatTokenAsset("0x1234"), null);
+  assert.equal(qcatTokenAsset(`erc20:${address}`), null);
+  // Before it is curated, a registered QCAT resolves from the bank metadata registration will write.
+  const chain = assetFromBankMetadata(`erc20:${address}`, {
+    base: `erc20:${address}`,
+    display: "QuantumCat",
+    name: `erc20:${address}`,
+    symbol: "QCAT",
+    denom_units: [{ denom: `erc20:${address}`, exponent: 0 }, { denom: "QuantumCat", exponent: 6 }],
+  });
+  assert.deepEqual({ symbol: chain.symbol, decimals: chain.decimals, source: chain.source }, { symbol: "QCAT", decimals: 6, source: "chain" });
 });

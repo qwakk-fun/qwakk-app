@@ -1,5 +1,5 @@
 /**
- * QWAKK on QoreChain Diana: pure helpers for the token CLI (no network, no keys).
+ * QWAKK and QCAT on QoreChain Diana: pure helpers for the token CLI (no network, no keys).
  *
  * Sources for the chain behaviour encoded here:
  * - cosmos/evm v0.6.3 (the version QoreChain pins in go.mod), x/erc20:
@@ -14,6 +14,12 @@
  *   Native-lane transaction signed hybrid.
  * - Diana, read 2026-11-18: 95 MsgConvertERC20 transactions with code 0, all
  *   with a qor1 sender, for example D53380E8260EAA25A790D35E462AD14E07D13BD879C79C4BD43157E5B5FAE3B6.
+ * - Registration proposals: cosmos/evm v0.6.3 proto/cosmos/evm/erc20/v1/tx.proto
+ *   (MsgRegisterERC20: signer = 1, erc20addresses = 2, repeated) inside
+ *   cosmos.gov.v1.MsgSubmitProposal. Diana's proposal 38 (submit tx
+ *   F4D76890B5F0B9E42CDC936A9314E323C86273DC3F04CBD92487AFA25084EE74, height
+ *   10327279, a hybrid-signed Native-lane transaction) is the byte-for-byte
+ *   reference in the tests.
  */
 import { bech32ToHex, isChecksumAddress, isValidBech32, toChecksumAddress } from "@qorechain/sdk";
 import type { qorechainRegistry } from "@qorechain/sdk";
@@ -29,6 +35,40 @@ export const QWAKK = {
   /** 1,000,000,000 QWAKK in base units. */
   totalSupply: 1_000_000_000n * 10n ** 6n,
 } as const;
+
+/** QCAT (Quantum Cat), the QCAT community meme token. Must match src/QcatToken.sol. */
+export const QCAT = {
+  name: "Quantum Cat",
+  symbol: "QCAT",
+  decimals: 6,
+  /** 1,000,000,000 QCAT in base units. */
+  totalSupply: 1_000_000_000n * 10n ** 6n,
+} as const;
+
+/** A token the CLI can deploy and move: its constants, its Foundry contract and the env var holding its address. */
+export type TokenSpec = {
+  key: "qwakk" | "qcat";
+  /** The Foundry contract name: src/<contract>.sol, out/<contract>.sol/<contract>.json. */
+  contract: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  totalSupply: bigint;
+  /** contracts/.env variable with the deployed EIP-55 address. */
+  addressEnv: string;
+};
+
+export const TOKENS: Record<TokenSpec["key"], TokenSpec> = {
+  qwakk: { key: "qwakk", contract: "QwakkToken", ...QWAKK, addressEnv: "QWAKK_TOKEN_ADDRESS" },
+  qcat: { key: "qcat", contract: "QcatToken", ...QCAT, addressEnv: "QCAT_TOKEN_ADDRESS" },
+};
+
+/** `--token qwakk|qcat`; QWAKK when not given, so every QWAKK command keeps working as before. */
+export function tokenSpec(raw: string | undefined): TokenSpec {
+  const key = (raw?.trim() || "qwakk").toLowerCase();
+  if (key !== "qwakk" && key !== "qcat") throw new Error(`--token must be one of: ${Object.keys(TOKENS).join(", ")}`);
+  return TOKENS[key];
+}
 
 /** QoreChain Diana: the only network this CLI sends on. */
 export const DIANA = { chainId: "qorechain-diana", evmChainId: 9800 } as const;
@@ -67,13 +107,13 @@ export function assertDiana(chain: { chainId: string; evmChainId: number }): voi
 }
 
 /** The token's EVM address: required, a 0x address, and in its EIP-55 spelling (the bank denom is case sensitive). */
-export function parseTokenAddress(raw: string | undefined): string {
+export function parseTokenAddress(raw: string | undefined, envName = "QWAKK_TOKEN_ADDRESS"): string {
   const value = raw?.trim() ?? "";
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new Error("Set QWAKK_TOKEN_ADDRESS in contracts/.env to the 0x address `npm run token -- deploy` printed.");
+    throw new Error(`Set ${envName} in contracts/.env to the 0x address \`npm run token -- deploy\` printed.`);
   }
   if (value !== toChecksumAddress(value)) {
-    throw new Error(`QWAKK_TOKEN_ADDRESS must use its EIP-55 spelling ${toChecksumAddress(value)}: the bank denom is case sensitive.`);
+    throw new Error(`${envName} must use its EIP-55 spelling ${toChecksumAddress(value)}: the bank denom is case sensitive.`);
   }
   return value;
 }
@@ -96,30 +136,40 @@ export function bankDenomFor(address: string): string {
 // Amounts (integer math only)
 // ---------------------------------------------------------------------------
 
-/** QWAKK amount to base units: "all" takes the whole `available`; otherwise up to 6 decimals, never above `available`. */
-export function parseQwakkAmount(raw: string | undefined, available: bigint): bigint {
+/** Token amount to base units: "all" takes the whole `available`; otherwise up to `decimals` places, never above `available`. */
+export function parseTokenAmount(raw: string | undefined, available: bigint, token: { symbol: string; decimals: number }): bigint {
   const value = raw?.trim() ?? "";
   let amount: bigint;
   if (value.toLowerCase() === "all") {
     amount = available;
   } else {
     const match = /^(\d+)(?:\.(\d+))?$/.exec(value);
-    if (!match) throw new Error('Give the amount in QWAKK, for example 1000000 or 0.5, or "all"');
+    if (!match) throw new Error(`Give the amount in ${token.symbol}, for example 1000000 or 0.5, or "all"`);
     const fraction = match[2] ?? "";
-    if (fraction.length > QWAKK.decimals) throw new Error(`QWAKK has ${QWAKK.decimals} decimals`);
-    amount = BigInt(match[1]) * 10n ** BigInt(QWAKK.decimals) + BigInt(fraction.padEnd(QWAKK.decimals, "0") || "0");
+    if (fraction.length > token.decimals) throw new Error(`${token.symbol} has ${token.decimals} decimals`);
+    amount = BigInt(match[1]) * 10n ** BigInt(token.decimals) + BigInt(fraction.padEnd(token.decimals, "0") || "0");
   }
   if (amount <= 0n) throw new Error("The amount must be greater than zero (and there must be something to move)");
-  if (amount > available) throw new Error(`Only ${formatQwakk(available)} QWAKK is available here`);
+  if (amount > available) throw new Error(`Only ${formatTokenAmount(available, token.decimals)} ${token.symbol} is available here`);
   return amount;
+}
+
+/** Base units to a decimal string, exact. */
+export function formatTokenAmount(base: bigint, decimals: number): string {
+  const scale = 10n ** BigInt(decimals);
+  const whole = base / scale;
+  const fraction = (base % scale).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return `${whole.toLocaleString("en-US")}${fraction ? `.${fraction}` : ""}`;
+}
+
+/** QWAKK amount to base units (parseTokenAmount for QWAKK). */
+export function parseQwakkAmount(raw: string | undefined, available: bigint): bigint {
+  return parseTokenAmount(raw, available, QWAKK);
 }
 
 /** Base units to a QWAKK string, exact. */
 export function formatQwakk(base: bigint): string {
-  const scale = 10n ** BigInt(QWAKK.decimals);
-  const whole = base / scale;
-  const fraction = (base % scale).toString().padStart(QWAKK.decimals, "0").replace(/0+$/, "");
-  return `${whole.toLocaleString("en-US")}${fraction ? `.${fraction}` : ""}`;
+  return formatTokenAmount(base, QWAKK.decimals);
 }
 
 // ---------------------------------------------------------------------------
@@ -276,5 +326,66 @@ export function bankSendMsg(input: { denom: string; amount: bigint; from: string
   return {
     typeUrl: MSG_SEND_TYPE_URL,
     value: { fromAddress: input.from, toAddress: input.to, amount: [{ denom: input.denom, amount: input.amount.toString() }] },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Registration proposal (governance only on Diana: permissionless_registration false)
+// ---------------------------------------------------------------------------
+
+export const MSG_REGISTER_ERC20_TYPE_URL = "/cosmos.evm.erc20.v1.MsgRegisterERC20";
+export const MSG_SUBMIT_PROPOSAL_TYPE_URL = "/cosmos.gov.v1.MsgSubmitProposal";
+
+/**
+ * The gov module account, sha256("gov")[:20] in qor1 form. MsgRegisterERC20's
+ * `signer` must be this authority (proposal 26 and 38 on Diana; the node also
+ * answers it at /cosmos/auth/v1beta1/module_accounts/gov, which the CLI checks
+ * before it sends).
+ */
+export const GOV_MODULE_ADDRESS = "qor10d07y265gmmuvt4z0w9aw880jnsr700jwfyxr3";
+
+/** cosmos.evm.erc20.v1.MsgRegisterERC20 (tx.proto): signer = 1, erc20addresses = 2 (repeated string). */
+export function encodeMsgRegisterERC20(msg: { signer: string; erc20addresses: string[] }): Uint8Array {
+  return Uint8Array.from([...stringField(1, msg.signer), ...msg.erc20addresses.flatMap((a) => stringField(2, a))]);
+}
+
+/** Title and summary in the form of Diana proposal 38 (the QWAKK registration). */
+export function registrationProposalText(address: string, token: { name: string; symbol: string; decimals: number; totalSupply: bigint }) {
+  const supply = formatTokenAmount(token.totalSupply, token.decimals);
+  return {
+    title: `Register the ${token.name} (${token.symbol}) ERC-20 as a native token pair (testnet)`,
+    summary:
+      `Testnet only. Registers the ERC-20 contract ${address} (${token.name}, ${token.symbol}, ${token.decimals} decimals, ` +
+      `fixed supply ${supply} minted once to the deployer; no owner, mint, pause, blocklist or transfer fee) as a token pair, ` +
+      `so it can be converted to and used as the native denom ${bankDenomFor(address)}.`,
+  };
+}
+
+/**
+ * cosmos.gov.v1.MsgSubmitProposal carrying one MsgRegisterERC20 for one
+ * contract (one proposal per address: Diana proposal 24 failed as a duplicate
+ * of 26). The SDK's registry (cosmjs-types) encodes the outer message; the
+ * inner one goes in as ready-made Any bytes.
+ */
+export function registrationProposalMsg(input: {
+  token: string;
+  spec: { name: string; symbol: string; decimals: number; totalSupply: bigint };
+  proposer: string;
+  depositUqor: bigint;
+  expedited: boolean;
+}) {
+  if (input.depositUqor <= 0n) throw new Error("the deposit must be positive");
+  const { title, summary } = registrationProposalText(input.token, input.spec);
+  return {
+    typeUrl: MSG_SUBMIT_PROPOSAL_TYPE_URL,
+    value: {
+      messages: [{ typeUrl: MSG_REGISTER_ERC20_TYPE_URL, value: encodeMsgRegisterERC20({ signer: GOV_MODULE_ADDRESS, erc20addresses: [input.token] }) }],
+      initialDeposit: [{ denom: "uqor", amount: input.depositUqor.toString() }],
+      proposer: input.proposer,
+      metadata: "",
+      title,
+      summary,
+      expedited: input.expedited,
+    },
   };
 }

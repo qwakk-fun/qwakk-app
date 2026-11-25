@@ -97,8 +97,10 @@ test/fixtures/pq-vectors.json     the vectors (generated, reproducible byte for 
 test/utils/                       shared setup, ERC-20 mocks, anvil stand-ins for the precompiles
 src/QwakkToken.sol                QWAKK, Qwakk's fixed-supply meme token (see "QWAKK token" below)
 test/QwakkToken.t.sol             its unit, x/erc20 conversion-shape, fuzz and invariant tests
+src/QcatToken.sol                 QCAT (Quantum Cat), the same token shape for the QCAT community token (see "QCAT token" below)
+test/QcatToken.t.sol              the same test suite for QCAT
 script/DeployPondVault.s.sol      Foundry deploy script for the anvil rehearsal only (refuses other chains)
-cli/                              owner and approver CLI (TypeScript, viem, QoreChain SDK), plus the QWAKK token CLI (src/token.ts)
+cli/                              owner and approver CLI (TypeScript, viem, QoreChain SDK), plus the token CLI for QWAKK and QCAT (src/token.ts)
 ```
 
 The read-only dashboard lives in the app: `app/vault/page.tsx`,
@@ -434,7 +436,7 @@ QOR, signed by QoreX.
 | | |
 | --- | --- |
 | Contract and tests | Built. `forge test --match-path test/QwakkToken.t.sol`: 21 unit, 5 fuzz (1,024 runs each), 1 invariant (128 runs x 64 calls); 27 passed on 2026-11-18. |
-| CLI | Built. `npm run token -- <command>` with the commands status, deploy, convert and send. CLI `npm test`: 30 of 30 passed on 2026-11-18. |
+| CLI | Built. `npm run token -- <command>` with the commands status, deploy, convert and send (and `propose` since 2026-11-25). CLI `npm test`: 30 of 30 passed on 2026-11-18. |
 | Deploy dry run on Diana | `eth_estimateGas` of the deploy from the deployer: 379,212 gas, the same as Foundry's gas report (2026-11-18). |
 | Native dry runs on Diana | Signed hybrid and simulated (never broadcast, sequence unchanged): a MsgConvertERC20 with a `qor1` sender reached the EVM transfer, and a bank send of an `erc20:` coin reached the bank keeper (2026-11-18). |
 | On chain | **Deployed on 2026-11-18** at `0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23` (`qor15keu87ujut5f240ejzdeqpxxtu659m3r05j3gz`), block 10,322,273, 379,212 gas ([`7DAF1B36...10913`](https://explore.qore.network/tx/7DAF1B36430B7FD756561CF6ED5F0D86CE01214F5F8DC5D26990091EE8810913)). The CLI checked name, symbol, decimals, supply and the deployer's 1,000,000,000 QWAKK on chain. Expected bank denom: `erc20:0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23`. |
@@ -445,10 +447,18 @@ QOR, signed by QoreX.
 ### How registration and conversion work
 
 - **Registration is governance only on Diana** (`/cosmos/evm/erc20/v1/params`:
-  `permissionless_registration: false`). QoreChain submits a proposal with
-  `MsgRegisterERC20`, as testnet proposal 26 did for fUSD, fETH and fBTC
-  (signer: the gov module `qor10d07y265gmmuvt4z0w9aw880jnsr700jwfyxr3`). We do
-  not submit it.
+  `permissionless_registration: false`). A proposal carries `MsgRegisterERC20`
+  (signer: the gov module `qor10d07y265gmmuvt4z0w9aw880jnsr700jwfyxr3`), as
+  testnet proposal 26 did for fUSD, fETH and fBTC. Any funded account can
+  submit one on the testnet: the live gov params (`/cosmos/gov/v1/params/deposit`,
+  read 2026-11-25) ask a 10 QOR minimum deposit with a 4 hour voting period, or
+  50 QOR for an expedited proposal with a 1 hour voting period, and the deposit
+  is refunded unless the proposal is vetoed. The validators (QoreChain) vote.
+  QWAKK's proposal 38 was submitted by QoreChain; from QCAT on, the deployer
+  submits it with `npm run token -- propose`, a hybrid-signed Native-lane
+  `cosmos.gov.v1.MsgSubmitProposal` that rebuilds proposal 38's message byte
+  for byte (`cli/test/token.test.ts`). Proposal 42 shows a normal 10 QOR
+  proposal passing.
 - **What registration reads from the contract** (cosmos/evm v0.6.3, which
   QoreChain pins in `go.mod`; `x/erc20/keeper/proposals.go` and
   `keeper/evm.go`): `name()`, `symbol()` and `decimals()`, called from the erc20
@@ -506,7 +516,7 @@ estimate or simulate on the node and stop.
 | 2 | `npm run token -- status` (deployer QOR, key, window; "token not deployed yet") | `QORE_MNEMONIC` | nothing | none |
 | 3 | `npm run pond -- window deploy` | `QORE_MNEMONIC` | Native tx (hybrid): opens an unscoped window for 1 EVM transaction, replacing the old vault window | 0.1 QOR; the window allows up to 0.75 QOR of EVM fees |
 | 4 | `npm run token -- deploy`, then put the printed `QWAKK_TOKEN_ADDRESS=0x...` in `contracts/.env` | `QORE_MNEMONIC` | 1 EVM tx: deploys QwakkToken; the CLI then checks name, symbol, decimals, supply and the deployer's balance on chain | about 379,000 gas: about 0.043 QOR at 112.5 gwei (Diana's gas price on 2026-11-18), at most 0.124 QOR (gas limit 492,975 at the 250 gwei cap) |
-| 5 | Send QoreChain the registration request below, with the address from step 4. Wait until `npm run token -- status` shows "token pair erc20:0x..., enabled, OWNER_EXTERNAL" and "bank metadata as expected" | `QORE_MNEMONIC`, `QWAKK_TOKEN_ADDRESS` | nothing (QoreChain submits the proposal) | none for us |
+| 5 | `npm run token -- propose --dry-run`, then `npm run token -- propose` (add `--expedited` for the 1 hour vote). Ask QoreChain to vote (the request below). Wait until `npm run token -- status` shows "token pair erc20:0x..., enabled, OWNER_EXTERNAL" and "bank metadata as expected" | `QORE_MNEMONIC`, `QWAKK_TOKEN_ADDRESS` | Native tx (hybrid): `MsgSubmitProposal` with one `MsgRegisterERC20` | the live minimum deposit (10 QOR, or 50 QOR expedited), refunded unless vetoed, plus 0.1 QOR |
 | 6 | `npm run token -- convert all` | `QORE_MNEMONIC`, `QWAKK_TOKEN_ADDRESS` | Native tx (hybrid): `MsgConvertERC20` of the whole supply into the deployer's bank balance | 0.1 QOR (800,000 gas at 0.125 uqor per gas; more only if the dry run needs more) |
 | 7 | `npm run token -- send <amount or all> --to qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq` | `QORE_MNEMONIC`, `QWAKK_TOKEN_ADDRESS` | Native tx (hybrid): bank `MsgSend` of QWAKK to the owner's QoreX wallet | 0.1 QOR |
 | 8 | `npm run token -- status --holder qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq` | same | nothing | none |
@@ -526,7 +536,10 @@ side for the swaps you expect.
 
 ### Registration request for QoreChain
 
-Fill in the address from step 4 and send it as plain text:
+Before 2026-11-25 QoreChain submitted the proposal for us. This is the text we
+sent for QWAKK. Now the deployer submits it (step 5), so the message only has
+to ask for a vote on the proposal number. Fill in the address from step 4 and
+send it as plain text:
 
 ```text
 My friend, we deployed Qwakk's meme token QWAKK on Diana and would like it registered as a bank denom so it can be pooled against QOR in x/amm, like fUSD, fETH and fBTC in proposal 26.
@@ -537,6 +550,34 @@ It is a plain fixed-supply ERC-20: name Qwakk, symbol QWAKK, 6 decimals, 1,000,0
 
 Thank you!
 ```
+
+## QCAT token (QoreChain Diana)
+
+QCAT (Quantum Cat) is a QoreChain community meme token whose team partnered
+with Qwakk. Its team agreed that Qwakk deploys it on the Diana testnet; they
+deploy mainnet themselves. `Quantum Cat` / `QCAT`, 6 decimals, 1,000,000,000
+QCAT (10^15 base units) minted once to the deployer, with the same shape as
+QWAKK: no owner, no mint or burn, no fee, no pause, no blocklist
+(`src/QcatToken.sol`). On the testnet the whole supply goes to the owner's
+QoreX wallet `qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq`, with no
+distribution or vesting.
+
+The same CLI and runbook apply with `--token qcat` and `QCAT_TOKEN_ADDRESS` in
+`contracts/.env`, for example `npm run token -- status --token qcat`.
+
+| | |
+| --- | --- |
+| Contract and tests | Built. `forge test --match-path test/QcatToken.t.sol`: 27 passed (21 unit, 5 fuzz, 1 invariant) on 2026-11-25, and QWAKK's 27 unchanged. |
+| CLI | `--token qwakk` (default) or `--token qcat`, and the new `propose` command. CLI `npm test`: 38 of 38 passed on 2026-11-25, among them the rebuild of Diana's proposal 38 message byte for byte. |
+| EVM window | Unscoped, 1 transaction, opened on the deployer on 2026-11-25 ([`FEA81AD0...84A5`](https://explore.qore.network/tx/FEA81AD0EE854B33966B05BDC4F42474E4542DB5E9A1E43773DD6D563AE984A5), height 10,737,124, code 0) and used by the deploy. |
+| On chain | **Deployed on 2026-11-25** at `0x36a4D630898e22dedD8eF5978FC8C527D1698456` (`qor1x6jdvvyf3c3dahvw7ktcljx9ylgknpzkpsaxw2`), block 10,737,140, 380,328 gas ([`6E5D3E68...AF78`](https://explore.qore.network/tx/6E5D3E6812546C463FAF55AF286F86172CBED72E9C430040C125E557286FAF78); EVM hash `0x78fb47cd...7a5b`). The CLI checked name, symbol, decimals, supply and the deployer's 1,000,000,000 QCAT on chain. Expected bank denom: `erc20:0x36a4D630898e22dedD8eF5978FC8C527D1698456`, display unit `QuantumCat` at exponent 6. |
+| Registration | **Proposal 49 submitted on 2026-11-25** by the deployer with the normal 10 QOR deposit ([`97701E51...205C`](https://explore.qore.network/tx/97701E511FA84CF78141B5393D90ED70D052039350F4498157BC53E3DA2D205C), height 10,737,162, code 0, 348,342 gas). Voting ends 2026-11-25 20:12:35 UTC; it needs the validators' votes. |
+| Conversion and transfer | Waiting for proposal 49: `npm run token -- convert all --token qcat`, then `npm run token -- send all --token qcat --to qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq`. |
+| Pool | Not created. The owner creates QCAT/QOR in the app with QoreX (runbook step 9), then sets `QCAT_TOKEN_ADDRESS` in `lib/qwakk-assets.ts` and `indexer/token-registry.ts` (step 10). |
+
+The app shows QCAT with a cat head cropped from the QCAT team's tokenomics
+artwork (`public/tokens/qcat.webp`, source in `marketing/qcat/`), a
+placeholder until the QCAT team sends an official logo.
 
 ## License
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { qorechainRegistry, toChecksumAddress } from "@qorechain/sdk";
+import { hexToBech32, qorechainRegistry, toChecksumAddress } from "@qorechain/sdk";
 import {
   DIANA,
   ERC20_MODULE_ADDRESS,
@@ -23,6 +23,17 @@ import {
   parseQwakkAmount,
   parseTokenAddress,
   sanitizeErc20Name,
+  GOV_MODULE_ADDRESS,
+  MSG_REGISTER_ERC20_TYPE_URL,
+  MSG_SUBMIT_PROPOSAL_TYPE_URL,
+  QCAT,
+  TOKENS,
+  encodeMsgRegisterERC20,
+  formatTokenAmount,
+  parseTokenAmount,
+  registrationProposalMsg,
+  registrationProposalText,
+  tokenSpec,
 } from "../src/qwakk-token.ts";
 
 const FUSD = "0x97143B771D34ddb9130b807b135Ae675A5a963CA";
@@ -201,5 +212,142 @@ test("the compiled QwakkToken exposes only the ERC-20 surface and matches the CL
   assert.match(source, new RegExp(`string public constant name = "${QWAKK.name}";`));
   assert.match(source, new RegExp(`string public constant symbol = "${QWAKK.symbol}";`));
   assert.match(source, new RegExp(`uint8 public constant decimals = ${QWAKK.decimals};`));
+  assert.match(source, /uint256 public constant totalSupply = 1_000_000_000 \* 10 \*\* 6;/);
+});
+
+// ---------------------------------------------------------------------------
+// QCAT and the registration proposal
+// ---------------------------------------------------------------------------
+
+const QWAKK_TOKEN = "0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23";
+
+/**
+ * Diana proposal 38 (the QWAKK registration): submit tx
+ * F4D76890B5F0B9E42CDC936A9314E323C86273DC3F04CBD92487AFA25084EE74, height
+ * 10327279, code 0, a hybrid-signed Native-lane transaction. Bytes of
+ * TxRaw -> TxBody -> messages[0].value, read from the RPC /tx route on 2026-11-25.
+ */
+const LIVE_PROPOSAL_38 = {
+  proposer: "qor1hz907zyx2t9ax2fj0y8hhspc5rpnxuegrfzzr9",
+  deposit: 50_000_000n,
+  expedited: true,
+  innerHex:
+    "0a2a716f72313064303779323635676d6d757674347a30773961773838306a6e73723730306a776679787233122a3078613562336333466239324532" +
+    "45383935353546393930396239303034433635463335343265453233",
+  valueHex:
+    "0a81010a252f636f736d6f732e65766d2e65726332302e76312e4d73675265676973746572455243323012580a2a716f72313064303779323635676d" +
+    "6d757674347a30773961773838306a6e73723730306a776679787233122a307861356233633346623932453245383935353546393930396239303034" +
+    "43363546333534326545323312100a0475716f72120835303030303030301a2a716f7231687a3930377a7978327439617832666a3079386868737063" +
+    "3572706e7875656772667a7a72392a42526567697374657220746865205177616b6b20285157414b4b29204552432d32302061732061206e61746976" +
+    "6520746f6b656e20706169722028746573746e65742932d502546573746e6574206f6e6c792e2052656769737465727320746865204552432d323020" +
+    "636f6e74726163742030786135623363334662393245324538393535354639393039623930303443363546333534326545323320285177616b6b2c20" +
+    "5157414b4b2c203620646563696d616c732c20666978656420737570706c7920312c3030302c3030302c303030206d696e746564206f6e636520746f" +
+    "20746865206465706c6f7965723b206e6f206f776e65722c206d696e742c2070617573652c20626c6f636b6c697374206f72207472616e7366657220" +
+    "66656529206173206120746f6b656e20706169722c20736f2069742063616e20626520636f6e76657274656420746f20616e64207573656420617320" +
+    "746865206e61746976652064656e6f6d2065726332303a30786135623363334662393245324538393535354639393039623930303443363546333534" +
+    "32654532332e3801",
+};
+
+test("MsgRegisterERC20 bytes equal Diana proposal 38's message byte for byte", () => {
+  const bytes = encodeMsgRegisterERC20({ signer: GOV_MODULE_ADDRESS, erc20addresses: [QWAKK_TOKEN] });
+  assert.ok(LIVE_PROPOSAL_38.valueHex.includes(toHex(bytes)));
+  assert.equal(toHex(bytes), LIVE_PROPOSAL_38.innerHex);
+});
+
+test("the registration proposal for QWAKK rebuilds Diana's live MsgSubmitProposal of proposal 38 exactly", () => {
+  const msg = registrationProposalMsg({
+    token: QWAKK_TOKEN,
+    spec: QWAKK,
+    proposer: LIVE_PROPOSAL_38.proposer,
+    depositUqor: LIVE_PROPOSAL_38.deposit,
+    expedited: LIVE_PROPOSAL_38.expedited,
+  });
+  assert.equal(msg.typeUrl, MSG_SUBMIT_PROPOSAL_TYPE_URL);
+  assert.equal(msg.value.messages[0].typeUrl, MSG_REGISTER_ERC20_TYPE_URL);
+  const any = qorechainRegistry(TOKEN_REGISTRY_TYPES).encodeAsAny(msg);
+  assert.equal(any.typeUrl, "/cosmos.gov.v1.MsgSubmitProposal");
+  assert.equal(toHex(any.value), LIVE_PROPOSAL_38.valueHex);
+});
+
+test("the QCAT proposal: one contract, gov authority signer, normal deposit, no em dash in its text", () => {
+  const address = toChecksumAddress(`0x${"cd34ab12ef".repeat(4)}`);
+  const proposer = "qor1lndgla7rrh8cjq8enly3cldkaze3z2jupzakmp";
+  const msg = registrationProposalMsg({ token: address, spec: QCAT, proposer, depositUqor: 10_000_000n, expedited: false });
+  const registry = qorechainRegistry(TOKEN_REGISTRY_TYPES);
+  const decoded = registry.decode(registry.encodeAsAny(msg)) as {
+    messages: { typeUrl: string; value: Uint8Array }[];
+    initialDeposit: { denom: string; amount: string }[];
+    proposer: string;
+    title: string;
+    summary: string;
+    expedited: boolean;
+  };
+  assert.equal(decoded.messages.length, 1);
+  assert.equal(toHex(decoded.messages[0].value), toHex(encodeMsgRegisterERC20({ signer: GOV_MODULE_ADDRESS, erc20addresses: [address] })));
+  assert.deepEqual(decoded.initialDeposit, [{ denom: "uqor", amount: "10000000" }]);
+  assert.equal(decoded.proposer, proposer);
+  assert.equal(decoded.expedited, false);
+  assert.equal(decoded.title, "Register the Quantum Cat (QCAT) ERC-20 as a native token pair (testnet)");
+  assert.match(decoded.summary, new RegExp(`erc20:${address}\\.$`));
+  assert.match(decoded.summary, /Quantum Cat, QCAT, 6 decimals, fixed supply 1,000,000,000 minted once/);
+  const text = registrationProposalText(address, QCAT);
+  assert.ok(!/\u2014/.test(text.title + text.summary));
+  assert.throws(() => registrationProposalMsg({ token: address, spec: QCAT, proposer, depositUqor: 0n, expedited: false }));
+});
+
+test("the gov module address is sha256('gov')[:20] in qor1 form", async () => {
+  const { createHash } = await import("node:crypto");
+  assert.equal(hexToBech32(`0x${createHash("sha256").update("gov").digest("hex").slice(0, 40)}`, "qor"), GOV_MODULE_ADDRESS);
+});
+
+test("QCAT will register as erc20:<address> with symbol QCAT, display QuantumCat and 6 decimals", () => {
+  const address = toChecksumAddress(`0x${"cd34ab12ef".repeat(4)}`);
+  const meta = expectedBankMetadata(address, QCAT);
+  assert.equal(meta.base, `erc20:${address}`);
+  assert.equal(meta.symbol, "QCAT");
+  assert.equal(meta.display, "QuantumCat");
+  assert.deepEqual(meta.denom_units.map((u) => [u.denom, u.exponent]), [[`erc20:${address}`, 0], ["QuantumCat", 6]]);
+  assert.match(meta.display, /^[a-zA-Z][a-zA-Z0-9/:._-]{2,127}$/);
+});
+
+test("--token picks QWAKK by default and QCAT on request", () => {
+  assert.equal(tokenSpec(undefined), TOKENS.qwakk);
+  assert.equal(tokenSpec("QCAT"), TOKENS.qcat);
+  assert.deepEqual(
+    [TOKENS.qwakk.contract, TOKENS.qwakk.addressEnv, TOKENS.qwakk.symbol, TOKENS.qwakk.totalSupply],
+    ["QwakkToken", "QWAKK_TOKEN_ADDRESS", "QWAKK", 10n ** 15n],
+  );
+  assert.deepEqual(
+    [TOKENS.qcat.contract, TOKENS.qcat.addressEnv, TOKENS.qcat.name, TOKENS.qcat.symbol, TOKENS.qcat.decimals, TOKENS.qcat.totalSupply],
+    ["QcatToken", "QCAT_TOKEN_ADDRESS", "Quantum Cat", "QCAT", 6, 10n ** 15n],
+  );
+  assert.throws(() => tokenSpec("fusd"), /--token/);
+  assert.throws(() => parseTokenAddress(undefined, "QCAT_TOKEN_ADDRESS"), /QCAT_TOKEN_ADDRESS/);
+});
+
+test("QCAT amounts use integer math with 6 decimals", () => {
+  assert.equal(parseTokenAmount("1", QCAT.totalSupply, QCAT), 1_000_000n);
+  assert.equal(parseTokenAmount("all", QCAT.totalSupply, QCAT), 10n ** 15n);
+  assert.equal(parseTokenAmount("0.000001", 1n, QCAT), 1n);
+  assert.throws(() => parseTokenAmount("0.0000001", QCAT.totalSupply, QCAT), /QCAT has 6 decimals/);
+  assert.throws(() => parseTokenAmount("2", 1_000_000n, QCAT), /Only 1 QCAT is available/);
+  assert.throws(() => parseTokenAmount("x", 1n, QCAT), /amount in QCAT/);
+  assert.equal(formatTokenAmount(QCAT.totalSupply, QCAT.decimals), "1,000,000,000");
+  assert.equal(formatTokenAmount(1_500_001n, 6), "1.500001");
+});
+
+test("the compiled QcatToken exposes only the ERC-20 surface and matches the CLI constants", { skip: !existsSync(new URL("../../out/QcatToken.sol/QcatToken.json", import.meta.url)) && "run forge build first" }, () => {
+  const artifact = JSON.parse(readFileSync(new URL("../../out/QcatToken.sol/QcatToken.json", import.meta.url), "utf8")) as {
+    abi: { type: string; name?: string; stateMutability?: string; inputs?: unknown[] }[];
+  };
+  const functions = artifact.abi.filter((x) => x.type === "function").map((x) => x.name).sort();
+  assert.deepEqual(functions, ["allowance", "approve", "balanceOf", "decimals", "name", "symbol", "totalSupply", "transfer", "transferFrom"]);
+  const ctor = artifact.abi.find((x) => x.type === "constructor");
+  assert.ok(ctor && (ctor.inputs ?? []).length === 0 && ctor.stateMutability === "nonpayable");
+  assert.equal(artifact.abi.some((x) => x.type === "fallback" || x.type === "receive"), false);
+  const source = readFileSync(new URL("../../src/QcatToken.sol", import.meta.url), "utf8");
+  assert.match(source, new RegExp(`string public constant name = "${QCAT.name}";`));
+  assert.match(source, new RegExp(`string public constant symbol = "${QCAT.symbol}";`));
+  assert.match(source, new RegExp(`uint8 public constant decimals = ${QCAT.decimals};`));
   assert.match(source, /uint256 public constant totalSupply = 1_000_000_000 \* 10 \*\* 6;/);
 });

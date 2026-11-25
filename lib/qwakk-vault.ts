@@ -108,11 +108,11 @@ export function vaultAddressFromEnv(env: Readonly<Record<string, string | undefi
 
 /**
  * The ERC-20 tokens of the Diana registry, with their EVM addresses: the Fest
- * test tokens the vault was built and tested with. QWAKK is left out, so
- * listing it in the registry does not change the vault dashboard.
+ * test tokens the vault was built and tested with. QWAKK and QCAT are left
+ * out, so listing them in the registry does not change the vault dashboard.
  */
 export function vaultTokens() {
-  return DIANA_ASSETS.filter((asset) => asset.denom.startsWith("erc20:0x") && asset.icon !== "qwakk").map((asset) => ({
+  return DIANA_ASSETS.filter((asset) => asset.denom.startsWith("erc20:0x") && asset.icon !== "qwakk" && asset.icon !== "qcat").map((asset) => ({
     symbol: asset.symbol,
     denom: asset.denom,
     token: asset.denom.slice("erc20:".length),
