@@ -306,9 +306,7 @@ contract QcatTokenTest is Test {
         vm.prank(deployer);
         token.approve(spender, allowed);
         vm.prank(spender);
-        vm.expectRevert(
-            abi.encodeWithSelector(QcatToken.ERC20InsufficientAllowance.selector, spender, allowed, amount)
-        );
+        vm.expectRevert(abi.encodeWithSelector(QcatToken.ERC20InsufficientAllowance.selector, spender, allowed, amount));
         token.transferFrom(deployer, alice, amount);
     }
 
