@@ -47,11 +47,11 @@ export type RewardsConfig = {
   excludedAddresses: string[];
   /** Also exclude the points program's automatic bot flags (QWAKK_REWARDS_EXCLUDE_POINTS_FLAGS, off by default). */
   excludePointsFlags: boolean;
-  /** A holding streak must last this many hours before any of it earns. */
+  /** Every LP unit must have been held this many hours before it earns (trailing window minimum). */
   minHoldHours: number;
   /** Longest gap between two LP snapshots still credited, in hours. */
   maxGapHours: number;
-  /** Snapshots this many hours before an epoch are read, so a streak that began earlier is recognized. */
+  /** Snapshots this many hours before an epoch are read (at least minHold + maxGap), so the trailing window at the epoch start is covered. */
   lookbackHours: number;
   /** Reward contract address, stored with every finalized epoch. Optional until the contract is deployed. */
   contractAddress: string | null;
@@ -223,6 +223,22 @@ export function describeProgram(program: RewardProgram) {
   return { ...program, epochBudget: program.epochBudget.toString(), anchor: new Date(program.anchorMs).toISOString() };
 }
 
+/** The contract's MAX_LABEL_LEN, counted in UTF-8 bytes (String::len). */
+export const MAX_LABEL_BYTES = 128;
+
+/** Cuts `text` to at most `maxBytes` UTF-8 bytes without splitting a character. */
+export function truncateUtf8(text: string, maxBytes: number) {
+  let bytes = 0;
+  let out = "";
+  for (const char of text) {
+    const size = Buffer.byteLength(char, "utf8");
+    if (bytes + size > maxBytes) break;
+    bytes += size;
+    out += char;
+  }
+  return out;
+}
+
 /** Claims of an epoch open when it ends and close `claimDays` later. Deterministic, so a repeated finalize prints the same JSON. */
 export function claimWindow(program: Pick<RewardProgram, "claimDays">, window: EpochWindow) {
   return { startMs: window.endMs, endMs: window.endMs + program.claimDays * 86_400_000 };
@@ -246,6 +262,6 @@ export function stageJson(input: { stageId: bigint; root: string; total: bigint;
     pool_id: Number(input.program.poolId),
     start: Math.floor(claims.startMs / 1000),
     end: Math.floor(claims.endMs / 1000),
-    label: `${input.program.label}, epoch ${input.window.number} (${day(input.window.startMs)} to ${day(input.window.endMs)})`.slice(0, 128),
+    label: truncateUtf8(`${input.program.label}, epoch ${input.window.number} (${day(input.window.startMs)} to ${day(input.window.endMs)})`, MAX_LABEL_BYTES),
   };
 }

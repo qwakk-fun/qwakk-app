@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { BUILT_IN_REWARD_EXCLUSIONS, claimWindow, epochAt, epochSettlesAt, epochWindow, loadRewardsConfig, stageJson, type RewardProgram } from "../indexer/rewards-config";
+import { BUILT_IN_REWARD_EXCLUSIONS, claimWindow, epochAt, epochSettlesAt, epochWindow, loadRewardsConfig, stageJson, truncateUtf8, type RewardProgram } from "../indexer/rewards-config";
 import { allocateRewards, computeShareSeconds, formatUnits, sharePpm, type RewardRemoval, type RewardSnapshot, type ShareParams } from "../indexer/rewards-math";
 import { buildRewardTree, hashPair, rewardLeaf, verifyRewardProof } from "../indexer/rewards-merkle";
 
@@ -99,52 +99,96 @@ test("share-seconds weight LP units by time, and excluded holders do not dilute 
   assert.equal(allocation.dust, BigInt(0));
 });
 
-test("add then remove inside the minimum hold earns nothing, a long enough hold earns from its first hour", () => {
-  // Holds from hour 10 to hour 13: a 3 hour streak, below the 6 hour minimum.
+test("add then remove inside the minimum hold earns nothing, every unit earns only after its own warm-up", () => {
+  // Holds from hour 10 to hour 13: never passes the 6 hour minimum.
   const gamer = holding(GAMER, 8, 16, (hour) => (hour >= 10 && hour <= 13 ? 1_000_000 : 0));
-  // Holds from hour 10 to hour 16: 6 hours, credited in full.
-  const carol = holding(CAROL, 8, 20, (hour) => (hour >= 10 && hour <= 16 ? 50 : 0));
-  const result = computeShareSeconds([...gamer, ...carol], [], DAY_WINDOW);
-  assert.deepEqual(result.eligible, [{ address: CAROL, shareSeconds: BigInt(50 * 6 * 3600) }]);
+  // Holds exactly 6 hours (10 to 16): all of it is warm-up.
+  const brief = holding(BOB, 8, 20, (hour) => (hour >= 10 && hour <= 16 ? 1_000_000 : 0));
+  // Holds from hour 10 to hour 20: earns the 4 hours after its warm-up (16 to 20).
+  const carol = holding(CAROL, 8, 24, (hour) => (hour >= 10 && hour <= 20 ? 50 : 0));
+  const result = computeShareSeconds([...gamer, ...brief, ...carol], [], DAY_WINDOW);
+  assert.deepEqual(result.eligible, [{ address: CAROL, shareSeconds: BigInt(50 * 4 * 3600) }]);
   assert.equal(result.warmingUp.size, 0);
 });
 
-test("removals between snapshots reduce the interval, an add is only credited from the next interval", () => {
-  const snapshots = holding(ALICE, 0, 24, (hour) => (hour < 5 ? 100 : hour < 12 ? 40 : 90));
+test("removals cut the credit at once, an add earns only after it has been held the minimum hold", () => {
+  const snapshots = holding(ALICE, -10, 24, (hour) => (hour < 5 ? 100 : hour < 12 ? 40 : 90));
   const removals: RewardRemoval[] = [{ address: ALICE, height: snapHeight(4) + 100, lpAmount: "60" }];
   const result = computeShareSeconds(snapshots, removals, DAY_WINDOW);
-  // Hours 0-4: 100; hour 4-5: removal inside, 40; hours 5-12: 40; hour 11-12 add arrives, 40; hours 12-24: 90.
-  const expected = (100 * 4 + 40 * 8 + 90 * 12) * 3600;
+  // Hours 0-4: 100. From the removal (hour 4-5) the trailing window holds 40, until hour 18,
+  // when the 50 added in hour 11-12 (held from hour 12) has itself been held 6 hours: 90 from then on.
+  const expected = (100 * 4 + 40 * 14 + 90 * 6) * 3600;
   assert.equal(result.eligible[0].shareSeconds, BigInt(expected));
 });
 
-test("a removal without an LP amount zeroes its interval and ends the streak", () => {
-  const snapshots = holding(ALICE, 0, 24, (hour) => (hour < 10 ? 100 : 60));
+test("a removal without an LP amount zeroes its interval and restarts the minimum hold", () => {
+  const snapshots = holding(ALICE, -10, 24, (hour) => (hour < 10 ? 100 : 60));
   const removals: RewardRemoval[] = [{ address: ALICE, height: snapHeight(9) + 50, lpAmount: null }];
   const result = computeShareSeconds(snapshots, removals, DAY_WINDOW);
-  // Hours 0-9 (9 hours) at 100, hour 9-10 nothing, hours 10-24 (14 hours) at 60: both streaks pass the minimum.
-  assert.equal(result.eligible[0].shareSeconds, BigInt((100 * 9 + 60 * 14) * 3600));
+  // Hours 0-9 at 100, hour 9-10 nothing, hours 10-16 warm-up again, hours 16-24 at 60.
+  assert.equal(result.eligible[0].shareSeconds, BigInt((100 * 9 + 60 * 8) * 3600));
 });
 
-test("credit is clipped to the epoch window, a streak started before the epoch counts from its start", () => {
-  // Held from 3 hours before the epoch: only 3 of its hours fall before the start, the 6 hour minimum is reached inside.
-  const early = holding(ALICE, -3, 30, () => 10);
-  const result = computeShareSeconds(early, [], DAY_WINDOW);
-  assert.equal(result.eligible[0].shareSeconds, BigInt(10 * 24 * 3600));
+test("credit is clipped to the epoch window, warm-up before the start counts toward the minimum hold", () => {
+  // Held from 6 hours before the epoch: the warm-up is over at the start, the whole day earns.
+  const early = computeShareSeconds(holding(ALICE, -6, 30, () => 10), [], DAY_WINDOW);
+  assert.equal(early.eligible[0].shareSeconds, BigInt(10 * 24 * 3600));
+  // Held from 3 hours before: the first 3 hours of the epoch are still warm-up.
+  const late = computeShareSeconds(holding(ALICE, -3, 30, () => 10), [], DAY_WINDOW);
+  assert.equal(late.eligible[0].shareSeconds, BigInt(10 * 21 * 3600));
 });
 
 test("a snapshot gap is credited for at most the longest gap", () => {
-  const snapshots = [hourAt(0), hourAt(1), hourAt(11), hourAt(12), hourAt(13), hourAt(14)].map((ms) => ({ address: ALICE, hourMs: ms, height: heightAt(ms) + 12, lpBalance: "10" }));
+  const hours = [-10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 11, 12, 13, 14];
+  const snapshots = hours.map((hour) => ({ address: ALICE, hourMs: hourAt(hour), height: snapHeight(hour), lpBalance: "10" }));
   const result = computeShareSeconds(snapshots, [], DAY_WINDOW);
   // 1 + 3 (capped from 10) + 1 + 1 + 1 = 7 hours.
   assert.equal(result.eligible[0].shareSeconds, BigInt(10 * 7 * 3600));
 });
 
-test("an open streak below the minimum hold is reported as warming up", () => {
+test("holding with nothing past the minimum hold yet is reported as warming up", () => {
   const snapshots = holding(BOB, 18, 22, () => 5);
   const result = computeShareSeconds(snapshots, [], DAY_WINDOW);
   assert.deepEqual(result.eligible, []);
   assert.equal(result.warmingUp.get(BOB), 4);
+});
+
+/** Reads the data the way finalize does: from lookback hours before the start to maxGap hours after the end. */
+function finalizeEpoch(all: RewardSnapshot[], startHour: number, endHour: number) {
+  const lookback = 6 + 3 + 24;
+  const visible = all.filter((entry) => entry.hourMs >= hourAt(startHour - lookback) && entry.hourMs <= hourAt(endHour + 3));
+  return computeShareSeconds(visible, [], { ...DAY_WINDOW, startMs: hourAt(startHour), endMs: hourAt(endHour) });
+}
+
+test("QA: liquidity added near an epoch end loses no credit across the boundary", () => {
+  // Added 2 hours before the end of epoch 1 and held 12 hours: 6 hours of warm-up, then 6 hours earned in epoch 2.
+  const lateAdd = holding(ALICE, 20, 40, (hour) => (hour >= 22 && hour <= 34 ? 10 : 0));
+  const first = finalizeEpoch(lateAdd, 0, 24);
+  const second = finalizeEpoch(lateAdd, 24, 48);
+  assert.deepEqual(first.eligible, []);
+  assert.equal(second.eligible[0].shareSeconds, BigInt(10 * 6 * 3600));
+
+  // Added 8 hours before the end: 2 hours earned in epoch 1, 4 in epoch 2, the same 6 hours in total.
+  const earlier = holding(BOB, 14, 40, (hour) => (hour >= 16 && hour <= 28 ? 10 : 0));
+  const a = finalizeEpoch(earlier, 0, 24).eligible[0].shareSeconds;
+  const b = finalizeEpoch(earlier, 24, 48).eligible[0].shareSeconds;
+  assert.equal(a, BigInt(10 * 2 * 3600));
+  assert.equal(b, BigInt(10 * 4 * 3600));
+  // Splitting into epochs never changes the total.
+  const whole = computeShareSeconds(earlier, [], { ...DAY_WINDOW, startMs: hourAt(0), endMs: hourAt(48) });
+  assert.equal(a + b, whole.eligible[0].shareSeconds);
+});
+
+test("QA: a small primer position does not let a large deposit skip the minimum hold", () => {
+  // 1 unit held all along; 1M added before hour 10, held across one snapshot hour, removed in hour 11-12.
+  const primed = holding(GAMER, -10, 24, (hour) => (hour === 10 || hour === 11 ? 1_000_001 : 1));
+  const removals: RewardRemoval[] = [{ address: GAMER, height: snapHeight(11) + 30, lpAmount: "1000000" }];
+  const honest = holding(BOB, -10, 24, () => 1_000_000);
+  const result = computeShareSeconds([...primed, ...honest], removals, DAY_WINDOW);
+  assert.deepEqual(result.eligible, [
+    { address: BOB, shareSeconds: BigInt(1_000_000 * 24 * 3600) },
+    { address: GAMER, shareSeconds: BigInt(1 * 24 * 3600) },
+  ]);
 });
 
 test("allocation floors every amount and reports the dust", () => {
@@ -269,4 +313,14 @@ test("stage JSON carries what register_stage needs: start and end are the claim 
   });
   assert.deepEqual(claimWindow({ claimDays: 2 }, window), { startMs: window.endMs, endMs: window.endMs + 2 * 86_400_000 });
   assert.ok(json.label.length <= 128);
+});
+
+test("the stage label is cut to the contract's 128 UTF-8 bytes without splitting a character", () => {
+  const base = JSON.parse(PROGRAM_JSON)[0];
+  const program = loadRewardsConfig({ QWAKK_REWARDS_PROGRAMS: JSON.stringify([{ ...base, label: "ü".repeat(80) }]) }).config.programs[0] as RewardProgram;
+  const label = stageJson({ stageId: BigInt(1), root: vector.root, total: BigInt(1), program, window: epochWindow(program, 1) }).label;
+  assert.ok(Buffer.byteLength(label, "utf8") <= 128);
+  assert.equal(label, "ü".repeat(64));
+  assert.equal(truncateUtf8("aü", 2), "a");
+  assert.equal(truncateUtf8("🦆🦆", 7), "🦆");
 });

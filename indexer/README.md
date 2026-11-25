@@ -282,7 +282,12 @@ How an epoch is computed (`rewards-math.ts`, pure and deterministic):
   whole interval is the earlier balance minus everything removed in between,
   capped by the later balance, as in the points program. Adds count from the
   next interval. A gap is credited for at most `QWAKK_REWARDS_MAX_GAP_HOURS`.
-- A holding streak shorter than `QWAKK_REWARDS_MIN_HOLD_HOURS` earns nothing.
+- Minimum hold: each interval is credited with the smallest amount held over
+  the trailing `QWAKK_REWARDS_MIN_HOLD_HOURS` before it, so every LP unit earns
+  only after it has itself been held that long. Adding to a small long-held
+  position earns nothing extra until the new units have waited too, and the
+  warm-up hours never earn in any epoch. An epoch reads snapshots from
+  `minHold + maxGap + 24` hours before its start, so the window is covered.
 - Share-seconds: LP units held times seconds of credited time inside
   [start, end). Excluded addresses are left out of the total, so they do not
   dilute anyone.

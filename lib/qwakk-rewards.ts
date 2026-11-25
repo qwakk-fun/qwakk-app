@@ -104,7 +104,7 @@ export type QwakkRewardAccrual = {
   sharePpm: string;
   /** Epoch budget split by the shares so far. An estimate until the epoch is finalized. */
   estimatedAmount: string;
-  /** Hours held in the current streak while it is shorter than the minimum hold. */
+  /** Hours held so far while nothing has passed the minimum hold yet. */
   warmingUpHours: number | null;
   minHoldHours: number;
   computedAt: string;

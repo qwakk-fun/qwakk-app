@@ -7,14 +7,22 @@
  * the pool's liquidity removal events. LP shares cannot be transferred, so an
  * address's balance only changes through its own adds and removals.
  *
- * Holding rule, the same as the points program's liquidity category: between
- * two consecutive snapshots of one position, the amount held through the whole
- * interval is the earlier balance minus everything removed in between, capped
- * by the later balance. Adds in between are not credited until the next
- * interval, and a removal without a readable LP amount counts as a full
- * removal. A gap longer than `maxGapHours` is credited for `maxGapHours` only.
- * Consecutive held intervals form a streak; a streak shorter than
- * `minHoldHours` earns nothing, so add-then-remove gaming earns nothing.
+ * Holding rule: between two consecutive snapshots of one position, the
+ * amount held through the whole interval is the earlier balance minus
+ * everything removed in between, capped by the later balance (as in the
+ * points program). Adds in between are not held until the next interval, and
+ * a removal without a readable LP amount counts as a full removal. A gap
+ * longer than `maxGapHours` is credited for its last `maxGapHours` only.
+ *
+ * Minimum hold: an interval is credited with the smallest amount held over
+ * the trailing window that starts `minHoldHours` before the credited time and
+ * ends with the interval. So every LP unit earns only once it has itself been
+ * held `minHoldHours`: a large deposit next to a small long-held position
+ * earns nothing extra until it has waited too, add-then-remove gaming earns
+ * nothing, and the warm-up hours never earn in any epoch (they are not lost
+ * or gained by when an epoch is finalized). A window that reaches before the
+ * address's first snapshot in the data is not covered and earns nothing, so
+ * callers read at least `minHoldHours + maxGapHours` before the epoch start.
  *
  * Share-seconds = LP units held x seconds of the credited interval inside the
  * epoch window [start, end). All LP units belong to the same pool, so they are
@@ -57,9 +65,9 @@ export type ShareComputation = {
   /** Share-seconds of excluded addresses, reported only. */
   excludedShareSeconds: bigint;
   /**
-   * Eligible addresses whose latest streak is still open at the end of the
-   * data and shorter than the minimum hold, with its hours so far. Only
-   * meaningful for an epoch that is still running.
+   * Eligible addresses holding LP at the end of the data with nothing
+   * credited yet (still inside the minimum hold), with the hours held so far.
+   * Only meaningful for an epoch that is still running.
    */
   warmingUp: Map<string, number>;
 };
@@ -95,34 +103,19 @@ export function computeShareSeconds(snapshots: RewardSnapshot[], removals: Rewar
     pushTo(positions, address, snapshot);
   }
 
+  const minHoldMs = params.minHoldHours * HOUR_MS;
   const shares = new Map<string, bigint>();
   const warmingUp = new Map<string, number>();
   for (const [address, list] of [...positions].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     list.sort((a, b) => a.hourMs - b.hourMs || a.height - b.height);
     const positionRemovals = removalsBy.get(address) ?? [];
-    let streak: Array<{ endMs: number; hours: number; held: bigint }> = [];
-    let streakHours = 0;
-    let total = ZERO;
 
-    const closeStreak = (open: boolean) => {
-      if (streakHours >= params.minHoldHours) {
-        for (const interval of streak) {
-          const from = Math.max(interval.endMs - interval.hours * HOUR_MS, params.startMs);
-          const to = Math.min(interval.endMs, params.endMs);
-          if (to > from) total += interval.held * BigInt(Math.floor((to - from) / 1000));
-        }
-      } else if (open && streakHours > 0) {
-        warmingUp.set(address, streakHours);
-      }
-      streak = [];
-      streakHours = 0;
-    };
-
+    // Contiguous intervals between consecutive snapshots, with the amount held through each.
+    const intervals: Array<{ startMs: number; endMs: number; held: bigint }> = [];
     for (let index = 1; index < list.length; index += 1) {
       const previous = list[index - 1];
       const current = list[index];
-      const spanHours = Math.floor((current.hourMs - previous.hourMs) / HOUR_MS);
-      if (spanHours <= 0) continue;
+      if (current.hourMs <= previous.hourMs) continue;
       let removed = ZERO;
       let fullRemoval = false;
       for (const removal of positionRemovals) {
@@ -133,15 +126,39 @@ export function computeShareSeconds(snapshots: RewardSnapshot[], removals: Rewar
       const afterRemovals = big(previous.lpBalance) - removed;
       const later = big(current.lpBalance);
       const held = fullRemoval || afterRemovals <= ZERO ? ZERO : afterRemovals < later ? afterRemovals : later;
-      if (held === ZERO) {
-        closeStreak(false);
-        continue;
-      }
-      const hours = Math.min(spanHours, params.maxGapHours);
-      streak.push({ endMs: current.hourMs, hours, held });
-      streakHours += hours;
+      intervals.push({ startMs: previous.hourMs, endMs: current.hourMs, held });
     }
-    closeStreak(true);
+    if (!intervals.length) continue;
+    const coveredFrom = intervals[0].startMs;
+
+    let total = ZERO;
+    let lastCredited = ZERO;
+    for (let index = 0; index < intervals.length; index += 1) {
+      const interval = intervals[index];
+      const spanHours = Math.floor((interval.endMs - interval.startMs) / HOUR_MS);
+      const creditedStart = interval.endMs - Math.min(spanHours, params.maxGapHours) * HOUR_MS;
+      const windowStart = creditedStart - minHoldMs;
+      let credited = ZERO;
+      if (interval.held > ZERO && windowStart >= coveredFrom) {
+        credited = interval.held;
+        for (let back = index - 1; back >= 0 && intervals[back].endMs > windowStart && credited > ZERO; back -= 1) {
+          if (intervals[back].held < credited) credited = intervals[back].held;
+        }
+      }
+      lastCredited = credited;
+      if (credited === ZERO) continue;
+      const from = Math.max(creditedStart, params.startMs);
+      const to = Math.min(interval.endMs, params.endMs);
+      if (to > from) total += credited * BigInt(Math.floor((to - from) / 1000));
+    }
+
+    // Still waiting: holding at the end of the data, but nothing credited yet.
+    const last = intervals[intervals.length - 1];
+    if (last.held > ZERO && lastCredited === ZERO) {
+      let heldSinceMs = last.startMs;
+      for (let back = intervals.length - 2; back >= 0 && intervals[back].held > ZERO; back -= 1) heldSinceMs = intervals[back].startMs;
+      warmingUp.set(address, Math.floor((last.endMs - heldSinceMs) / HOUR_MS));
+    }
     if (total > ZERO) shares.set(address, total);
   }
 
