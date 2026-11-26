@@ -27,6 +27,19 @@ export const SIMULATION_FAILURE_COPY = {
   rewards_paused: "Claims for these rewards are paused right now.",
   rewards_exhausted: "This reward round has nothing left to pay out.",
   rewards_unavailable: "These rewards are not available on QoreChain Diana.",
+  send_recipient_blocked: "This address cannot receive tokens on QoreChain Diana. Check the address and try again.",
+  send_disabled: "Transfers of this token are switched off on QoreChain Diana right now.",
+} as const;
+
+/**
+ * Why `/api/native-tx/prepare` refused a token send before simulation. Every
+ * line is fixed copy; the address, amount and denom are never echoed back.
+ */
+export const SEND_COPY = {
+  invalid_recipient: "Enter a valid QoreChain address that starts with qor1.",
+  self_send: "That is your own wallet. Enter another address.",
+  invalid_amount: "Enter an amount above zero.",
+  invalid_denom: "This token cannot be sent from Qwakk.",
 } as const;
 
 /** Why a swap quote could not be produced. */
@@ -317,6 +330,8 @@ export function chainFailureCopy(codespace: string, code: number) {
   if (codespace === "amm" && code === 17) return SIMULATION_FAILURE_COPY.pool_limit;
   // wasmd x/wasm ErrExecuteFailed: only rewards claims send contract messages.
   if (codespace === "wasm" && code === 5) return "The rewards contract did not accept this claim. Refresh your rewards and try again.";
+  // Cosmos SDK x/bank ErrSendDisabled.
+  if (codespace === "bank" && code === 5) return SIMULATION_FAILURE_COPY.send_disabled;
   if (codespace === "sdk" && code === 5) return SIMULATION_FAILURE_COPY.insufficient_funds;
   if (codespace === "sdk" && code === 13) return "The network fee was too low. Try again.";
   if (codespace === "sdk" && code === 32) return "Another transaction from this wallet is pending. Try again in a moment.";

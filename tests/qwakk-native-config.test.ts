@@ -152,20 +152,20 @@ test("an invalid treasury disables the fee, a missing one disables it quietly", 
 
 test("QWAKK_NATIVE_ACTIONS is off by default and enabled means every action", () => {
   for (const off of [undefined, "", "off", "false", "disabled"]) {
-    assert.deepEqual(parseNativeActionSwitches(off).actions, { swap: false, add_liquidity: false, remove_liquidity: false, create_pool: false, rewards_claim: false });
+    assert.deepEqual(parseNativeActionSwitches(off).actions, { swap: false, add_liquidity: false, remove_liquidity: false, create_pool: false, rewards_claim: false, send: false });
   }
   for (const on of ["enabled", "true", "all", " Enabled "]) {
-    // rewards_claim must be named; "enabled" (live on app.qwakk.fun) never opens it.
-    assert.deepEqual(parseNativeActionSwitches(on).actions, { swap: true, add_liquidity: true, remove_liquidity: true, create_pool: true, rewards_claim: false });
+    // rewards_claim and send must be named; "enabled" (live on app.qwakk.fun) never opens them.
+    assert.deepEqual(parseNativeActionSwitches(on).actions, { swap: true, add_liquidity: true, remove_liquidity: true, create_pool: true, rewards_claim: false, send: false });
   }
 });
 
 test("a comma list turns on only the named actions and ignores unknown ones", () => {
-  assert.deepEqual(parseNativeActionSwitches("swap").actions, { swap: true, add_liquidity: false, remove_liquidity: false, create_pool: false, rewards_claim: false });
-  assert.deepEqual(parseNativeActionSwitches("swap, liquidity").actions, { swap: true, add_liquidity: true, remove_liquidity: true, create_pool: false, rewards_claim: false });
-  assert.deepEqual(parseNativeActionSwitches("remove_liquidity").actions, { swap: false, add_liquidity: false, remove_liquidity: true, create_pool: false, rewards_claim: false });
+  assert.deepEqual(parseNativeActionSwitches("swap").actions, { swap: true, add_liquidity: false, remove_liquidity: false, create_pool: false, rewards_claim: false, send: false });
+  assert.deepEqual(parseNativeActionSwitches("swap, liquidity").actions, { swap: true, add_liquidity: true, remove_liquidity: true, create_pool: false, rewards_claim: false, send: false });
+  assert.deepEqual(parseNativeActionSwitches("remove_liquidity").actions, { swap: false, add_liquidity: false, remove_liquidity: true, create_pool: false, rewards_claim: false, send: false });
   const typo = parseNativeActionSwitches("swpa,create_pool");
-  assert.deepEqual(typo.actions, { swap: false, add_liquidity: false, remove_liquidity: false, create_pool: true, rewards_claim: false });
+  assert.deepEqual(typo.actions, { swap: false, add_liquidity: false, remove_liquidity: false, create_pool: true, rewards_claim: false, send: false });
   assert.equal(typo.warnings.length, 1);
   // "enabled" inside a list is not a wildcard.
   assert.equal(parseNativeActionSwitches("enabled,swap").actions.create_pool, false);

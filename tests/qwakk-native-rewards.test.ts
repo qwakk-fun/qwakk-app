@@ -209,5 +209,5 @@ test("rewards_claim is its own action switch and never part of enabled", () => {
   assert.equal(parseNativeActionSwitches("rewards_claim").actions.swap, false);
   assert.equal(parseNativeActionSwitches("enabled").actions.rewards_claim, false);
   assert.equal(parseNativeActionSwitches("all").actions.rewards_claim, false);
-  assert.deepEqual(parseNativeActionSwitches("swap,liquidity,create_pool,rewards_claim").actions, { swap: true, add_liquidity: true, remove_liquidity: true, create_pool: true, rewards_claim: true });
+  assert.deepEqual(parseNativeActionSwitches("swap,liquidity,create_pool,rewards_claim").actions, { swap: true, add_liquidity: true, remove_liquidity: true, create_pool: true, rewards_claim: true, send: false });
 });

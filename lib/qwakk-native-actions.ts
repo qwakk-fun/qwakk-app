@@ -6,6 +6,7 @@ import type { Any } from "cosmjs-types/google/protobuf/any";
 import type { ServerQwakkFeeConfig } from "@/lib/qwakk-fee-config";
 import { buildLiquidityRoute } from "@/lib/qwakk-liquidity-route";
 import { REWARDS_CLAIM_KIND, buildRewardsClaimMessage, parseRewardsClaimAction, type RewardsClaimAction } from "@/lib/qwakk-native-rewards";
+import { SEND_KIND, buildSendMessage, isAllowedSend, parseSendAction, type SendAction } from "@/lib/qwakk-native-send";
 import { encodeAsAny, isAllowedMessageSet } from "@/lib/qwakk-native-tx";
 import { buildCreatePoolPlan } from "@/lib/qwakk-pool-route";
 import { buildQwakkExactOutSwapRoute, buildQwakkSwapRoute } from "@/lib/qwakk-swap-route";
@@ -29,9 +30,13 @@ export type NativeAction =
   | { kind: "create_pool"; poolType: "constant_product" | "stable_swap"; denomA: string; amountA: string; denomB: string; amountB: string; amplificationCoefficient?: number }
   | { kind: "add_liquidity"; poolId: string; denomA: string; amountA: string; denomB: string; amountB: string; minLpOut: string }
   | { kind: "remove_liquidity"; poolId: string; lpAmount: string; minAmountA: string; minAmountB: string }
-  | RewardsClaimAction;
+  | RewardsClaimAction
+  | SendAction;
 
-export const NATIVE_ACTION_KINDS = ["swap", "create_pool", "add_liquidity", "remove_liquidity", REWARDS_CLAIM_KIND] as const;
+// Browser code imports these from lib/qwakk-send-action.ts, which has no SDK imports.
+export { SEND_KIND, sendAction, type SendAction } from "@/lib/qwakk-send-action";
+
+export const NATIVE_ACTION_KINDS = ["swap", "create_pool", "add_liquidity", "remove_liquidity", REWARDS_CLAIM_KIND, SEND_KIND] as const;
 
 function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -63,6 +68,8 @@ export function parseNativeAction(value: unknown): NativeAction {
     case REWARDS_CLAIM_KIND:
     case "rewards-claim":
       return parseRewardsClaimAction(input);
+    case SEND_KIND:
+      return parseSendAction(input);
     default:
       throw new Error("Choose a supported action");
   }
@@ -129,6 +136,9 @@ export function messagesForAction(sender: string, action: NativeAction, fee: Ser
     case REWARDS_CLAIM_KIND:
       // A contract message is not in the SDK registry; encodedMessagesForAction builds it.
       throw new Error("Rewards claims are built by encodedMessagesForAction");
+    case SEND_KIND:
+      // Not an AMM message: encodedMessagesForAction builds and checks it on its own path.
+      throw new Error("Sends are built by encodedMessagesForAction");
   }
 }
 
@@ -137,13 +147,18 @@ export function messagesForAction(sender: string, action: NativeAction, fee: Ser
  * sender is always the connected address, and only native AMM messages plus the
  * disclosed treasury fee transfer can leave the server, or a single rewards
  * claim to the configured rewards contract (`rewardsContract`; null keeps
- * claims off).
+ * claims off), or a single token send from the sender (no interface fee).
  */
 export function encodedMessagesForAction(sender: string, action: NativeAction, fee: ServerQwakkFeeConfig, rewardsContract: string | null = null): Any[] {
   if (action.kind === REWARDS_CLAIM_KIND) {
     if (!rewardsContract) throw new Error("Rewards claims are not available right now");
     const encoded = [buildRewardsClaimMessage({ sender, contract: rewardsContract, stageId: action.stageId, amount: action.amount, proof: action.proof })];
     if (!isAllowedMessageSet(encoded, sender, undefined, rewardsContract)) throw new Error("Only native AMM transactions can be prepared here");
+    return encoded;
+  }
+  if (action.kind === SEND_KIND) {
+    const encoded = encodeAsAny([buildSendMessage(sender, action)]);
+    if (!isAllowedSend(encoded, sender, action)) throw new Error("Only native AMM transactions can be prepared here");
     return encoded;
   }
   const encoded = encodeAsAny(messagesForAction(sender, action, fee));
@@ -153,12 +168,16 @@ export function encodedMessagesForAction(sender: string, action: NativeAction, f
   return encoded;
 }
 
+const SWAP_MESSAGE_TYPES = new Set(["/qorechain.amm.v1.MsgSwapExactIn", "/qorechain.amm.v1.MsgSwapExactOut"]);
+
 /**
  * The interface fee carried by an allowed message set, read back from the
  * encoded transfer itself so the disclosed amount is exactly what QoreX signs.
- * Null when the set carries no fee transfer.
+ * Only a swap carries one, so a set without a swap message (a token send is a
+ * lone MsgSend) reports null. Null when the set carries no fee transfer.
  */
 export function interfaceFeeInMessages(encoded: readonly Any[]): { denom: string; amount: string } | null {
+  if (!encoded.some((message) => SWAP_MESSAGE_TYPES.has(message.typeUrl))) return null;
   const transfer = encoded.find((message) => message.typeUrl === "/cosmos.bank.v1beta1.MsgSend");
   if (!transfer) return null;
   const [coin] = MsgSend.decode(transfer.value).amount;

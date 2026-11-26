@@ -11,10 +11,11 @@ import type { QoreXMessage } from "@/lib/qorex-native";
 
 /**
  * Qwakk only ever asks QoreX to sign native AMM messages, plus the disclosed
- * interface fee transfer next to a swap, plus one narrow exception: a single
+ * interface fee transfer next to a swap, plus two narrow exceptions: a single
  * rewards claim to the configured qwakk-rewards contract
- * (lib/qwakk-native-rewards.ts). Anything else is refused before it reaches
- * the wallet.
+ * (lib/qwakk-native-rewards.ts), and a single token send checked by its own
+ * allow-list (`isAllowedSend`, lib/qwakk-native-send.ts), never by this one.
+ * Anything else is refused before it reaches the wallet.
  */
 export const NATIVE_AMM_MESSAGE_TYPES = new Set([
   "/qorechain.amm.v1.MsgCreatePool",
@@ -186,6 +187,8 @@ export type SimulationFailure =
   | "rewards_paused"
   | "rewards_exhausted"
   | "rewards_unavailable"
+  | "send_recipient_blocked"
+  | "send_disabled"
   | "network_fee"
   | "pool_creation_fee"
   | "pool_not_found"
@@ -223,6 +226,9 @@ export function classifySimulationError(message: string): SimulationFailure {
   if (text.includes("insufficient liquidity")) return "insufficient_liquidity";
   if (text.includes("below minimum liquidity")) return "below_min_liquidity";
   if (text.includes("reached max pools")) return "pool_limit";
+  // Cosmos SDK x/bank: a module account in the blocked list, and a denom with sending switched off.
+  if (text.includes("not allowed to receive funds")) return "send_recipient_blocked";
+  if (text.includes("transfers are currently disabled") || text.includes("send transactions are disabled")) return "send_disabled";
   return "rejected";
 }
 

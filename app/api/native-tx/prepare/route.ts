@@ -6,6 +6,7 @@ import { alignDepositToPool } from "@/lib/qwakk-liquidity-route";
 import { encodedMessagesForAction, exactOutQuoteCheck, interfaceFeeInMessages, parseNativeAction, type NativeAction } from "@/lib/qwakk-native-actions";
 import { REWARDS_CLAIM_KIND, rewardsClaimContract } from "@/lib/qwakk-native-rewards";
 import { isBlocked, nativeBlocklist } from "@/lib/qwakk-native-guards";
+import { SEND_KIND, checkSend, heldDenom } from "@/lib/qwakk-native-send";
 import { prepareWalletTx, type SimulationFailure } from "@/lib/qwakk-native-tx";
 import { getQwakkNetwork, requiresChainQuote } from "@/lib/qwakk-network";
 import { createPoolPrecheck } from "@/lib/qwakk-pool-route";
@@ -56,10 +57,23 @@ function chainQuoteFailure(quote: ChainQuote | ChainExactOutQuote): PrecheckFail
  * simulated, so the common reasons are explained precisely. Returns the action
  * to build (deposits put in pool order) or a fixed failure.
  */
-async function precheck(action: NativeAction, fee: ServerQwakkFeeConfig): Promise<{ action: NativeAction } | { failure: PrecheckFailure }> {
+async function precheck(address: string, action: NativeAction, fee: ServerQwakkFeeConfig): Promise<{ action: NativeAction } | { failure: PrecheckFailure }> {
   // A rewards claim touches no pool: the contract itself checks it in simulation.
   if (action.kind === REWARDS_CLAIM_KIND) return { action };
   const blocklist = nativeBlocklist();
+  if (action.kind === SEND_KIND) {
+    // Input the builder rejects is rejected again, with a 400, below.
+    try {
+      checkSend(address, action);
+    } catch {
+      return { action };
+    }
+    if (isBlocked(blocklist, { denoms: [action.denom] })) return { failure: "blocked" };
+    // Send the denom exactly as the chain spells it in this wallet's balance.
+    const denom = heldDenom(await readBalances(address), action.denom);
+    if (!denom) return { failure: "insufficient_funds" };
+    return { action: { ...action, denom } };
+  }
   if (action.kind === "create_pool" && isBlocked(blocklist, { denoms: [action.denomA, action.denomB] })) return { failure: "blocked" };
   if (action.kind !== "create_pool" && isBlocked(blocklist, { poolId: action.poolId, denoms: [] })) return { failure: "blocked" };
 
@@ -140,6 +154,12 @@ async function precheck(action: NativeAction, fee: ServerQwakkFeeConfig): Promis
  * `QWAKK_REWARDS_CONTRACT_ADDRESS`, builds exactly one MsgExecuteContract
  * `claim` with no funds to that contract, and is checked by the contract in
  * simulation (refusals map to the `rewards_*` copy).
+ *
+ * A token send (`{ kind: "send", toAddress, denom, amount }`, lib/qwakk-native-send.ts)
+ * needs its own `send` switch and builds exactly one MsgSend of one coin
+ * (`uqor` or `erc20:0x…`) from the connected address to another `qor1`
+ * account, with no interface fee (`interfaceFee` is null). The denom is sent
+ * exactly as this wallet's balance spells it.
  */
 export async function POST(request: Request) {
   if (!nativeActionsEnabled()) return json({ error: "Not found" }, 404);
@@ -169,7 +189,7 @@ export async function POST(request: Request) {
 
   const fee = getServerQwakkFeeConfig();
   try {
-    const checked = await precheck(action, fee);
+    const checked = await precheck(address, action, fee);
     if ("failure" in checked) return refused(checked.failure);
     action = checked.action;
   } catch {

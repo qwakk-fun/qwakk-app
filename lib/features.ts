@@ -4,29 +4,32 @@
  * `QWAKK_NATIVE_ACTIONS` is read per request, so CapRover can change it without
  * a rebuild:
  * - unset, empty or `off`: every wallet action is off (the default);
- * - `enabled`, `true` or `all`: every trading action is on (not `rewards_claim`);
+ * - `enabled`, `true` or `all`: every trading action is on (not `rewards_claim`
+ *   or `send`);
  * - a comma list of `swap`, `liquidity` (both add and remove),
- *   `add_liquidity`, `remove_liquidity`, `create_pool` and `rewards_claim`:
- *   only those are on.
+ *   `add_liquidity`, `remove_liquidity`, `create_pool`, `rewards_claim` and
+ *   `send`: only those are on.
  *
- * `rewards_claim` is only ever on when listed by name, so the live
- * `enabled` setting never opens claims before they are verified with QoreX.
- * It also needs `QWAKK_REWARDS_CONTRACT_ADDRESS` (lib/qwakk-native-rewards.ts).
+ * `rewards_claim` and `send` are only ever on when listed by name, so the live
+ * `enabled` setting never opens them before they are verified with QoreX.
+ * `rewards_claim` also needs `QWAKK_REWARDS_CONTRACT_ADDRESS`
+ * (lib/qwakk-native-rewards.ts). `send` is a plain token transfer
+ * (lib/qwakk-native-send.ts).
  *   Unknown entries are ignored with a warning, never treated as "all".
  */
 
-export const NATIVE_ACTION_SWITCHES = ["swap", "add_liquidity", "remove_liquidity", "create_pool", "rewards_claim"] as const;
+export const NATIVE_ACTION_SWITCHES = ["swap", "add_liquidity", "remove_liquidity", "create_pool", "rewards_claim", "send"] as const;
 export type NativeActionSwitch = (typeof NATIVE_ACTION_SWITCHES)[number];
 export type NativeActionSwitches = Record<NativeActionSwitch, boolean>;
 
 /** Switches that `enabled` / `all` do not turn on: they must be listed by name. */
-const EXPLICIT_ONLY: ReadonlySet<NativeActionSwitch> = new Set(["rewards_claim"]);
+const EXPLICIT_ONLY: ReadonlySet<NativeActionSwitch> = new Set(["rewards_claim", "send"]);
 
 const ALL_ON = new Set(["enabled", "true", "all"]);
 const ALL_OFF = new Set(["", "off", "false", "disabled", "none"]);
 
 export function parseNativeActionSwitches(value: string | undefined): { actions: NativeActionSwitches; warnings: string[] } {
-  const actions: NativeActionSwitches = { swap: false, add_liquidity: false, remove_liquidity: false, create_pool: false, rewards_claim: false };
+  const actions: NativeActionSwitches = { swap: false, add_liquidity: false, remove_liquidity: false, create_pool: false, rewards_claim: false, send: false };
   const warnings: string[] = [];
   const text = value?.trim().toLowerCase() ?? "";
   if (ALL_OFF.has(text)) return { actions, warnings };

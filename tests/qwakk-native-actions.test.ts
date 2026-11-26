@@ -43,7 +43,8 @@ test("never builds a swap without a minimum output", () => {
 });
 
 test("rejects unknown actions and same-token swaps", () => {
-  assert.throws(() => parseNativeAction({ kind: "send" }), /supported action/);
+  assert.throws(() => parseNativeAction({ kind: "delegate" }), /supported action/);
+  assert.throws(() => parseNativeAction({ kind: "multi_send" }), /supported action/);
   assert.throws(() => messagesForAction(sender, { ...swap, denomOut: "uqor" } as typeof swap, noFee), /different/);
   assert.throws(() => messagesForAction(sender, parseNativeAction({ kind: "create_pool", poolType: "stable_swap", denomA: "uqor", amountA: "1", denomB: "utest", amountB: "1", amplificationCoefficient: 6000 }), noFee), /amplification/);
 });

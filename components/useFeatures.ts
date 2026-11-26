@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { PublicQwakkNetwork } from "../lib/qwakk-network";
 import { setAssetNetwork } from "../lib/qwakk-assets";
 
-export type FeatureActions = { swap: boolean; add_liquidity: boolean; remove_liquidity: boolean; create_pool: boolean; rewards_claim: boolean };
+export type FeatureActions = { swap: boolean; add_liquidity: boolean; remove_liquidity: boolean; create_pool: boolean; rewards_claim: boolean; send: boolean };
 export type Features = {
   /** True when at least one wallet action is on. */
   nativeActions: boolean;
@@ -20,7 +20,7 @@ export type Features = {
   network: PublicQwakkNetwork | null;
 };
 
-const ACTIONS_OFF: FeatureActions = { swap: false, add_liquidity: false, remove_liquidity: false, create_pool: false, rewards_claim: false };
+const ACTIONS_OFF: FeatureActions = { swap: false, add_liquidity: false, remove_liquidity: false, create_pool: false, rewards_claim: false, send: false };
 export const FEATURES_OFF: Features = { nativeActions: false, actions: ACTIONS_OFF, points: false, rewards: false, network: null };
 
 /** Switches can change in CapRover at runtime, so a loaded answer is reused for one minute only. */
@@ -43,6 +43,7 @@ function parseFeatures(data: unknown): Features {
     remove_liquidity: raw.remove_liquidity === true,
     create_pool: raw.create_pool === true,
     rewards_claim: raw.rewards_claim === true,
+    send: raw.send === true,
   };
   return {
     nativeActions: Object.values(actions).some(Boolean),

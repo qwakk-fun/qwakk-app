@@ -60,8 +60,16 @@ How it works:
   `signAndBroadcast` (QoreX 0.3.5 or newer). QoreX asks the user to approve,
   adds its post-quantum layer, signs and broadcasts. Qwakk never signs or relays
   a transaction. The server only prepares native AMM messages, plus the
-  disclosed interface fee transfer on a swap. The one exception is a rewards
-  claim (below).
+  disclosed interface fee transfer on a swap. The exceptions are a rewards
+  claim and a token send (below).
+- Token send (`lib/qwakk-native-send.ts`) is built but **not live**: QoreX's
+  own Send screen does not list `erc20:` tokens such as QWAKK, so the profile
+  can send them. The prepare route builds exactly one bank `MsgSend` of one
+  coin (`uqor` or `erc20:0x...`, spelled as the wallet's balance spells it)
+  from the connected address to another 20-byte `qor1` address, with no
+  interface fee, and only when `QWAKK_NATIVE_ACTIONS` names `send`
+  explicitly (`enabled` never includes it). Its simulation was checked on
+  QoreChain Diana; a send signed through Qwakk with QoreX was not yet.
 - Liquidity rewards claims (`contracts/rewards`, a CosmWasm Merkle claim
   contract) are built but **not live**: the contract's store-code proposal is
   prepared and dry-run, not submitted, and no claim has been signed with QoreX
