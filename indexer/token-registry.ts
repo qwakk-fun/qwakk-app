@@ -36,7 +36,7 @@ function qwakkEntry(address: string | null): Record<string, CuratedToken> {
  * lib/qwakk-assets.ts (null until registered and pooled; a test checks they
  * match). Deployed at 0x36a4D630898e22dedD8eF5978FC8C527D1698456.
  */
-export const QCAT_TOKEN_ADDRESS: string | null = null;
+export const QCAT_TOKEN_ADDRESS: string | null = "0x36a4D630898e22dedD8eF5978FC8C527D1698456";
 
 function qcatEntry(address: string | null): Record<string, CuratedToken> {
   return address ? { [`erc20:${address.toLowerCase()}`]: { symbol: "QCAT", name: "Quantum Cat", decimals: 6 } } : {};

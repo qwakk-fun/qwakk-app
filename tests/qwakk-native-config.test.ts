@@ -87,7 +87,7 @@ test("only mainnet requires QoreChain's own quote, and explorer links keep the f
 
 test("the asset registry follows the network: mainnet lists only QOR", () => {
   assert.deepEqual(ASSETS_BY_NETWORK.mainnet.map((asset) => asset.denom), ["uqor"]);
-  assert.equal(ASSETS_BY_NETWORK.testnet.length, 6);
+  assert.equal(ASSETS_BY_NETWORK.testnet.length, 7);
   try {
     setAssetNetwork("mainnet");
     assert.equal(assetForDenom(FETH), undefined);
@@ -97,7 +97,7 @@ test("the asset registry follows the network: mainnet lists only QOR", () => {
     setAssetNetwork("testnet");
   }
   assert.equal(assetForDenom(FETH)?.symbol, "fETH");
-  assert.equal(createPoolTokenOptions(null).length, 6);
+  assert.equal(createPoolTokenOptions(null).length, 7);
 });
 
 // Chain id guard

@@ -66,11 +66,11 @@ const DIANA_QWAKK = qwakkTokenAsset(QWAKK_TOKEN_ADDRESS);
  * --token qcat` in contracts/cli shows all three), and the same value in
  * indexer/token-registry.ts.
  *
- * Deployed on 2026-11-25 at 0x36a4D630898e22dedD8eF5978FC8C527D1698456;
- * registration is testnet proposal 49. Set that address here once it is
- * registered and the QCAT/QOR pool exists.
+ * Deployed on 2026-11-25 at 0x36a4D630898e22dedD8eF5978FC8C527D1698456,
+ * registered by testnet proposal 49, and pooled against QOR as pool 7 on
+ * 2026-11-26.
  */
-export const QCAT_TOKEN_ADDRESS: string | null = null;
+export const QCAT_TOKEN_ADDRESS: string | null = "0x36a4D630898e22dedD8eF5978FC8C527D1698456";
 
 /**
  * The curated QCAT entry for a token address: the contract's name() "Quantum

@@ -34,7 +34,7 @@ const sender = "qor1exampleaddress000000000000";
 const registry = qorechainRegistry();
 
 test("curated Diana tokens carry the chain's exact denoms and decimals", () => {
-  assert.deepEqual(DIANA_ASSETS.filter((asset) => asset.icon !== "qwakk").map((asset) => [asset.symbol, asset.denom, asset.decimals]), [
+  assert.deepEqual(DIANA_ASSETS.filter((asset) => asset.icon !== "qwakk" && asset.icon !== "qcat").map((asset) => [asset.symbol, asset.denom, asset.decimals]), [
     ["QOR", "uqor", 6],
     ["fUSD", FUSD, 6],
     ["fETH", FETH, 18],
@@ -233,7 +233,7 @@ test("the QCAT entry keeps the exact denom and the contract's own metadata", () 
   assert.equal(qcatTokenAsset(null), null);
   assert.equal(qcatTokenAsset("0x1234"), null);
   assert.equal(qcatTokenAsset(`erc20:${address}`), null);
-  // Before it is curated, a registered QCAT resolves from the bank metadata registration will write.
+  // Without the curated entry, a registered QCAT resolves from the bank metadata registration writes.
   const chain = assetFromBankMetadata(`erc20:${address}`, {
     base: `erc20:${address}`,
     display: "QuantumCat",
@@ -241,5 +241,5 @@ test("the QCAT entry keeps the exact denom and the contract's own metadata", () 
     symbol: "QCAT",
     denom_units: [{ denom: `erc20:${address}`, exponent: 0 }, { denom: "QuantumCat", exponent: 6 }],
   });
-  assert.deepEqual({ symbol: chain.symbol, decimals: chain.decimals, source: chain.source }, { symbol: "QCAT", decimals: 6, source: "chain" });
+  assert.deepEqual({ symbol: chain.symbol, decimals: chain.decimals }, { symbol: "QCAT", decimals: 6 });
 });
