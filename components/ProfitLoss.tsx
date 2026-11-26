@@ -107,7 +107,7 @@ function TokenRow({ token, resolve }: { token: PnlToken; resolve: Resolve }) {
  * or arrow, never color alone, and a holding without a known cost is shown
  * as such, never as profit.
  */
-export function ProfitLoss({ pnl }: { pnl: Pnl }) {
+export function ProfitLoss({ pnl, bare = false }: { pnl: Pnl; /** Inside a page tab that already names the section: the visible title steps aside. */ bare?: boolean }) {
   const [showSmall, setShowSmall] = useState(false);
   const { report, loading, error, reload } = pnl;
   const resolve = useAssets(report ? report.tokens.map((token) => token.denom) : []);
@@ -117,10 +117,10 @@ export function ProfitLoss({ pnl }: { pnl: Pnl }) {
   const noSwaps = report !== null && report.swapsCounted === 0;
   const lowLiquidity = report ? hasLowLiquidityPrice(report.tokens) : false;
 
-  return <section className="panel pnl" aria-labelledby="pnl-title" aria-busy={loading}>
+  return <section className={`panel pnl${bare ? " is-bare" : ""}`} aria-labelledby="pnl-title" aria-busy={loading}>
     <div className="panel-head">
       <div>
-        <span className="panel-title" id="pnl-title">Profit and loss</span>
+        <span className={bare ? "sr-only" : "panel-title"} id="pnl-title">Profit and loss</span>
         {report && <span className="cell-sub">{pnlHistoryLine(report.history)}</span>}
       </div>
       {loading && report && <span className="subtle">Refreshing…</span>}
