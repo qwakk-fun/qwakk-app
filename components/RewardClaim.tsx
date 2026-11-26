@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TestnetNote } from "./TestnetNote";
 import { TxProgress } from "./TxProgress";
 import { useNativeTransaction } from "./useNativeTransaction";
 import { rememberClaimTx } from "./useRewards";
@@ -54,6 +55,7 @@ export function RewardClaimAction({ flow, claim, amount, label }: { flow: Reward
     return <div className="review">
       <p className="review-line">{REWARDS_REVIEW.lead} <b>{amount}</b> {REWARDS_REVIEW.tail(claim.epoch)}</p>
       <p className="subtle rewards-review-fee">{REWARDS_REVIEW.fee}</p>
+      <TestnetNote />
       <div className="review-actions">
         <button type="button" className="btn btn-ghost btn-lg" onClick={flow.cancel}>{REWARDS_REVIEW.cancel}</button>
         <button type="button" className="btn btn-primary btn-lg" disabled={flow.tx.busy} onClick={() => flow.send(claim)}>{REWARDS_REVIEW.confirm}</button>

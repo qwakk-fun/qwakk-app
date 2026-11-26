@@ -3,20 +3,22 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeftRight, BookOpen, Compass, House, Layers, LogOut, Plus, Search, Trophy, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, BookOpen, Compass, House, Layers, LogOut, Plus, Search, Trophy, Wallet } from "lucide-react";
 import { BRAND } from "../lib/brand";
 import { CONSENT_EVENT, hasConsent } from "../lib/legal";
 import { quack } from "../lib/quack";
 import { POINTS_NAV_LABEL } from "../lib/qwakk-points-copy";
 import { readQoreXSigner } from "../lib/qorex-native";
-import { NETWORK_UNKNOWN_COPY, walletConnectionCopy } from "../lib/qwakk-tx-copy";
+import { NETWORK_UNKNOWN_COPY, WRONG_NETWORK_LABEL, qorexNetworkCopy, walletConnectionCopy } from "../lib/qwakk-tx-copy";
 import { currentMobilePlatform, type MobilePlatform } from "../lib/qwakk-mobile-wallet";
+import { WALLET_NETWORK_UNKNOWN, readWalletNetwork, setWalletNetworkState } from "../lib/qwakk-wallet-network";
 import { storeWalletAddress } from "../lib/qwakk-wallet-session";
 import { BrandMark } from "./BrandMark";
 import { LiveTicker } from "./LiveTicker";
 import { QoreXMobileSheet } from "./QoreXMobileSheet";
 import { SearchDialog } from "./SearchDialog";
 import { loadFeatures, useFeatures } from "./useFeatures";
+import { useWalletNetwork } from "./useWalletNetwork";
 import { useWalletSession } from "./useWalletSession";
 
 type Page = "home" | "swap" | "pools" | "points" | "profile" | "fees" | "legal" | "vault";
@@ -45,6 +47,16 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
   const [mobileWallet, setMobileWallet] = useState<MobilePlatform | null>(null);
   const closeMobileWallet = useCallback(() => setMobileWallet(null), []);
   const { actions, points, network } = useFeatures();
+  // QoreX on another network than this deployment's: nothing signs, and the wallet button says so.
+  const walletNetwork = useWalletNetwork(walletAddress, network);
+  const wrongNetwork = Boolean(walletAddress) && walletNetwork.check === "wrong";
+  // The switch steps stay up until closed, and come back on the next switch to the wrong network.
+  const [wrongDismissed, setWrongDismissed] = useState(false);
+  const [lastCheck, setLastCheck] = useState(walletNetwork.check);
+  if (lastCheck !== walletNetwork.check) {
+    setLastCheck(walletNetwork.check);
+    setWrongDismissed(false);
+  }
   const [quacking, setQuacking] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const closeSearch = useCallback(() => setSearchOpen(false), []);
@@ -79,6 +91,13 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
   }, []);
 
   async function connectWallet() {
+    if (walletAddress && network && walletNetwork.check === "wrong") {
+      // Pressing "Wrong network" checks again and shows the steps if QoreX is still there.
+      setNotice("");
+      setWrongDismissed(false);
+      setWalletNetworkState({ ...await readWalletNetwork(network), announce: true });
+      return;
+    }
     if (walletAddress) {
       if (page !== "profile") router.push("/profile");
       return;
@@ -112,9 +131,24 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
         setNotice(NETWORK_UNKNOWN_COPY);
         return;
       }
+      // QoreX's getKey answers on any QoreChain network, so its active network
+      // is read first (silent eth_chainId) and nothing connects on the wrong one.
+      const before = await readWalletNetwork(target);
+      setWalletNetworkState(before);
+      if (before.check === "wrong") {
+        setNotice(qorexNetworkCopy(target, undefined, before.wallet));
+        return;
+      }
       try {
         // One call: getKey connects the site if needed. While locked, QoreX 0.4.5+ opens its unlock window; 0.4.3 refuses with 'wallet is locked'.
         const address = await readQoreXSigner(nativeWallet, target.chainId);
+        // QoreX may have switched network while its window was open.
+        const after = await readWalletNetwork(target);
+        setWalletNetworkState(after);
+        if (after.check === "wrong") {
+          setNotice(qorexNetworkCopy(target, undefined, after.wallet));
+          return;
+        }
         storeWalletAddress(address);
         onConnected?.(address);
         setNotice("Wallet connected. Your portfolio is ready.");
@@ -128,6 +162,7 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
 
   function disconnectWallet() {
     disconnect();
+    setWalletNetworkState(WALLET_NETWORK_UNKNOWN);
     setNeedsQoreX(false);
     setNotice("Wallet disconnected. QoreX still lists this site until you remove it there.");
   }
@@ -139,6 +174,11 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
   }
 
   const walletLabel = walletAddress ? `${walletAddress.slice(0, 7)}…${walletAddress.slice(-4)}` : isConnecting ? "Connecting…" : "Connect wallet";
+  const isTestnet = network?.id === "testnet";
+  // Once a wallet is connected, the TESTNET tag moves from the network pill onto the wallet button.
+  const tagOnWallet = Boolean(walletAddress) && isTestnet;
+  // The switch steps win over an older notice: nothing can be signed until QoreX is back.
+  const shownNotice = wrongNetwork && walletNetwork.announce && !wrongDismissed && network ? qorexNetworkCopy(network, undefined, walletNetwork.wallet) : notice;
 
   return <>
     <nav className="rail" aria-label="Primary navigation">
@@ -164,18 +204,20 @@ export function QwakkHeader({ onConnected, page = "home" }: { onConnected?: (add
           <span className="top-search-label">Search tokens, pools or paste an address</span>
           <kbd aria-hidden="true">{shortcut}</kbd>
         </button>
-        <div className="topbar-actions">
+        <div className={`topbar-actions ${walletAddress ? "has-wallet" : ""}`}>
           <button type="button" className="icon-btn top-search-icon" aria-haspopup="dialog" aria-label="Search tokens and pools" onClick={() => setSearchOpen(true)}><Search size={18} aria-hidden="true" /></button>
-          {/* The TESTNET tag shows only on the testnet preset, and is all that stays on narrow screens. */}
-          {network && <span className={`network-pill ${network.id === "testnet" ? "is-testnet" : ""}`}><i className="live-dot" aria-hidden="true" /><span className="network-pill-label">{network.label}</span>{network.id === "testnet" && <span className="testnet-tag">TESTNET</span>}</span>}
+          {/* The TESTNET tag shows only on the testnet preset, and is all that stays on narrow screens until a wallet connects. */}
+          {network && <span className={`network-pill ${isTestnet ? "is-testnet" : ""}`}><i className="live-dot" aria-hidden="true" /><span className="network-pill-label">{network.label}</span>{isTestnet && !tagOnWallet && <span className="testnet-tag">TESTNET</span>}</span>}
           {actions.create_pool && <Link className="icon-btn" href="/pools?create=1" aria-label="Create a pool" onClick={openCreate}><Plus size={18} /></Link>}
-          <button type="button" className={`btn ${walletAddress ? "btn-ghost" : "btn-primary"}`} onClick={() => void connectWallet()} disabled={isConnecting}>{walletAddress && <Wallet size={15} />}{walletLabel}</button>
+          {wrongNetwork
+            ? <button type="button" className="btn btn-ghost wallet-btn is-wrong-network" onClick={() => void connectWallet()} title={walletLabel}><AlertTriangle size={15} aria-hidden="true" />{WRONG_NETWORK_LABEL}</button>
+            : <button type="button" className={`btn ${walletAddress ? "btn-ghost wallet-btn" : "btn-primary"}`} onClick={() => void connectWallet()} disabled={isConnecting}>{walletAddress && <Wallet size={15} className="wallet-btn-icon" aria-hidden="true" />}<span className="wallet-btn-address">{walletLabel}</span>{tagOnWallet && <span className="testnet-tag">TESTNET</span>}</button>}
           {walletAddress && <button type="button" className="icon-btn icon-btn-keep" onClick={disconnectWallet} aria-label="Disconnect wallet" title="Disconnect wallet"><LogOut size={16} /></button>}
         </div>
       </div>
       <LiveTicker />
     </header>
-    {notice && <div className="toast" role="status"><span>{notice}</span>{needsQoreX && <a href={QOREX_INSTALL_URL} target="_blank" rel="noreferrer">Install QoreX</a>}<button type="button" onClick={() => { setNotice(""); setNeedsQoreX(false); }} aria-label="Dismiss notice">×</button></div>}
+    {shownNotice && <div className="toast" role="status"><span>{shownNotice}</span>{needsQoreX && <a href={QOREX_INSTALL_URL} target="_blank" rel="noreferrer">Install QoreX</a>}<button type="button" onClick={() => { setNotice(""); setNeedsQoreX(false); if (wrongNetwork) setWrongDismissed(true); }} aria-label="Dismiss notice">×</button></div>}
     {mobileWallet && <QoreXMobileSheet platform={mobileWallet} onClose={closeMobileWallet} />}
     {searchOpen && <SearchDialog onClose={closeSearch} />}
   </>;

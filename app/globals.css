@@ -276,6 +276,8 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   align-items: center;
   gap: 10px;
   width: min(560px, 100%);
+  /* Shrinks past its label (which ellipsizes), so a connected wallet fits on tablets. */
+  min-width: 0;
   height: 38px;
   padding: 0 8px 0 12px;
   border: 1px solid var(--line-strong);
@@ -296,6 +298,17 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .topbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .network-pill { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
 .testnet-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border: 1px solid var(--testnet); border-radius: var(--radius-xs); background: var(--testnet-wash); color: var(--testnet); font-size: 10px; font-weight: 800; letter-spacing: var(--track-caps); line-height: 1; }
+/* Connected wallet: the address, with the TESTNET tag that leaves the network pill once a wallet connects. */
+.wallet-btn { min-width: 0; }
+.wallet-btn .wallet-btn-address { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wallet-btn .testnet-tag { flex: none; }
+.wallet-btn .testnet-tag { height: 18px; padding: 0 5px; }
+/* QoreX is on another network: beak orange, never the gain or loss colors. */
+.wallet-btn.is-wrong-network { border-color: var(--beak); background: var(--beak-wash); color: var(--beak); }
+.wallet-btn.is-wrong-network:hover:not(:disabled) { background: var(--beak-wash); border-color: var(--beak); }
+/* The testnet line in a review, before QoreX opens. */
+.testnet-note { display: flex; align-items: flex-start; gap: 8px; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.5; text-wrap: pretty; }
+.testnet-note .testnet-tag { flex: none; height: 18px; padding: 0 5px; margin-top: 1px; }
 .icon-btn { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: transparent; color: var(--text); transition: background var(--dur-fast) var(--ease-standard), transform var(--dur-spring-fast) var(--spring); }
 .icon-btn:hover { background: var(--hover); }
 .icon-btn:active:not(:disabled) { background: var(--press); transform: scale(0.94); transition-duration: var(--dur-press); transition-timing-function: ease-out; }
@@ -1327,6 +1340,11 @@ a.table-row:active, button.table-row:active { background: rgba(255, 255, 255, 0.
   }
   /* Disconnect stays reachable on phones. */
   .topbar-actions .icon-btn.icon-btn-keep { display: grid; width: 40px; height: 40px; }
+  /* A connected wallet carries the TESTNET tag, so the pill steps aside and the button slims down to fit 390px. */
+  .topbar-actions.has-wallet { gap: 6px; min-width: 0; }
+  .topbar-actions.has-wallet .network-pill { display: none; }
+  .wallet-btn { padding: 0 10px; gap: 6px; }
+  .wallet-btn .wallet-btn-icon { display: none; }
   .toolbar-end { justify-content: space-between; }
 
   .board-main { display: block; }

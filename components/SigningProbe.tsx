@@ -7,7 +7,8 @@ import { explorerTxUrl } from "../lib/qwakk-network";
 import { loadFeatures, useFeatures } from "./useFeatures";
 import { BRAND } from "../lib/brand";
 import { formatBaseAmount } from "../lib/qwakk-assets";
-import { NETWORK_UNKNOWN_COPY, QOREX_MISSING_COPY, QOREX_OUTDATED_COPY, walletFailure } from "../lib/qwakk-tx-copy";
+import { NETWORK_UNKNOWN_COPY, QOREX_MISSING_COPY, QOREX_OUTDATED_COPY, qorexNetworkCopy, walletFailure } from "../lib/qwakk-tx-copy";
+import { readWalletNetwork } from "../lib/qwakk-wallet-network";
 
 type Step = { label: string; state: "done" | "failed" };
 type Verdict = { title: string; detail: string };
@@ -78,6 +79,12 @@ export function SigningProbe() {
       return;
     }
     record(`Probing ${network.label} (${network.chainId})`, "done");
+    // getKey answers on any QoreChain network, so QoreX's active one is read first.
+    const walletNetwork = await readWalletNetwork(network);
+    if (walletNetwork.check === "wrong") {
+      record(qorexNetworkCopy(network, undefined, walletNetwork.wallet), "failed");
+      return;
+    }
 
     setRunning(true);
     try {

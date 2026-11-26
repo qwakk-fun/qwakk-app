@@ -2,10 +2,11 @@
 
 import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { qorexSupport, readQoreXSigner, type QoreXMessage } from "../lib/qorex-native";
-import { NETWORK_UNKNOWN_COPY, QOREX_MISSING_COPY, QOREX_OUTDATED_COPY, WALLET_ACCOUNT_SWITCHED_COPY, chainFailureCopy, isQuietWalletStop, networkCopy, walletFailure } from "../lib/qwakk-tx-copy";
+import { NETWORK_UNKNOWN_COPY, QOREX_MISSING_COPY, QOREX_OUTDATED_COPY, WALLET_ACCOUNT_SWITCHED_COPY, chainFailureCopy, isQuietWalletStop, networkCopy, qorexNetworkCopy, walletFailure } from "../lib/qwakk-tx-copy";
 import type { NativeAction } from "../lib/qwakk-native-actions";
 import type { SimulatedOutcome } from "../lib/qwakk-native-tx";
 import type { PublicQwakkNetwork } from "../lib/qwakk-network";
+import { readWalletNetwork, readWalletNetworkState, setWalletNetworkState } from "../lib/qwakk-wallet-network";
 import { syncStoredWalletAddress } from "../lib/qwakk-wallet-session";
 import { loadFeatures } from "./useFeatures";
 
@@ -52,17 +53,30 @@ function wait(milliseconds: number) {
 }
 
 /**
- * One wallet action. QoreX is called exactly twice: `getKey` once (silent for
- * a site QoreX already approved; rejects without a window while locked) and
- * `signAndBroadcast` once (the approval window). Nothing here calls `enable`
- * or `listAccounts`, and nothing polls the wallet. Exported for tests.
+ * One wallet action. QoreX's native lane is called exactly twice: `getKey`
+ * once (silent for a site QoreX already approved; rejects without a window
+ * while locked) and `signAndBroadcast` once (the approval window). Before
+ * each, QoreX's active network is read with the silent `eth_chainId`
+ * (lib/qwakk-wallet-network.ts), because `getKey` answers on any QoreChain
+ * network. Nothing here calls `enable` or `listAccounts`, and nothing polls
+ * the wallet. Exported for tests.
  */
 export async function executeNativeAction(action: NativeAction, setState: Dispatch<SetStateAction<TxState>>) {
   let network: PublicQwakkNetwork | null = null;
   const fail = (message: string, txhash = "", quiet = false) => setState((current) => ({ ...current, phase: "failed", message: networkCopy(message, network), txhash, quiet }));
   const walletStop = (error: unknown) => {
     const failure = walletFailure(error, network);
+    // QoreX refused the chain id itself, so the top bar shows the wrong network too.
+    if (failure.kind === "network") setWalletNetworkState({ check: "wrong", wallet: readWalletNetworkState().wallet });
     return fail(failure.copy, "", isQuietWalletStop(failure.kind));
+  };
+  /** Stops with the switch steps when QoreX is not on the deployment's network. Nothing is sent. */
+  const onWrongNetwork = async (target: PublicQwakkNetwork) => {
+    const checked = await readWalletNetwork(target);
+    setWalletNetworkState(checked);
+    if (checked.check !== "wrong") return false;
+    fail(qorexNetworkCopy(target, undefined, checked.wallet), "", true);
+    return true;
   };
   const support = qorexSupport(window.qorex?.native);
   if (support.state === "missing") return fail(QOREX_MISSING_COPY);
@@ -74,6 +88,7 @@ export async function executeNativeAction(action: NativeAction, setState: Dispat
   network = (await loadFeatures())?.network ?? null;
   if (!network) return fail(NETWORK_UNKNOWN_COPY);
   const chainId = network.chainId;
+  if (await onWrongNetwork(network)) return;
 
   let address: string;
   try {
@@ -104,6 +119,8 @@ export async function executeNativeAction(action: NativeAction, setState: Dispat
   } catch {
     return fail("The transaction could not be prepared. Try again shortly.");
   }
+  // Preparing takes a moment, so check again right before QoreX opens.
+  if (await onWrongNetwork(network)) return;
 
   setState((current) => ({
     ...current,

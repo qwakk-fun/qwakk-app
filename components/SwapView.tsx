@@ -12,6 +12,7 @@ import { QwakkHeader } from "./QwakkHeader";
 import { RecentSwaps } from "./RecentSwaps";
 import { SiteFooter } from "./SiteFooter";
 import { TokenIcon } from "./TokenIcon";
+import { TestnetNote } from "./TestnetNote";
 import { TxProgress } from "./TxProgress";
 import { useFeatures } from "./useFeatures";
 import { useNativeTransaction } from "./useNativeTransaction";
@@ -806,6 +807,7 @@ export function SwapView({ pair }: { pair?: string }) {
                     {reviewedQuote.mode === "exact_out"
                       ? <p className="review-line">You receive exactly <b>{formatVisibleAmount(reviewedQuote.amountOut, outputDecimals, 6)} {shortDenom(denomOut)}</b> and pay about <b>{formatVisibleAmount(reviewedQuote.totalAmountIn, inputDecimals, 6)} {shortDenom(denomIn)}</b>, never more than <b>{formatVisibleAmount(reviewedQuote.maxTotalIn, inputDecimals, 6)} {shortDenom(denomIn)}</b>.{reviewedQuote.interfaceFee.enabled && reviewedQuote.interfaceFee.amount !== "0" && <> This includes a <b>{formatVisibleAmount(reviewedQuote.interfaceFee.amount, inputDecimals, 6)} {shortDenom(denomIn)}</b> {BRAND.name} fee.</>}</p>
                       : <p className="review-line">You pay <b>{formatVisibleAmount(reviewedQuote.totalAmountIn, inputDecimals, 6)} {shortDenom(denomIn)}</b> and receive at least <b>{formatVisibleAmount(reviewedQuote.minOut, outputDecimals, 6)} {shortDenom(denomOut)}</b>.{reviewedQuote.interfaceFee.enabled && reviewedQuote.interfaceFee.amount !== "0" && <> This includes a <b>{formatVisibleAmount(reviewedQuote.interfaceFee.amount, inputDecimals, 6)} {shortDenom(denomIn)}</b> {BRAND.name} fee.</>}</p>}
+                    <TestnetNote />
                     {reviewNotice && <p className="quote-hint is-error" role="alert">{copy(reviewNotice)}</p>}
                     <div className="review-actions">
                       <button type="button" className="btn btn-ghost btn-lg" disabled={confirming} onClick={() => { setReviewed(null); setReviewNotice(""); }}>Edit</button>

@@ -6,6 +6,7 @@ import { assetForDenom, displaySymbol, formatBaseAmount, formatVisibleAmount } f
 import { explorerTxUrl } from "../lib/qwakk-network";
 import { interfaceFeeTransferCopy } from "../lib/qwakk-tx-copy";
 import { useNetworkCopy } from "./NetworkContext";
+import { TestnetNote } from "./TestnetNote";
 import type { TxState } from "./useNativeTransaction";
 
 /** An amount with its symbol, or null when the token's decimals are not known (never shown at a guessed scale). */
@@ -40,6 +41,8 @@ export function TxProgress({ state, onDone }: { state: TxState; onDone: () => vo
         {step.label.replace("{network}", networkLabel)}
       </li>)}
     </ol>}
+    {/* Liquidity and pool creation have no review step, so the testnet line also shows here while QoreX is open. */}
+    {(state.phase === "preparing" || state.phase === "signing") && <TestnetNote />}
     {state.phase === "signing" && <p className="subtle">After you approve, QoreX signs and sends the transaction, then waits for a block.</p>}
     {state.phase === "signing" && state.keySetup && <p className="subtle">First time on {networkLabel}: QoreX also registers your quantum-safe key in a separate transaction with its own network fee.</p>}
     {state.phase === "signing" && !state.exactOut && state.simulated?.swap && amountText(state.simulated.swap.amountOut, state.simulated.swap.denomOut) && <p className="subtle">Simulated on {networkLabel} just now: {amountText(state.simulated.swap.amountOut, state.simulated.swap.denomOut)} out. Your minimum still applies when the swap lands.</p>}
