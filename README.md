@@ -1,5 +1,7 @@
 # Qwakk
 
+[![Built on QoreChain](https://build.qorechain.io/badge/qwakk-dex-pond-vault.svg)](https://build.qorechain.io/p/qwakk-dex-pond-vault)
+
 Swap it. Qwakk it.
 
 Qwakk is a non-custodial interface for QoreChain's native `x/amm` module. The
@@ -12,12 +14,16 @@ AMM contract.
 
 ## Current status
 
-Checked on 2026-11-15. Qwakk is live on the QoreChain Diana testnet at
-<https://app.qwakk.fun> since 15 November 2026. It runs on CapRover from commit
-`513abda` as three services (web, indexer and PostgreSQL), with the interface
-fee at 10 bps (0.10%) and the points season `testnet-1`.
+Updated on 2026-11-28. Qwakk has been live on the QoreChain Diana testnet at
+<https://app.qwakk.fun> since 15 November 2026 (first deployed from commit
+`513abda`). It runs on CapRover as three services (web, indexer and
+PostgreSQL), with the interface fee (the Qwakk fee) at 10 bps (0.10%) and the
+points season `testnet-1`. Live wallet actions: swap, create pool, add and
+remove liquidity, liquidity rewards claim and token send. Listed tokens: QOR,
+fUSD, fETH, fBTC, ATOM, QWAKK (QWAKK/QOR is pool 6) and QCAT (QCAT/QOR is
+pool 7).
 
-Verified on chain:
+Verified on chain at launch (15 November 2026):
 
 - Swaps through the live interface, signed and broadcast by QoreX
   `signAndBroadcast`:
@@ -62,18 +68,21 @@ How it works:
   a transaction. The server only prepares native AMM messages, plus the
   disclosed interface fee transfer on a swap. The exceptions are a rewards
   claim and a token send (below).
-- Token send (`lib/qwakk-native-send.ts`) is built but **not live**: QoreX's
-  own Send screen does not list `erc20:` tokens such as QWAKK, so the profile
-  can send them. The prepare route builds exactly one bank `MsgSend` of one
+- Token send (`lib/qwakk-native-send.ts`) is live on
+  <https://app.qwakk.fun>: QoreX's own Send screen does not list `erc20:`
+  tokens such as QWAKK, so the profile can send them. The prepare route builds exactly one bank `MsgSend` of one
   coin (`uqor` or `erc20:0x...`, spelled as the wallet's balance spells it)
   from the connected address to another 20-byte `qor1` address, with no
   interface fee, and only when `QWAKK_NATIVE_ACTIONS` names `send`
-  explicitly (`enabled` never includes it). Its simulation was checked on
-  QoreChain Diana; a send signed through Qwakk with QoreX was not yet.
-- Liquidity rewards claims (`contracts/rewards`, a CosmWasm Merkle claim
-  contract) are built but **not live**: the contract's store-code proposal is
-  prepared and dry-run, not submitted, and no claim has been signed with QoreX
-  yet. The prepare route builds a claim only when `QWAKK_NATIVE_ACTIONS` names
+  explicitly (`enabled` never includes it).
+- Liquidity rewards (`contracts/rewards`, a CosmWasm Merkle claim contract)
+  are deployed on QoreChain Diana: proposal 50 stored the contract as code 866
+  and it is instantiated at
+  `qor1xdmy3ruvchrt8rmcg6kqx08lypgsahfz79qnqq6nxk4qmmv856pqe8y28w` (details in
+  [`contracts/rewards/README.md`](contracts/rewards/README.md)). LPs earn
+  weekly rewards in the pool's own token. Week 1 runs from 23 to 30 November
+  2026; its claim stage is registered after it closes, so no claim has been
+  signed yet. The prepare route builds a claim only when `QWAKK_NATIVE_ACTIONS` names
   `rewards_claim` explicitly (`enabled` never includes it) and
   `QWAKK_REWARDS_CONTRACT_ADDRESS` is set on QoreChain Diana: exactly one
   `MsgExecuteContract` `claim` with no funds to that contract
@@ -214,6 +223,21 @@ dApp category. The repository existed before the event started on 4 November
 - 19 November: tester feedback: exact-output swaps (`8e7f7ae`), token search
   and favorite pools (`3ef1203`), profit and loss per token on the profile
   (`811d3ee`, `f7483f6`).
+- 22 and 23 November: points ignore bot farming without flagging fast human
+  traders (`c9b69f8`, `1d8cba8`), and the swap fee is called the Qwakk fee
+  everywhere users see it (`61e0406`).
+- 25 November: readable pair links such as `/swap/qor-qwakk` (`663b2b1`).
+- 25 November: weekly LP rewards with an on-chain Merkle claim, credited only
+  for liquidity held for a minimum time, and a one-tap claim in the app
+  (`431b9aa`, `ba69d3a`, `193e031`, `164adb4`). Diana proposal 50 stored the
+  contract as code 866 (`5590401`).
+- 25 and 26 November: the Quantum Cat (QCAT) test token, registered through
+  Diana governance by us and listed with the QCAT/QOR pool 7 (`0694302`,
+  `5a0148d`, `58ba979`).
+- 26 November: the wallet accepts only the configured network (`85b2ffc`), and
+  the portfolio got send and receive sheets for native and `erc20:` tokens
+  (`e693a58`, `621d95f`).
+- 28 November: the pools page redesigned as one list (`3b0c885`).
 
 Not done yet: QCAI audit stage 2 (the procedure has been requested from
 QoreChain) and the route that sends interface fees into the vault.
@@ -225,6 +249,10 @@ QoreChain) and the route that sends interface fees into the vault.
 | Pond Vault contract | `0x6fEFdEA7209797c116747450b12695AccbE81133` (`qor1dlhaafeqj7tuz9n5w3gtzf544n97syfn0c2axu`) |
 | Vault owner and approver, Q-Day Drill account (testnet only) | `0x50879493D6cE5834113DDf2A042F643d1C07CCf8` (`qor12zrefy7keevrgyfamu4qgtmy85wq0n8cxrd3s3`) |
 | Interface fee treasury, pools 2 to 4 creator | `qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq` |
+| QWAKK test token | `0xa5b3c3Fb92E2E89555F9909b9004C65F3542eE23` (`qor15keu87ujut5f240ejzdeqpxxtu659m3r05j3gz`) |
+| QCAT test token | `0x36a4D630898e22dedD8eF5978FC8C527D1698456` (`qor1x6jdvvyf3c3dahvw7ktcljx9ylgknpzkpsaxw2`) |
+| LP rewards claim contract (code 866) | `qor1xdmy3ruvchrt8rmcg6kqx08lypgsahfz79qnqq6nxk4qmmv856pqe8y28w` |
+| Token and rewards deployer (testnet only) | `qor1lndgla7rrh8cjq8enly3cldkaze3z2jupzakmp` |
 
 ## Requirements
 
