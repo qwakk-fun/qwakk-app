@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeftRight, BookOpen, Compass, House, Layers, LogOut, Plus, Search, Trophy, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, BookOpen, Compass, Layers, LogOut, Plus, Search, Trophy, Wallet } from "lucide-react";
 import { BRAND } from "../lib/brand";
 import { CONSENT_EVENT, hasConsent } from "../lib/legal";
 import { quack } from "../lib/quack";
@@ -23,8 +23,8 @@ import { useWalletSession } from "./useWalletSession";
 
 type Page = "home" | "swap" | "pools" | "points" | "profile" | "fees" | "legal" | "vault";
 
+// The board (home) has no nav item: the Qwakk logo leads there and quacks on the way.
 const NAV_ITEMS = [
-  { page: "home", href: "/", label: "Board", icon: House },
   { page: "swap", href: "/swap", label: "Trade", icon: ArrowLeftRight },
   { page: "pools", href: "/pools", label: "Pools", icon: Layers },
   // Shown only while the points program is switched on.
