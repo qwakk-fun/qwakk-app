@@ -1,60 +1,53 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { Clock3, Flame, Layers, LayoutGrid, List, Plus, Search, Star, TrendingUp, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { ChevronDown, Layers, Plus, Search, Star, X } from "lucide-react";
 import { CreatePoolPanel } from "./CreatePoolPanel";
-import { FavoriteButton } from "./FavoriteButton";
-import { FavoritesList } from "./FavoritesList";
-import { PoolCard } from "./PoolCard";
+import { MissingPoolRow, PoolRow, PoolsHead, PoolsSkeleton } from "./PoolsList";
 import { CREATE_EVENT, QwakkHeader } from "./QwakkHeader";
 import { SiteFooter } from "./SiteFooter";
-import { TokenIcon } from "./TokenIcon";
 import { useNetworkCopy } from "./NetworkContext";
 import { useFavorites } from "./useFavorites";
 import { useFeatures } from "./useFeatures";
+import { usePoolSparks } from "./usePoolSparks";
 import { useRewardPrograms } from "./useRewards";
-import { REWARDS_TAG } from "../lib/qwakk-rewards-copy";
-import { formatDecimal, formatPercentChange, marketChange, useMarkets, type Market } from "./useMarkets";
-import { useQorMarket } from "./useQorMarket";
-import { formatQuotePrice, isLowLiquidity, marketPrice, marketReserves, marketSearchEntry, marketSides, marketVolume, pairLabel, priceUnit } from "../lib/qwakk-market-view";
-import { formatUsdPrice } from "../lib/qor-price";
+import { useMarkets } from "./useMarkets";
+import { isLowLiquidity } from "../lib/qwakk-market-view";
+import { favoritePoolIds, initialPoolsTab, POOLS_TABS, poolsList, poolsSummary, type PoolsTab } from "../lib/qwakk-pools-list";
 import { BRAND } from "../lib/brand";
-import { searchEmptyCopy, searchPools, shortQuery } from "../lib/qwakk-search";
+import { searchEmptyCopy, shortQuery } from "../lib/qwakk-search";
 import { marketPairSlugs, poolPath } from "../lib/qwakk-pair-slug";
 
-type Sort = "trending" | "newest" | "moves";
-type View = "grid" | "table";
-type Scope = "all" | "favorites";
+/** The last tab chosen in this browser. Older visits stored "all" or "favorites" here. */
+const TAB_KEY = "qwakk-pools-scope";
+/** `/api/sparks` reads at most this many pools at once. */
+const MAX_SPARKS = 100;
+// How long a New pool press waits for the wallet connect it asked for.
+const PENDING_CREATE_MS = 120_000;
 
-const SORTS = [
-  { value: "trending", label: "Trending", icon: Flame },
-  { value: "newest", label: "Newest", icon: Clock3 },
-  { value: "moves", label: "Biggest moves", icon: TrendingUp },
-] as const;
-
-const VIEW_KEY = "qwakk-pools-view";
-const SCOPE_KEY = "qwakk-pools-scope";
-
-function sortMarkets(markets: Market[], sort: Sort) {
-  const sorted = [...markets];
-  if (sort === "trending") return sorted.sort((a, b) => (Number(b.transactions_24h) || 0) - (Number(a.transactions_24h) || 0));
-  if (sort === "newest") return sorted.sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0));
-  // Pools without a 24h change go last.
-  return sorted.sort((a, b) => Math.abs(marketChange(b) ?? -1) - Math.abs(marketChange(a) ?? -1));
+function Empty({ icon, title, children, action }: { icon?: ReactNode; title?: string; children?: ReactNode; action?: ReactNode }) {
+  return <div className="empty pf-empty">
+    {icon && <span className="empty-icon">{icon}</span>}
+    {title && <h3>{title}</h3>}
+    {children && <p>{children}</p>}
+    {action}
+  </div>;
 }
 
+/**
+ * The pools page: a title with one action, a search field, tabs for the order
+ * (or favorites), then one list. Low-liquidity pools fold into a closed group
+ * at the end of the list instead of mixing in with priced pools.
+ */
 export function MarketsView() {
   const { markets, state } = useMarkets();
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<Sort>("trending");
-  const [view, setView] = useState<View>("grid");
-  // All pools, or only the ones starred in this browser.
-  const [scope, setScope] = useState<Scope>("all");
+  const [tab, setTab] = useState<PoolsTab>("trending");
+  // Pools flagged by the indexer as low liquidity (dust or empty reserves) stay folded until asked for.
+  const [showLow, setShowLow] = useState(false);
   const favorites = useFavorites();
-  // Pools flagged by the indexer as low liquidity (dust or empty reserves) stay out of the default list.
-  const [showLowLiquidity, setShowLowLiquidity] = useState(false);
   const { copy } = useNetworkCopy();
+  const tabRefs = useRef<Partial<Record<PoolsTab, HTMLButtonElement | null>>>({});
 
   useEffect(() => {
     // A link with ?q= (or ?view=favorites) opens the list already filtered.
@@ -62,32 +55,37 @@ export function MarketsView() {
     const initial = params.get("q") ?? "";
     const timer = window.setTimeout(() => {
       if (initial) setQuery(initial);
+      let stored: string | null = null;
       try {
-        if (window.localStorage.getItem(VIEW_KEY) === "table") setView("table");
-        if (params.get("view") === "favorites" || window.localStorage.getItem(SCOPE_KEY) === "favorites") setScope("favorites");
+        stored = window.localStorage.getItem(TAB_KEY);
       } catch {
-        // Storage can be unavailable; the grid view of all pools is the default.
+        // Storage can be unavailable; Trending is the default.
       }
+      setTab(initialPoolsTab(params.get("view"), stored));
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
 
-  function remember(key: string, value: string) {
+  function chooseTab(next: PoolsTab, focus = false) {
+    setTab(next);
+    if (focus) tabRefs.current[next]?.focus();
     try {
-      window.localStorage.setItem(key, value);
+      window.localStorage.setItem(TAB_KEY, next);
     } catch {
       // Not remembering the choice is fine.
     }
   }
 
-  function changeView(next: View) {
-    setView(next);
-    remember(VIEW_KEY, next);
-  }
-
-  function changeScope(next: Scope) {
-    setScope(next);
-    remember(SCOPE_KEY, next);
+  function onTabKey(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    const index = POOLS_TABS.findIndex((item) => item.id === tab);
+    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      chooseTab(POOLS_TABS[event.key === "Home" ? 0 : POOLS_TABS.length - 1].id, true);
+    } else if (step) {
+      event.preventDefault();
+      chooseTab(POOLS_TABS[(index + step + POOLS_TABS.length) % POOLS_TABS.length].id, true);
+    }
   }
 
   // Each wallet action has its own switch (QWAKK_NATIVE_ACTIONS).
@@ -100,18 +98,36 @@ export function MarketsView() {
   const [creating, setCreating] = useState(false);
   const [amm, setAmm] = useState<{ poolCreationFee: string | null; minLiquidity: string | null } | null>(null);
 
+  // New pool with a wallet opens the form. Without one it asks QoreX to connect and remembers the press
+  // for a short while, so a later, unrelated connect never pops the form open.
+  const walletRef = useRef("");
+  const pendingCreateRef = useRef(0);
+  const startCreate = useCallback(() => {
+    if (walletRef.current) { setCreating(true); return; }
+    pendingCreateRef.current = Date.now();
+    window.dispatchEvent(new Event("qwakk:request-connect"));
+  }, []);
+
   // The rail and top bar "+" link here with ?create=1.
   useEffect(() => {
     const timer = window.setTimeout(() => {
       if (new URLSearchParams(window.location.search).get("create") === "1") setCreating(true);
     }, 0);
-    const openCreate = () => setCreating(true);
-    window.addEventListener(CREATE_EVENT, openCreate);
-    return () => { window.clearTimeout(timer); window.removeEventListener(CREATE_EVENT, openCreate); };
-  }, []);
+    window.addEventListener(CREATE_EVENT, startCreate);
+    return () => { window.clearTimeout(timer); window.removeEventListener(CREATE_EVENT, startCreate); };
+  }, [startCreate]);
 
   useEffect(() => {
-    const restoreWallet = () => setWalletAddress(window.localStorage.getItem("qwakk-wallet-address") ?? "");
+    const restoreWallet = () => {
+      const address = window.localStorage.getItem("qwakk-wallet-address") ?? "";
+      walletRef.current = address;
+      setWalletAddress(address);
+      // A New pool press without a wallet opens the form only if the connect it asked for lands soon after.
+      if (pendingCreateRef.current) {
+        if (address && Date.now() - pendingCreateRef.current < PENDING_CREATE_MS) setCreating(true);
+        pendingCreateRef.current = 0;
+      }
+    };
     restoreWallet();
     window.addEventListener("qwakk:wallet-change", restoreWallet);
     return () => window.removeEventListener("qwakk:wallet-change", restoreWallet);
@@ -172,60 +188,83 @@ export function MarketsView() {
       .catch(() => undefined);
   }, [nativeActions]);
 
-  const qor = useQorMarket("1");
-  const swaps24h = markets.reduce((total, market) => total + (Number(market.transactions_24h) || 0), 0);
-
-  const lowLiquidityCount = markets.filter(isLowLiquidity).length;
+  const summary = poolsSummary(markets);
   // Readable pool links (/pools/qwakk-qor), made from every indexed pool so a shared pair opens the right one.
   const slugs = useMemo(() => marketPairSlugs(markets), [markets]);
-  // Same matcher as the search dialog and the swap picker (lib/qwakk-search.ts); the chosen sort still orders the list.
-  const visibleMarkets = useMemo(() => {
-    const listed = showLowLiquidity ? markets : markets.filter((market) => !isLowLiquidity(market));
-    const filtered = query.trim() ? searchPools(listed, query, marketSearchEntry).map((match) => match.item) : listed;
-    return sortMarkets(filtered, sort);
-  }, [markets, query, sort, showLowLiquidity]);
+  const byId = useMemo(() => new Map(markets.map((market) => [String(market.id), market])), [markets]);
+  const sort = tab === "favorites" ? "trending" : tab;
+  // Same matcher as the search dialog and the swap picker (lib/qwakk-search.ts); the chosen tab still orders the list.
+  const { listed, low } = useMemo(() => poolsList(markets, query, sort), [markets, query, sort]);
   // Favorites keep their starred order and include low-liquidity pools: the visitor picked them.
-  const favoriteIds = useMemo(() => {
-    if (!query.trim()) return favorites.ids;
-    const matched = new Set(searchPools(markets, query, marketSearchEntry).map((match) => String(match.item.id)));
-    return favorites.ids.filter((id) => matched.has(id));
-  }, [favorites.ids, markets, query]);
+  const favoriteIds = useMemo(() => favoritePoolIds(favorites.ids, markets, query), [favorites.ids, markets, query]);
+  // One batched trend-line read for the pools on screen that are not low liquidity.
+  const sparkIds = (tab === "favorites" ? favoriteIds.filter((id) => { const market = byId.get(id); return market !== undefined && !isLowLiquidity(market); }) : listed.map((market) => String(market.id))).slice(0, MAX_SPARKS);
+  const sparks = usePoolSparks(sparkIds);
   const noMatch = searchEmptyCopy(query, BRAND.name);
-  // A search that only finds hidden low-liquidity pools says so, instead of claiming the token is not listed.
-  const hiddenMatches = query.trim() && !showLowLiquidity ? searchPools(markets.filter(isLowLiquidity), query, marketSearchEntry).length : 0;
 
-  const emptyState = state === "loading"
-    ? <div className="empty"><p>{copy("Reading pools from QoreChain Diana…")}</p></div>
-    : state === "unavailable"
-      ? <div className="empty"><h3>Pool data is temporarily unavailable</h3><p>The market indexer could not be reached. This page retries on its own.</p></div>
-      : markets.length === 0
-        ? <div className="empty"><span className="empty-icon"><Layers size={18} /></span><h3>No pools are open yet</h3><p>{copy("The first native AMM pool on QoreChain Diana will show up here with its price, activity and chart.")}</p></div>
-        : !showLowLiquidity && !query.trim() && lowLiquidityCount === markets.length
-          ? <div className="empty"><span className="empty-icon"><Layers size={18} /></span><h3>Only low-liquidity pools are open</h3><p>{lowLiquidityCount === 1 ? "One pool is open, but it holds too little to give a reliable price." : `${lowLiquidityCount} pools are open, but each holds too little to give a reliable price.`}</p><button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowLowLiquidity(true)}>Show low-liquidity pools</button></div>
-          : hiddenMatches > 0
-            ? <div className="empty"><span className="empty-icon"><Layers size={18} /></span><h3>Only low-liquidity pools match</h3><p>{hiddenMatches === 1 ? "One pool matches, but it holds too little to give a reliable price." : `${hiddenMatches} pools match, but each holds too little to give a reliable price.`}</p><button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowLowLiquidity(true)}>Show low-liquidity pools</button></div>
-            : <div className="empty"><span className="empty-icon"><Search size={18} /></span><h3>{noMatch.title}</h3><p>{noMatch.body}</p></div>;
+  const row = (market: (typeof markets)[number]) => <PoolRow key={market.id} market={market} favorites={favorites} href={poolPath(market.id, slugs)} rewards={rewardPools.has(String(market.id))} spark={sparks[String(market.id)]} />;
 
-  const favoritesEmpty = favorites.ids.length === 0
-    ? <div className="empty"><span className="empty-icon"><Star size={18} /></span><h3>No favorites yet</h3><p>Tap the star on any pool and it lands here with its price, 24h move and trend line. Stars stay in this browser, no wallet needed.</p><button type="button" className="btn btn-ghost btn-sm" onClick={() => changeScope("all")}>Browse pools</button></div>
-    : <div className="empty"><span className="empty-icon"><Search size={18} /></span><h3>No favorites match “{shortQuery(query)}”</h3><p>Clear the search to see every pool you starred.</p></div>;
+  const unavailable = <Empty title="Pool data is temporarily unavailable">The market indexer could not be reached. This page retries on its own.</Empty>;
+  const loading = <><span className="sr-only">{copy("Reading pools from QoreChain Diana…")}</span><PoolsSkeleton /></>;
+
+  // The low-liquidity group: closed by default, one line saying how many and why.
+  const lowGroup = low.length > 0 && <div className="pools-low">
+    <button type="button" className="pools-low-toggle" aria-expanded={showLow} aria-controls="pools-low-list" onClick={() => setShowLow((open) => !open)}>
+      <span className="pools-low-text">
+        <b>{low.length === 1 ? "1 low-liquidity pool" : `${low.length} low-liquidity pools`}</b>
+        <small>{low.length === 1 ? "It holds too little to give a reliable price." : "Each holds too little to give a reliable price."}</small>
+      </span>
+      <span className="pools-low-action">{showLow ? "Hide" : "Show"}<ChevronDown size={16} aria-hidden="true" /></span>
+    </button>
+    {showLow && <ul id="pools-low-list" className="pools-list">{low.map(row)}</ul>}
+  </div>;
+
+  let body: ReactNode;
+  if (tab === "favorites") {
+    body = state === "unavailable" && favorites.ids.length > 0 ? unavailable
+      : favoriteIds.length > 0 ? <>
+        <PoolsHead />
+        <ul className="pools-list">{favoriteIds.map((id) => {
+          const market = byId.get(id);
+          if (market) return row(market);
+          // Until the pool list has loaded, an unknown id is not yet "missing".
+          return state === "ready" ? <MissingPoolRow key={id} poolId={id} favorites={favorites} /> : <li key={id} className="pools-item" aria-hidden="true"><span className="pf-skel-row"><i className="is-dot" /><i className="is-line" /><i className="is-end" /></span></li>;
+        })}</ul>
+      </>
+      : !favorites.ready ? favorites.failed ? <Empty title="Favorites could not load">Refresh the page to try again.</Empty> : <Empty>Reading your favorites…</Empty>
+      : favorites.ids.length === 0 ? <Empty icon={<Star size={18} />} title="No favorites yet" action={<button type="button" className="btn btn-ghost btn-sm" onClick={() => chooseTab("trending")}>Browse pools</button>}>Tap the star on any pool and it lands here with its price, 24h move and trend line. Stars stay in this browser, no wallet needed.</Empty>
+      : <Empty icon={<Search size={18} />} title={`No favorites match “${shortQuery(query)}”`}>Clear the search to see every pool you starred.</Empty>;
+  } else if (markets.length === 0) {
+    body = state === "loading" ? loading
+      : state === "unavailable" ? unavailable
+      : <Empty icon={<Layers size={18} />} title="No pools are open yet">{copy("The first native AMM pool on QoreChain Diana will show up here with its price, activity and chart.")}</Empty>;
+  } else if (listed.length === 0 && low.length === 0) {
+    body = <Empty icon={<Search size={18} />} title={noMatch.title}>{noMatch.body}</Empty>;
+  } else {
+    body = <>
+      {listed.length === 0 && !showLow
+        // Only folded pools are left: say so, instead of claiming nothing matches. The group below says why.
+        ? <Empty icon={<Layers size={18} />} title={query.trim() ? "Only low-liquidity pools match" : "Only low-liquidity pools are open"} />
+        : <PoolsHead />}
+      {listed.length > 0 && <ul className="pools-list">{listed.map(row)}</ul>}
+      {lowGroup}
+    </>;
+  }
+  const busy = state === "loading" && markets.length === 0;
 
   return <div className="app-shell">
     <QwakkHeader page="pools" />
     <main className="app-main">
-      <div className="container">
-        <section className="page-head">
-          <div>
-            <span className="kicker">{copy("QoreChain Diana")}</span>
-            <h1>Pools</h1>
-            <p>{copy("Every native AMM pool on QoreChain Diana, with prices and activity read from the chain.")}</p>
+      <div className="container pools-page">
+        <section className="pools-head" aria-labelledby="pools-title">
+          <div className="pools-title">
+            <h1 id="pools-title">Pools</h1>
+            <p className="pools-meta">{state === "ready" && markets.length > 0
+              ? <><span className="num">{summary.pools} {summary.pools === 1 ? "pool" : "pools"} on {copy("QoreChain Diana")}</span><span aria-hidden="true">·</span><span className="num">{summary.swaps24h.toLocaleString("en-US")} {summary.swaps24h === 1 ? "swap" : "swaps"} in 24h</span></>
+              : <span>{copy("Native AMM pools on QoreChain Diana")}</span>}</p>
           </div>
-          <div className="page-head-actions">
-            <label className="search search-inline"><Search size={16} aria-hidden="true" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Token, pool # or address" aria-label="Filter pools by token name, symbol, pool number or contract address" autoComplete="off" spellCheck={false} /></label>
-            {nativeActions && (walletAddress
-              ? <button type="button" className="btn btn-primary" aria-haspopup="dialog" data-create-trigger onClick={() => setCreating(true)}><Plus size={16} />New pool</button>
-              : <button type="button" className="btn btn-primary" onClick={() => window.dispatchEvent(new Event("qwakk:request-connect"))}>Connect wallet</button>)}
-          </div>
+          {/* Without a wallet the same button asks QoreX to connect; the form opens once it does. */}
+          {nativeActions && <button type="button" className="btn btn-primary pools-new" aria-haspopup={walletAddress ? "dialog" : undefined} data-create-trigger onClick={startCreate}><Plus size={16} aria-hidden="true" />New pool</button>}
         </section>
 
         {nativeActions && walletAddress && <dialog
@@ -246,66 +285,19 @@ export function MarketsView() {
           </div>
         </dialog>}
 
-        <section className="stat-row" aria-label="Pool summary">
-          <div className="stat-card stat"><span className="stat-label">Open pools</span><span className="stat-value num">{state === "ready" ? markets.length : "…"}</span></div>
-          <div className="stat-card stat"><span className="stat-label">Swaps in 24h</span><span className="stat-value num">{state === "ready" ? formatDecimal(swaps24h, 0) : "…"}</span></div>
-          <div className="stat-card stat"><span className="stat-label">QOR price (CoinGecko)</span><span className="stat-value num">{qor.data ? formatUsdPrice(qor.data.price) : "…"}</span></div>
-        </section>
-
-        <div className="toolbar">
-          <div className="toolbar-start">
-            <div className="segmented scope-tabs" role="group" aria-label="Show">
-              <button type="button" aria-pressed={scope === "all"} onClick={() => changeScope("all")}><Layers size={14} aria-hidden="true" />All pools</button>
-              <button type="button" aria-pressed={scope === "favorites"} onClick={() => changeScope("favorites")}><Star size={14} aria-hidden="true" />Favorites{favorites.ids.length > 0 && <span className="scope-count num">{favorites.ids.length}</span>}</button>
-            </div>
-            {scope === "all" && <div className="pill-tabs" role="group" aria-label="Sort pools">
-              {SORTS.map(({ value, label, icon: Icon }) => <button type="button" key={value} aria-pressed={sort === value} onClick={() => setSort(value)}><Icon size={14} />{label}</button>)}
-            </div>}
+        <div className="pools-bar">
+          <div className="pf-tabs pools-tabs" role="tablist" aria-label="Order pools">
+            {POOLS_TABS.map((item) => <button key={item.id} ref={(element) => { tabRefs.current[item.id] = element; }} type="button" role="tab" id={`pools-tab-${item.id}`} aria-selected={tab === item.id} aria-controls="pools-panel" tabIndex={tab === item.id ? 0 : -1} onKeyDown={onTabKey} onClick={() => chooseTab(item.id)}>
+              {item.id === "favorites" && <Star size={14} aria-hidden="true" fill={tab === "favorites" ? "currentColor" : "none"} />}
+              {item.label}{item.id === "favorites" && favorites.ids.length > 0 && <span className="pf-tab-count num">{favorites.ids.length}</span>}
+            </button>)}
           </div>
-          {scope === "all" && <div className="toolbar-end">
-          {lowLiquidityCount > 0 && <label className="check-toggle"><input type="checkbox" checked={showLowLiquidity} onChange={(event) => setShowLowLiquidity(event.target.checked)} />Show low-liquidity pools ({lowLiquidityCount})</label>}
-          <div className="segmented" role="group" aria-label="Layout">
-            <button type="button" aria-pressed={view === "grid"} onClick={() => changeView("grid")}><LayoutGrid size={14} />Grid</button>
-            <button type="button" aria-pressed={view === "table"} onClick={() => changeView("table")}><List size={14} />Table</button>
-          </div>
-          </div>}
+          <label className="search pools-search"><Search size={16} aria-hidden="true" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Token, pool # or address" aria-label="Filter pools by token name, symbol, pool number or contract address" autoComplete="off" spellCheck={false} /></label>
         </div>
 
-        {scope === "favorites"
-          ? state === "unavailable" && favorites.ids.length > 0
-            ? <section className="panel" aria-label="Favorite pools">{emptyState}</section>
-            : favoriteIds.length > 0
-              ? <FavoritesList ids={favoriteIds} markets={markets} favorites={favorites} ready={state === "ready"} label="Favorite pools" />
-              : <section className="panel" aria-label="Favorite pools">{favorites.ready ? favoritesEmpty : favorites.failed ? <div className="empty"><h3>Favorites could not load</h3><p>Refresh the page to try again.</p></div> : <div className="empty"><p>Reading your favorites…</p></div>}</section>
-        : visibleMarkets.length === 0
-          ? state === "loading" && view === "grid"
-            // Card-sized placeholders, so the grid does not jump when the pools arrive.
-            ? <section className="pool-grid" aria-busy="true" aria-label={copy("QoreChain Diana pools")}><p className="sr-only">{copy("Reading pools from QoreChain Diana…")}</p>{Array.from({ length: 6 }, (_, index) => <span className="row-skeleton is-card" aria-hidden="true" key={index} />)}</section>
-            : <section className="panel" aria-label={copy("QoreChain Diana pools")}>{emptyState}</section>
-          : view === "grid"
-            ? <section className="pool-grid" aria-label={copy("QoreChain Diana pools")}>{visibleMarkets.map((market) => <PoolCard market={market} favorites={favorites} href={poolPath(market.id, slugs)} rewards={rewardPools.has(String(market.id))} key={market.id} />)}</section>
-            : <section className="panel markets-table" aria-label={copy("QoreChain Diana pools")}>
-              <div className="table">
-                <div className="table-row table-head"><span>Pool</span><span className="num">Price</span><span className="num hide-sm">24h swaps</span><span className="num hide-sm">24h change</span><span className="num hide-sm">Reserves</span><span className="sr-only">Favorite</span></div>
-                {visibleMarkets.map((market) => {
-                  const lowLiquidity = isLowLiquidity(market);
-                  const percentage = lowLiquidity ? null : marketChange(market);
-                  const price = lowLiquidity ? null : marketPrice(market);
-                  const { base, quote } = marketSides(market);
-                  const volume = marketVolume(market);
-                  const reserves = marketReserves(market);
-                  // The pool name is the link and stretches over the row; the star sits above it, outside the link.
-                  return <div className="table-row market-row" key={market.id}>
-                    <span className="cell-main"><span className="pair-icons"><TokenIcon denom={base.denom} size="regular" /><TokenIcon denom={quote.denom} size="regular" /></span><span><Link className="row-link" href={poolPath(market.id, slugs)}><b>{pairLabel(market, " / ")}</b></Link><small>#{market.id} · {market.pool_type.replace(/_/g, " ")}{lowLiquidity && <span className="low-tag">Low liquidity</span>}{rewardPools.has(String(market.id)) && <span className="reward-tag">{REWARDS_TAG}</span>}</small></span></span>
-                    <span className="num"><b>{lowLiquidity ? "Not shown" : price === null ? "No trades yet" : formatQuotePrice(price)}</b><span className="cell-sub">{priceUnit(market)}</span></span>
-                    <span className="num hide-sm"><b>{formatDecimal(market.transactions_24h, 0)}</b><span className="cell-sub">{volume.value === null ? "No 24h volume" : `${formatDecimal(volume.value, 4)} ${volume.symbol}`}</span></span>
-                    <span className={`num hide-sm change-cell ${percentage === null ? "subtle" : percentage >= 0 ? "up" : "down"}`}>{formatPercentChange(percentage)}</span>
-                    <span className="num hide-sm"><b>{reserves.base}</b><span className="cell-sub">{reserves.quote}</span></span>
-                    <FavoriteButton favorites={favorites} poolId={market.id} pair={pairLabel(market)} />
-                  </div>;
-                })}
-              </div>
-            </section>}
+        <section className="panel pf-panel pools-panel" role="tabpanel" id="pools-panel" aria-labelledby={`pools-tab-${tab}`} aria-busy={busy} key={tab}>
+          {body}
+        </section>
       </div>
     </main>
     <SiteFooter />

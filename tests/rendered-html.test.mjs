@@ -74,8 +74,12 @@ test("server-renders markets without unavailable pool actions", async () => {
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /Every native AMM pool on QoreChain Diana/);
-  assert.match(html, /Open pools/);
+  assert.match(html, /Native AMM pools on QoreChain Diana/);
+  assert.match(html, /role="tablist"/);
+  assert.match(html, /Trending/);
+  assert.match(html, /Favorites/);
+  // One list: the old stat cards, grid and table switch and low-liquidity checkbox are gone.
+  assert.doesNotMatch(html, /Open pools|Show low-liquidity pools|>Grid<|>Table</);
   assert.doesNotMatch(html, /Create a Native AMM pool|Prepare pool|MsgCreatePool|Most active|New pool|Create pool/);
 });
 

@@ -394,8 +394,8 @@ a.ticker-item:hover b { color: var(--accent); }
 .toast button:active { background: var(--press); }
 
 /* Tabs: a dark track with a lifted active pill. */
-.tabs, .segmented, .pill-tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--radius); background: var(--raised); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
-.tabs button, .segmented button, .pill-tabs button {
+.tabs, .segmented { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--radius); background: var(--raised); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
+.tabs button, .segmented button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -410,9 +410,9 @@ a.ticker-item:hover b { color: var(--accent); }
   white-space: nowrap;
   transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard), transform var(--dur-spring-fast) var(--spring);
 }
-.tabs button:hover, .segmented button:hover, .pill-tabs button:hover { color: var(--text); }
-.tabs button:active:not(:disabled), .segmented button:active:not(:disabled), .pill-tabs button:active:not(:disabled) { transform: scale(0.96); transition-duration: var(--dur-press); transition-timing-function: ease-out; }
-.tabs button[aria-pressed="true"], .segmented button[aria-pressed="true"], .pill-tabs button[aria-pressed="true"] { background: var(--press); color: var(--text); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 3px rgba(0, 0, 0, 0.4); }
+.tabs button:hover, .segmented button:hover { color: var(--text); }
+.tabs button:active:not(:disabled), .segmented button:active:not(:disabled) { transform: scale(0.96); transition-duration: var(--dur-press); transition-timing-function: ease-out; }
+.tabs button[aria-pressed="true"], .segmented button[aria-pressed="true"] { background: var(--press); color: var(--text); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 3px rgba(0, 0, 0, 0.4); }
 
 /* Board: live columns side by side, scrolling on their own. */
 .board-main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -448,11 +448,10 @@ a.ticker-item:hover b { color: var(--accent); }
 /* Skeletons match the rows they stand in for (64px coin rows, ~214px trade cards), so nothing jumps when data lands. */
 .row-skeleton { display: block; height: 56px; margin: 8px 14px; border-radius: var(--radius); background: linear-gradient(110deg, var(--raised) 30%, var(--hover) 50%, var(--raised) 70%) 0 0 / 300% 100%; animation: shimmer 1.8s var(--ease-standard) infinite; }
 .row-skeleton.is-tall { height: 198px; }
-.row-skeleton.is-card { height: 118px; margin: 0; border-radius: var(--radius-lg); }
 @keyframes shimmer { to { background-position: -150% 0; } }
 /* Freshly loaded content settles in instead of popping. */
 @keyframes settle-in { from { opacity: 0; transform: translateY(4px); } }
-.coin-list, .feed, .rank-list, .pool-grid, .markets-table .table { animation: settle-in var(--dur-base) var(--ease-standard) backwards; }
+.coin-list, .feed, .rank-list { animation: settle-in var(--dur-base) var(--ease-standard) backwards; }
 
 /* Trending rows */
 .coin-list { padding: 0 6px 8px; }
@@ -535,7 +534,6 @@ a.ticker-item:hover b { color: var(--accent); }
 .panel-note a { color: var(--text-2); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-standard), text-decoration-color var(--dur-fast) var(--ease-standard); }
 .panel-note a:hover { color: var(--text); text-decoration-color: var(--accent); }
 
-.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 20px 0 14px; }
 
 /* Page headers */
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-bottom: 20px; }
@@ -546,7 +544,6 @@ a.ticker-item:hover b { color: var(--accent); }
 .search { display: flex; align-items: center; gap: 8px; width: min(320px, 100%); height: 38px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); color: var(--text-3); transition: border-color var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard); }
 .search:focus-within { border-color: var(--accent-line); box-shadow: var(--ring); }
 .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); }
-/* .search-inline: the pools page filter. It shows at every width; the top bar opens the search dialog instead. */
 
 /* Stats */
 .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
@@ -642,22 +639,6 @@ a.table-row:active, button.table-row:active { background: rgba(255, 255, 255, 0.
 .chart-legend-change.is-down { color: var(--down); }
 .chart-legend-change.is-flat, .chart-legend-quiet { color: var(--text-3); }
 
-/* Pool cards, pump-style: big avatar left, numbers right. */
-.pool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
-.pool-card { display: flex; align-items: flex-start; gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--elev-1); transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard), transform var(--dur-spring-fast) var(--spring); }
-.pool-card:hover { border-color: var(--line-strong); background: var(--raised); }
-.pool-card:active { transform: scale(0.985); transition-duration: var(--dur-press); transition-timing-function: ease-out; }
-.pool-card .coin-avatar { width: 88px; height: 88px; }
-.pool-card .token-icon.avatar { border-radius: var(--radius-lg); font-size: 32px; }
-.pool-card-body { display: grid; gap: 3px; flex: 1; min-width: 0; }
-.pool-card-name { display: flex; align-items: baseline; gap: 8px; }
-.pool-card-name b { font-size: 16px; font-weight: 700; letter-spacing: var(--track-title); }
-.pool-card-name small { color: var(--text-3); font-size: var(--fs-xs); }
-.pool-card-type { color: var(--text-3); font-size: var(--fs-xs); text-transform: capitalize; }
-/* A price is a level, not a move: neutral text. The 24h change below carries the color and sign. */
-.pool-card-price { margin-top: 4px; color: var(--text); font-size: var(--fs-lg); font-weight: 600; letter-spacing: var(--track-title); }
-.pool-card-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-xs); }
-.pool-card-foot { overflow: hidden; color: var(--text-3); font-size: var(--fs-xs); text-overflow: ellipsis; white-space: nowrap; }
 
 /* Trade */
 .trade-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; align-items: start; }
@@ -732,18 +713,6 @@ a.table-row:active, button.table-row:active { background: rgba(255, 255, 255, 0.
 .site-footer a { color: var(--text-2); transition: color var(--dur-fast) var(--ease-standard); }
 .site-footer a:hover { color: var(--text); }
 
-/* Markets */
-.markets-table .table-row { grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)) 44px; }
-/* The pool name link stretches over its row; the star sits above it, outside the link. */
-.market-row { position: relative; transition: background var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard); }
-.market-row:hover { background: rgba(255, 255, 255, 0.03); }
-.market-row:has(.row-link:active) { background: rgba(255, 255, 255, 0.06); transition-duration: var(--dur-press); }
-.market-row:has(.row-link:focus-visible) { box-shadow: inset 0 0 0 2px var(--accent); }
-.row-link { display: block; color: inherit; }
-.row-link::after { content: ""; position: absolute; inset: 0; }
-.row-link:focus-visible { outline: 0; }
-.market-row .fav-btn { position: relative; z-index: 1; justify-self: end; }
-.change-cell { font-weight: 600; }
 
 /* Pool detail */
 .back-link { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; margin: -6px 0 10px -8px; padding: 0 10px 0 8px; border-radius: var(--radius-md); color: var(--text-2); font-size: var(--fs-sm); transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard); }
@@ -765,7 +734,6 @@ a.table-row:active, button.table-row:active { background: rgba(255, 255, 255, 0.
 .check-toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 13px; cursor: pointer; }
 .check-toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .panel-toggle { padding: 10px 16px; border-top: 1px solid var(--line); }
-.toolbar-end { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .faucet-hint { display: flex; align-items: flex-start; gap: 8px; color: var(--text-2); font-size: 12px; line-height: 1.5; }
 .faucet-hint svg { flex: none; margin-top: 2px; color: var(--accent); }
 .faucet-hint a { color: var(--accent); text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 3px; transition: text-decoration-color var(--dur-fast) var(--ease-standard); }
@@ -917,7 +885,7 @@ a.table-row:active, button.table-row:active { background: rgba(255, 255, 255, 0.
    on the page itself (no card); lists live in a single quiet panel per tab.
    Duck yellow marks Send and the active tab; the split bar runs yellow to
    beak orange to greys, never green or red. */
-.container.portfolio { width: min(1040px, calc(100% - 40px)); }
+.container.portfolio, .container.pools-page { width: min(1040px, calc(100% - 40px)); }
 .address-value { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-2); }
 
 .pf-connect { display: grid; justify-items: center; gap: 12px; max-width: 460px; margin: 0 auto; padding: 72px 0 48px; text-align: center; }
@@ -998,7 +966,7 @@ a.table-row:active, button.table-row:active { background: rgba(255, 255, 255, 0.
 .pf-tabpanel .pnl, .pf-tabpanel .rewards-portfolio { margin-top: 0; }
 .pnl.is-bare .panel-head:not(:has(.cell-sub)) { display: none; }
 
-/* Rows */
+/* Rows. The pools page lists its pools with these too. */
 .pf-panel { overflow: hidden; }
 .pf-panel li + li { border-top: 1px solid var(--line); }
 .pf-row { display: grid; align-items: center; gap: 16px; min-height: 64px; padding: 12px 16px; }
@@ -1087,7 +1055,7 @@ a.pf-row:focus-visible { outline-offset: -2px; }
   .pf-pnl { min-height: 44px; }
 }
 @media (max-width: 760px) {
-  .container.portfolio { width: calc(100% - 32px); }
+  .container.portfolio, .container.pools-page { width: calc(100% - 32px); }
   /* The note takes a row only when it renders, so no empty gap sits under the actions. */
   .pf-hero { grid-template-columns: minmax(0, 1fr); grid-template-areas: "id" "worth" "actions"; gap: 20px; padding-bottom: 22px; }
   .pf-worth-value { font-size: 40px; }
@@ -1104,6 +1072,91 @@ a.pf-row:focus-visible { outline-offset: -2px; }
   .pf-send-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .pf-skel-row { padding-inline: 12px; }
   .send-facts > div { grid-template-columns: 80px minmax(0, 1fr); }
+}
+
+/* Pools page (components/MarketsView.tsx, PoolsList.tsx): the portfolio's
+   language for a market list. A title with one yellow action, a search field
+   beside text tabs, then one quiet panel of rows. Low-liquidity pools fold
+   into a closed group at the end; green and red only on the 24h change. */
+.pools-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 0 20px; }
+.pools-title { display: grid; gap: 6px; min-width: 0; }
+.pools-title h1 { font-size: var(--fs-3xl); font-weight: 700; letter-spacing: var(--track-display); line-height: var(--lead-tight); }
+.pools-meta { display: flex; flex-wrap: wrap; gap: 2px 8px; color: var(--text-3); font-size: var(--fs-sm); }
+.pools-new { flex: none; }
+.pools-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+.pools-bar .pf-tabs { flex: 1; min-width: 0; margin-bottom: 0; border-bottom: 0; }
+.pools-search { flex: none; width: 280px; height: 36px; }
+.pools-search input::-webkit-search-cancel-button { cursor: pointer; }
+.pools-tabs button[aria-selected="true"] svg { color: var(--accent); }
+.pools-panel { overflow: hidden; animation: fade-in var(--dur-fast) var(--ease-standard) backwards; }
+.pools-item { display: flex; align-items: center; padding-right: 8px; transition: background var(--dur-fast) var(--ease-standard); }
+.pools-item:has(> a.pools-row:hover) { background: rgba(255, 255, 255, 0.03); }
+.pools-item > a.pools-row:hover { background: none; }
+.pools-item > .pools-row { flex: 1; min-width: 0; }
+.pools-item > .pf-skel-row { flex: 1; }
+.pools-row { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) 104px 112px minmax(0, 0.9fr) minmax(0, 0.9fr); padding-right: 8px; }
+.pools-row > :not(:first-child) { justify-self: end; text-align: right; }
+/* The labels line up with the rows: the row's own padding, the star and the item's padding. */
+.pf-head.pools-row { padding-right: 60px; }
+.pools-name { display: grid; gap: 3px; min-width: 0; }
+.pools-name b { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.pools-name small { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; color: var(--text-3); font-size: var(--fs-xs); }
+.pools-name .low-tag, .pools-name .reward-tag { margin-left: 0; }
+.pools-type { text-transform: capitalize; }
+.pools-swaps-sm { display: none; }
+.pools-price { font-weight: 600; white-space: nowrap; }
+.pools-price small { margin-left: 4px; color: var(--text-3); font-size: var(--fs-xs); font-weight: 500; }
+.pools-price .subtle, .pools-change .subtle { font-size: var(--fs-sm); font-weight: 500; }
+.pools-spark { display: grid; align-items: center; width: 112px; height: 32px; }
+.pools-spark small { font-size: var(--fs-xs); text-align: right; }
+.pools-stack { display: grid; justify-items: end; gap: 2px; min-width: 0; }
+.pools-stack b { font-weight: 600; white-space: nowrap; }
+.pools-stack b.subtle { font-weight: 500; }
+.pools-stack small { color: var(--text-3); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; }
+.pools-item.is-missing .pools-name b { color: var(--text-2); }
+.pools-low { border-top: 1px solid var(--line); }
+.pools-panel > .pools-low:first-child { border-top: 0; }
+.pools-low-toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; min-height: 56px; padding: 10px 16px; border: 0; background: transparent; text-align: left; transition: background var(--dur-fast) var(--ease-standard); }
+.pools-low-toggle:hover { background: rgba(255, 255, 255, 0.03); }
+.pools-low-toggle:active { background: rgba(255, 255, 255, 0.06); transition-duration: var(--dur-press); }
+.pools-low-toggle:focus-visible { outline-offset: -2px; }
+.pools-low-text { display: grid; gap: 2px; min-width: 0; }
+.pools-low-text b { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
+.pools-low-text small { color: var(--text-3); font-size: var(--fs-xs); text-wrap: pretty; }
+.pools-low-action { display: inline-flex; flex: none; align-items: center; gap: 4px; color: var(--text-3); font-size: var(--fs-sm); font-weight: 500; }
+.pools-low-action svg { transition: transform var(--dur-spring-fast) var(--spring); }
+.pools-low-toggle[aria-expanded="true"] .pools-low-action svg { transform: rotate(180deg); }
+.pools-low .pools-list { border-top: 1px solid var(--line); animation: settle-in var(--dur-base) var(--ease-standard) backwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pools-low .pools-list { animation-name: fade-in; }
+  .pools-low-action svg { transition: none; }
+}
+@media (pointer: coarse) {
+  .pools-search { height: 44px; }
+}
+@media (max-width: 1080px) {
+  .pools-row { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 104px minmax(0, 0.9fr) minmax(0, 0.9fr); }
+  .pools-col-trend { display: none; }
+}
+@media (max-width: 760px) {
+  /* Title and New pool share a line, then search, tabs and the list: pools start near the top. */
+  .pools-head { align-items: center; padding-bottom: 14px; }
+  .pools-bar { flex-direction: column; align-items: stretch; gap: 8px; margin-bottom: 12px; border-bottom: 0; }
+  .pools-search { order: -1; width: 100%; }
+  .pools-bar .pf-tabs { margin-inline: -16px; padding-inline: 8px; border-bottom: 1px solid var(--line); }
+  /* Pair and its swaps on the left, price over its 24h change on the right. */
+  .pools-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "pool price" "pool change"; gap: 4px 12px; padding: 10px 4px 10px 12px; }
+  .pools-pool { grid-area: pool; }
+  .pools-price { grid-area: price; }
+  .pools-change { grid-area: change; }
+  /* A low-liquidity row has no change to show, so its "Not shown" centres beside the pair. */
+  .pools-change:empty { display: none; }
+  .pools-item.is-low .pools-price { grid-row: 1 / 3; align-self: center; }
+  .pools-col-wide, .pf-head.pools-row { display: none; }
+  .pools-swaps-sm { display: inline; }
+  .pools-item { padding-right: 4px; }
+  .pools-low-toggle { padding-inline: 12px; }
 }
 
 /* Profit and loss: a summary strip, notes, then one row per token. Green and
@@ -1406,7 +1459,7 @@ a.pf-row:focus-visible { outline-offset: -2px; }
   .is-quacking .brand-mark { animation: none; }
   .rail-brand:hover, .rail-brand:hover:active { transform: none; }
   /* Gentle equivalents: things fade in place instead of travelling, and nothing overshoots. */
-  .coin-list, .feed, .rank-list, .pool-grid, .markets-table .table, .quote-alert, .review, .tx-progress, .tx-result, .form-error, .toast, .consent, .sheet { animation-name: fade-in; }
+  .coin-list, .feed, .rank-list, .quote-alert, .review, .tx-progress, .tx-result, .form-error, .toast, .consent, .sheet { animation-name: fade-in; }
   .quote-switch svg { transition-duration: 0s; }
   .back-link:hover svg { transform: none; }
   .sheet-backdrop.is-closing .sheet { transform: none; opacity: 0; }
@@ -1428,7 +1481,7 @@ a.pf-row:focus-visible { outline-offset: -2px; }
   :root { --line: #34353b; --line-strong: #50515a; --text-2: #c8c9cf; --text-3: #9d9ea6; --material-bar: var(--bg); --material-thick: var(--panel); --material-thin: var(--raised); --edge-light: transparent; }
   .topbar, .col-toolbar, .rail, .rail-label, .toast, .chart-tooltip, .sheet-dialog-head, .board-switch, .pool-page .pool-trade { -webkit-backdrop-filter: none; backdrop-filter: none; }
   :focus-visible { outline-width: 3px; }
-  .tabs button[aria-pressed="true"], .segmented button[aria-pressed="true"], .pill-tabs button[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--text-2); }
+  .tabs button[aria-pressed="true"], .segmented button[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--text-2); }
 }
 
 /* Touch: every control gets a finger-sized target (44px for actions), and form
@@ -1438,7 +1491,7 @@ a.pf-row:focus-visible { outline-offset: -2px; }
   .btn-sm { height: 40px; }
   .btn-lg { height: 52px; }
   .icon-btn { width: 40px; height: 40px; }
-  .tabs button, .segmented button, .pill-tabs button { height: 36px; }
+  .tabs button, .segmented button { height: 36px; }
   .quick-amounts { gap: 6px; }
   .quick-amounts button { height: 32px; padding: 0 12px; }
   .quick-amounts button::after { content: ""; position: absolute; inset: -6px -3px; }
@@ -1509,7 +1562,6 @@ a.pf-row:focus-visible { outline-offset: -2px; }
   .topbar-brand .brand-mark { display: block; }
   .top-search { display: none; }
   .topbar-actions .icon-btn.top-search-icon { display: grid; width: 40px; height: 40px; }
-  .search-inline { width: 100%; }
   .topbar-actions .icon-btn { display: none; }
   /* The create pool dialog becomes a full-height sheet on phones. */
   .sheet-dialog { width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; border: 0; border-radius: 0; }
@@ -1528,7 +1580,6 @@ a.pf-row:focus-visible { outline-offset: -2px; }
   .topbar-actions.has-wallet .network-pill { display: none; }
   .wallet-btn { padding: 0 10px; gap: 6px; }
   .wallet-btn .wallet-btn-icon { display: none; }
-  .toolbar-end { justify-content: space-between; }
 
   .board-main { display: block; }
   .board-switch { position: sticky; top: calc(var(--topbar) + var(--ticker) + 1px); z-index: 5; display: flex; gap: 6px; overflow-x: auto; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--material-bar); -webkit-backdrop-filter: var(--material-blur); backdrop-filter: var(--material-blur); scrollbar-width: none; }
@@ -1546,16 +1597,12 @@ a.pf-row:focus-visible { outline-offset: -2px; }
   .page-head { flex-direction: column; align-items: stretch; }
   .page-head-actions { width: 100%; }
   .field-pair { grid-template-columns: minmax(0, 1fr); }
-  .toolbar { flex-direction: column; align-items: stretch; }
-  .pill-tabs { overflow-x: auto; }
   .segmented { align-self: flex-start; }
   .pair-stats { margin-left: 0; }
-  .markets-table .table-row { grid-template-columns: minmax(0, 1fr) auto 44px; gap: 10px; }
-  .markets-table .hide-sm, .swaps-table .hide-sm { display: none; }
+  .swaps-table .hide-sm { display: none; }
   /* Without the wallet column: time, both amounts and the explorer link on one line. */
   .swaps-table .table-row { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) minmax(0, 1.1fr) 20px; gap: 10px; font-size: var(--fs-sm); }
   .pool-head-price { text-align: left; }
-  .pool-card .coin-avatar { width: 64px; height: 64px; }
   .toast { right: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); left: 16px; max-width: none; }
   /* On the pool page the docked swap bar sits above the tab bar; keep notices clear of it. */
   body:has(.pool-page) .toast { bottom: calc(136px + env(safe-area-inset-bottom)); }
@@ -1591,28 +1638,9 @@ a.pf-row:focus-visible { outline-offset: -2px; }
 .fav-btn:active:not(:disabled) { transform: scale(0.86); transition-duration: var(--dur-press); transition-timing-function: ease-out; }
 .fav-btn.is-on, .fav-btn.is-on:hover:not(:disabled) { color: var(--accent); }
 .fav-btn:disabled { opacity: 0.35; cursor: default; }
-.pool-card-wrap { position: relative; display: grid; }
-.pool-card-wrap .pool-card-name { padding-right: 34px; }
-.pool-card-fav { position: absolute; top: 4px; right: 4px; }
 .pool-head-title { display: flex; align-items: center; gap: 2px; }
 
-/* Pools page: all pools or favorites. */
-.toolbar-start { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.scope-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--accent-wash); color: var(--accent); font-size: var(--fs-2xs); font-weight: 700; }
 
-/* Favorites: a watchlist with price, 24h move and a 24 hour trend line. */
-.watch-list { margin: 0; padding: 0; list-style: none; animation: settle-in var(--dur-base) var(--ease-standard) backwards; }
-.watch-row { display: flex; align-items: center; gap: 4px; padding-right: 10px; border-bottom: 1px solid var(--line); transition: background var(--dur-fast) var(--ease-standard); }
-.watch-row:last-child { border-bottom: 0; }
-.watch-row:has(a.watch-link:hover) { background: rgba(255, 255, 255, 0.03); }
-.watch-row .row-skeleton { flex: 1; height: 40px; }
-.watch-link { display: grid; flex: 1; grid-template-columns: minmax(0, 1.4fr) minmax(96px, 1fr) minmax(0, 1fr); align-items: center; gap: 16px; min-width: 0; padding: 12px 16px; }
-.watch-link b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.watch-spark { display: grid; align-items: center; height: 36px; }
-.watch-price { display: grid; justify-items: end; gap: 2px; text-align: right; }
-.watch-price b { font-weight: 600; }
-.watch-price small { font-size: var(--fs-xs); font-weight: 500; }
-.watch-row.is-missing .cell-main b { color: var(--text-2); }
 
 /* Swap page: the pool picker's filter. */
 .picker-search { padding: 10px 16px; border-bottom: 1px solid var(--line); }
@@ -1658,10 +1686,6 @@ html:has(.search-dialog[open]) { overflow: hidden; }
   .search-foot { display: none; }
 }
 @media (max-width: 760px) {
-  .toolbar-start { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .toolbar-start .pill-tabs { max-width: 100%; }
-  .watch-row { padding-right: 4px; }
-  .watch-link { grid-template-columns: minmax(0, 1fr) 64px auto; gap: 10px; padding: 12px; }
   .picker-search { padding: 10px 12px; }
   /* A bottom sheet, like the QoreX sheet: rises from the edge, drags down to dismiss. */
   .search-dialog { width: 100%; margin: auto 0 0; }
@@ -1676,7 +1700,7 @@ html:has(.search-dialog[open]) { overflow: hidden; }
   .search-trade-label { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .search-panel, .watch-list { animation-name: fade-in; }
+  .search-panel { animation-name: fade-in; }
   .search-dialog.is-closing .search-panel { transform: none; opacity: 0; }
   .fav-btn:active:not(:disabled) { transform: none; }
 }
